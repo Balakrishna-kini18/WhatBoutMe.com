@@ -37,7 +37,6 @@ export class ProgramsController {
   // ─────────────────────────────────────────────────────────────────────────────
 
   @Public()
-  @PublicCache(60, 300)
   @Get()
   findAll(@Request() req: any) {
     return this.programsService.findAll(req?.user?.role);

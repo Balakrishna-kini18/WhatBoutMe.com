@@ -954,8 +954,7 @@
   }
 
   .footerRow,
-  footer.footerRow,
-  :global([class*="footerRow"]) {
+  footer.footerRow {
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;

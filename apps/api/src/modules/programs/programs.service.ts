@@ -58,7 +58,12 @@ export class ProgramsService {
           },
           include: {
             _count: {
-              select: { steps: true },
+              select: {
+                steps: true,
+                batches: true,
+                enrolments: true,
+                resourceItems: true,
+              },
             },
           },
           orderBy: { createdAt: 'desc' },
@@ -662,6 +667,21 @@ export class ProgramsService {
       const qbIds = Array.isArray(questionBanks) ? questionBanks.map((qb: any) => qb.id) : [];
       const examIds = Array.isArray(exams) ? exams.map((x: any) => x.id) : [];
 
+      // Fast-path: When deleting a draft/empty program without enrolments, batches, or steps
+      if (batchIds.length === 0 && enrolmentIds.length === 0 && stepIds.length === 0 && qbIds.length === 0 && examIds.length === 0) {
+        await Promise.all([
+          typeof (tx as any).certificate?.deleteMany === 'function' ? (tx as any).certificate.deleteMany({ where: { programId: id } }).catch(() => {}) : Promise.resolve(),
+          typeof (tx as any).signedAgreement?.deleteMany === 'function' ? (tx as any).signedAgreement.deleteMany({ where: { programId: id } }).catch(() => {}) : Promise.resolve(),
+          typeof (tx as any).agreementTemplate?.deleteMany === 'function' ? (tx as any).agreementTemplate.deleteMany({ where: { programId: id } }).catch(() => {}) : Promise.resolve(),
+          typeof (tx as any).resource?.deleteMany === 'function' ? (tx as any).resource.deleteMany({ where: { programId: id } }).catch(() => {}) : Promise.resolve(),
+          typeof (tx as any).resourceItem?.deleteMany === 'function' ? (tx as any).resourceItem.deleteMany({ where: { programId: id } }).catch(() => {}) : Promise.resolve(),
+          typeof (tx as any).oralAssessment?.deleteMany === 'function' ? (tx as any).oralAssessment.deleteMany({ where: { programId: id } }).catch(() => {}) : Promise.resolve(),
+          typeof (tx as any).coupon?.deleteMany === 'function' ? (tx as any).coupon.deleteMany({ where: { programId: id } }).catch(() => {}) : Promise.resolve(),
+        ]);
+        await tx.program.delete({ where: { id } });
+        return;
+      }
+
       const [sessions, lessons, quizzes] = await Promise.all([
         batchIds.length > 0 && typeof (tx as any).session?.findMany === 'function'
           ? (tx as any).session.findMany({ where: { batchId: { in: batchIds } }, select: { id: true } })
@@ -861,6 +881,9 @@ export class ProgramsService {
 
       // H. Delete the Program itself
       await tx.program.delete({ where: { id } });
+    }, {
+      maxWait: 15000,
+      timeout: 45000,
     });
   }
 

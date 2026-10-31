@@ -251,9 +251,46 @@ export class CheckoutController {
       });
     }
 
-    const targetStatus = couponValidation?.isFree
-      ? EnrolmentStatus.PENDING_AGREEMENT
-      : EnrolmentStatus.ACTIVE;
+    // Capacity & Waitlist Safety Check:
+    // If the learner is already WAITLIST, or if the assigned batch is at capacity or past deadline,
+    // they MUST remain/transition to WAITLIST to prevent oversubscribing the batch.
+    let targetStatus: EnrolmentStatus;
+    if (existing.status === EnrolmentStatus.WAITLIST) {
+      targetStatus = EnrolmentStatus.WAITLIST;
+    } else {
+      const batch = existing.batchId
+        ? await this.prisma.batch.findUnique({
+            where: { id: existing.batchId },
+            include: {
+              _count: {
+                select: {
+                  enrolments: {
+                    where: {
+                      id: { not: existing.id },
+                      status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED] },
+                    },
+                  },
+                },
+              },
+            },
+          })
+        : null;
+
+      const occupied = batch?._count?.enrolments ?? 0;
+      const capacity = batch?.capacity ?? 50;
+      const isFull = occupied >= capacity;
+      const isDeadlinePassed = batch?.registrationDeadline
+        ? new Date() > new Date(batch.registrationDeadline)
+        : false;
+
+      if (isFull || isDeadlinePassed) {
+        targetStatus = EnrolmentStatus.WAITLIST;
+      } else if (couponValidation?.isFree) {
+        targetStatus = EnrolmentStatus.PENDING_AGREEMENT;
+      } else {
+        targetStatus = EnrolmentStatus.ACTIVE;
+      }
+    }
 
     const updatedEnrolment = await this.prisma.enrolment.update({
       where: { id: existing.id },
@@ -337,6 +374,7 @@ export class CheckoutController {
     if (this.cacheHelper) {
       await this.cacheHelper.invalidateNamespace(`enrolment_progression:${existing.id}`).catch(() => {});
       await this.cacheHelper.invalidateNamespace('enrolments').catch(() => {});
+      await this.cacheHelper.invalidateNamespace('batches').catch(() => {});
     }
 
     // Send confirmation emails

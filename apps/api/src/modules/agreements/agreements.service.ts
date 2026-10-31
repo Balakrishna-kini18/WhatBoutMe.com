@@ -821,24 +821,63 @@ export class AgreementsService {
         return existing;
       }
 
-      let batch = await tx.batch.findFirst({
-        where: {
-          programId,
-          status: { in: [BatchStatus.ACTIVE, BatchStatus.UPCOMING] },
-        },
-        orderBy: { startDate: 'asc' },
-      });
-
-      if (!batch) {
-        batch = await tx.batch.create({
-          data: {
-            name: `${program.title} - Cohort 1`,
+      const now = new Date();
+      // Candidate batches: must be ACTIVE or UPCOMING, and registration deadline not passed
+      let candidateBatches: any[] = [];
+      if (typeof tx.batch?.findMany === 'function') {
+        candidateBatches = await tx.batch.findMany({
+          where: {
             programId,
-            startDate: new Date(),
-            capacity: 9999,
-            status: BatchStatus.ACTIVE,
+            status: { in: [BatchStatus.ACTIVE, BatchStatus.UPCOMING] },
+            OR: [
+              { registrationDeadline: null },
+              { registrationDeadline: { gte: now } },
+            ],
+          },
+          orderBy: [
+            { status: 'asc' }, // UPCOMING first, then ACTIVE
+            { startDate: 'asc' },
+          ],
+          include: {
+            _count: {
+              select: {
+                enrolments: {
+                  where: {
+                    status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED] },
+                  },
+                },
+              },
+            },
           },
         });
+      }
+
+      // Find first batch that still has capacity
+      const openBatch = candidateBatches.find(b => b._count.enrolments < b.capacity);
+
+      let batch: any = openBatch;
+      let initialStatus: EnrolmentStatus = EnrolmentStatus.PENDING_PAYMENT;
+
+      if (!batch) {
+        // No batch with open deadline and available capacity!
+        // Place the learner on the WAITLIST for the program.
+        batch = await tx.batch.findFirst({
+          where: { programId },
+          orderBy: { startDate: 'desc' },
+        });
+
+        if (!batch) {
+          batch = await tx.batch.create({
+            data: {
+              name: `${program.title} - Waitlist Batch`,
+              programId,
+              startDate: new Date(),
+              capacity: 50,
+              status: BatchStatus.UPCOMING,
+            },
+          });
+        }
+        initialStatus = EnrolmentStatus.WAITLIST;
       }
 
       try {
@@ -847,7 +886,7 @@ export class AgreementsService {
             userId,
             programId,
             batchId: batch.id,
-            status: EnrolmentStatus.PENDING_PAYMENT,
+            status: initialStatus,
           },
           include: {
             program: { select: { id: true, title: true, slug: true, price: true } },
@@ -1052,12 +1091,6 @@ export class AgreementsService {
       );
     }
 
-    if (enrolment.status === EnrolmentStatus.WAITLIST) {
-      throw new BadRequestException(
-        'Cannot sign agreement for a waitlisted enrolment.',
-      );
-    }
-
     // 4. Repeated signing check: never overwrite an already signed agreement
     if (
       enrolment.signedAgreement &&
@@ -1216,33 +1249,63 @@ export class AgreementsService {
         });
       }
 
-      // Transition enrolment from PENDING_AGREEMENT to ACTIVE & update Org Seat consumption
-      const isOrgSponsored = enrolment.fundingSource === 'ORG_SPONSORED';
+      // Transition enrolment from PENDING_AGREEMENT to ACTIVE/WAITLIST & update Org Seat consumption
+      const isOrgSponsored = (enrolment as any).fundingSource === 'ORG_SPONSORED';
       if (enrolment.status === EnrolmentStatus.PENDING_AGREEMENT || isOrgSponsored) {
+        let nextStatus: EnrolmentStatus | undefined;
+        if (enrolment.status === EnrolmentStatus.PENDING_AGREEMENT) {
+          const batch = enrolment.batchId
+            ? await tx.batch.findUnique({
+                where: { id: enrolment.batchId },
+                include: {
+                  _count: {
+                    select: {
+                      enrolments: {
+                        where: {
+                          id: { not: enrolment.id },
+                          status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED] },
+                        },
+                      },
+                    },
+                  },
+                },
+              })
+            : null;
+
+          const occupied = batch?._count?.enrolments ?? 0;
+          const capacity = batch?.capacity ?? 50;
+          const isFull = occupied >= capacity;
+          const isDeadlinePassed = batch?.registrationDeadline
+            ? new Date() > new Date(batch.registrationDeadline)
+            : false;
+
+          nextStatus = (isFull || isDeadlinePassed) ? EnrolmentStatus.WAITLIST : EnrolmentStatus.ACTIVE;
+        }
+
         await tx.enrolment.update({
           where: { id: enrolment.id },
           data: {
-            ...(enrolment.status === EnrolmentStatus.PENDING_AGREEMENT ? { status: EnrolmentStatus.ACTIVE } : {}),
+            ...(nextStatus ? { status: nextStatus } : {}),
             ...(isOrgSponsored ? { orgDataSharingConsentedAt: signingTimestamp } : {}),
           },
         });
       }
 
       // Transition linked numbered Organization Seat to CONSUMED (locks slot from revocation)
-      if (tx.seat) {
-        const linkedSeat = await tx.seat.findFirst({
+      if ((tx as any).seat) {
+        const linkedSeat = await (tx as any).seat.findFirst({
           where: { enrolmentId: enrolment.id },
         });
         if (linkedSeat && linkedSeat.status !== 'CONSUMED') {
-          await tx.seat.update({
+          await (tx as any).seat.update({
             where: { id: linkedSeat.id },
             data: {
               status: 'CONSUMED',
               consumedAt: signingTimestamp,
             },
           });
-          if (tx.seatPool) {
-            await tx.seatPool.update({
+          if ((tx as any).seatPool) {
+            await (tx as any).seatPool.update({
               where: { id: linkedSeat.seatPoolId },
               data: {
                 seatsConsumed: { increment: 1 },

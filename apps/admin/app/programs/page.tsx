@@ -1,25 +1,43 @@
 "use client";
 
-import { useEffect, useState, FormEvent, useRef } from "react";
-import styles from "../page.module.css";
-import pstyles from "./programs.module.css";
+import { useEffect, useState, FormEvent, useRef, useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import styles from "../page.module.css";
+import pstyles from "./programs.module.css";
 import { formatCourseInfo, parseCourseInfo, stripFormatting } from "./courseInfo";
 import { uploadFile, cachedFetch, API_URL, getLmsUrl } from "../lib/api";
-import { CustomSelect, ActionMenu, ConfirmDialog, useToast } from "../components";
+import {
+  CustomSelect,
+  ActionMenu,
+  ConfirmDialog,
+  useToast,
+  HelpTooltip,
+  EmptyState,
+  MediaPreviewModal,
+  type MediaPreviewConfig,
+} from "../components";
 
 interface Program {
   id: string;
   title: string;
   slug: string;
   description: string | null;
+  shortDescription?: string | null;
   price: number;
+  currency?: string;
   isActive: boolean;
   status?: string;
+  hasCertificate?: boolean;
+  requireExam?: boolean;
+  sequentialProgressionEnabled?: boolean;
   _count?: {
-    steps: number;
+    steps?: number;
+    batches?: number;
+    enrolments?: number;
+    resourceItems?: number;
+    questionBanks?: number;
   };
 }
 
@@ -47,14 +65,19 @@ export default function ProgramsPage() {
 
   // Search & Filtering
   const [searchQuery, setSearchQuery] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("ALL");
-  const [statusFilter, setStatusFilter] = useState("ALL");
-  const [viewMode, setViewMode] = useState<"grid" | "table">("table");
-  const [totalRevenue, setTotalRevenue] = useState<number | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "HIDDEN">("ALL");
+  const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
+
+  // In-page Quick Overview Modal State
+  const [quickViewProgram, setQuickViewProgram] = useState<Program | null>(null);
+
+  // Media Preview Modal (for Certificate or Video previews)
+  const [previewConfig, setPreviewConfig] = useState<MediaPreviewConfig | null>(null);
 
   // Modals & Menus
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProgramId, setEditingProgramId] = useState<string | null>(null);
+  const [isCreatingDraft, setIsCreatingDraft] = useState(false);
 
   // Deletion modal state
   const [programToDelete, setProgramToDelete] = useState<Program | null>(null);
@@ -70,6 +93,7 @@ export default function ProgramsPage() {
   const [title, setTitle] = useState("");
   const [type, setType] = useState("Certification");
   const [price, setPrice] = useState("");
+  const [shortDescription, setShortDescription] = useState("");
   const [description, setDescription] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [duration, setDuration] = useState("");
@@ -78,6 +102,7 @@ export default function ProgramsPage() {
   const [online, setOnline] = useState("");
   const [image, setImage] = useState("");
   const [points, setPoints] = useState("");
+  const [hasCert, setHasCert] = useState(true);
   const [formError, setFormError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -85,6 +110,18 @@ export default function ProgramsPage() {
 
   useEffect(() => {
     fetchPrograms();
+
+    const handleFocus = () => {
+      fetchPrograms();
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        fetchPrograms();
+      }
+    });
+
     if (typeof window !== "undefined") {
       const isMac =
         /Mac|iPod|iPhone|iPad/.test(navigator.platform) ||
@@ -93,26 +130,13 @@ export default function ProgramsPage() {
         setSearchShortcut("⌘K");
       }
     }
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+    };
   }, []);
 
-  // Lock background scroll and listen for Escape key when modal is open
-  useEffect(() => {
-    if (!isModalOpen) return;
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setIsModalOpen(false);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isModalOpen]);
-
-  // Keyboard shortcut listener for quick search (⌘K / Ctrl K or /)
+  // Keyboard shortcut listener for quick search
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -129,18 +153,17 @@ export default function ProgramsPage() {
 
   const fetchPrograms = async () => {
     try {
-      const [res, revRes] = await Promise.all([
-        cachedFetch(`${API_URL}/programs`),
-        cachedFetch(`${API_URL}/revenue`).catch(() => null),
-      ]);
+      const res = await cachedFetch(`${API_URL}/programs`, {
+        skipCache: true,
+        headers: {
+          ...getAuthHeaders(),
+          "Cache-Control": "no-cache",
+          "Pragma": "no-cache",
+        },
+      });
       if (res.ok) {
         const data = await res.json();
-        setPrograms(data);
-      }
-      if (revRes && revRes.ok) {
-        const revData = await revRes.json();
-        const usdTotal = revData?.byCurrency?.USD?.total ?? revData?.totalRevenue ?? null;
-        if (typeof usdTotal === "number") setTotalRevenue(Math.round(usdTotal));
+        setPrograms(Array.isArray(data) ? data : []);
       }
     } catch (e) {
       console.warn("Notice: could not retrieve programs list", e);
@@ -155,6 +178,7 @@ export default function ProgramsPage() {
     setTitle(prog.title);
     setType(info.type || "Certification");
     setPrice(prog.price ? prog.price.toString() : "");
+    setShortDescription(prog.shortDescription || info.summary || "");
     setDescription(info.summary);
     setIsActive(prog.isActive);
     setDuration(info.duration);
@@ -163,26 +187,65 @@ export default function ProgramsPage() {
     setOnline(info.online);
     setImage(info.image);
     setPoints(info.points.join("\n"));
+    setHasCert(prog.hasCertificate !== false);
     setFormError("");
     setIsModalOpen(true);
   };
 
-  const openCreateModal = () => {
-    setEditingProgramId(null);
-    setTitle("");
-    setType("Certification");
-    setPrice("");
-    setDescription("");
-    setIsActive(true);
-    setDuration("");
-    setAudience("");
-    setInPerson("");
-    setOnline("");
-    setImage("");
-    setPoints("");
-    setFormError("");
-    setIsModalOpen(true);
+  const handleCreateProgram = async () => {
+    if (isCreatingDraft) return;
+    setIsCreatingDraft(true);
+    try {
+      const uniqueSuffix = Math.floor(1000 + Math.random() * 9000);
+      const initialTitle = "Untitled Program";
+      const slug = `untitled-program-${Date.now()}-${uniqueSuffix}`;
+      const payload = {
+        title: initialTitle,
+        slug,
+        isActive: false,
+        status: "DRAFT",
+        price: 0,
+        currency: "USD",
+        hasCertificate: true,
+        description: formatCourseInfo({
+          summary: "",
+          short: "",
+          type: "Certification",
+          duration: "",
+          audience: "",
+          inPerson: "",
+          online: "",
+          image: "",
+          points: [],
+          faqs: [],
+        }),
+      };
+
+      const res = await cachedFetch(`${API_URL}/programs`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        const saved = await res.json();
+        toastSuccess("Draft program created. Opening details...");
+        router.push(`/programs/${saved.id}`);
+      } else {
+        const err = await res.json().catch(() => null);
+        toastError(err?.message || "Failed to create draft program.");
+      }
+    } catch (e: any) {
+      toastError(e?.message || "Could not reach server.");
+    } finally {
+      setIsCreatingDraft(false);
+    }
   };
+
+  const openCreateModal = handleCreateProgram;
 
   const handleDeleteProgram = (prog: Program) => {
     setDeleteError(null);
@@ -199,21 +262,19 @@ export default function ProgramsPage() {
         headers: getAuthHeaders(),
       });
       if (res.ok) {
-        const result = await res.json().catch(() => null);
-        toastSuccess(
-          result?.message || `Program "${programToDelete.title}" and all associated files removed permanently.`
-        );
+        toastSuccess(`Program "${programToDelete.title}" removed permanently.`);
         setPrograms((prev) => prev.filter((p) => p.id !== programToDelete.id));
         setProgramToDelete(null);
-        fetchPrograms();
+        if (quickViewProgram?.id === programToDelete.id) {
+          setQuickViewProgram(null);
+        }
       } else {
         const errorData = await res.json().catch(() => null);
-        const errMsg = errorData?.error?.message ?? errorData?.message ?? res.statusText ?? "Failed to delete program";
+        const errMsg = errorData?.error?.message ?? errorData?.message ?? "Failed to delete program";
         setDeleteError(errMsg);
         toastError(`Failed to delete program: ${errMsg}`);
       }
     } catch (e: any) {
-      console.error("Failed to delete program", e);
       const errMsg = e?.message || "Could not reach server";
       setDeleteError(errMsg);
       toastError(`Failed to delete program: ${errMsg}`);
@@ -234,7 +295,7 @@ export default function ProgramsPage() {
 
       if (res.ok) {
         const cloned = await res.json();
-        toastSuccess(`Course "${prog.title}" duplicated successfully as "${cloned.title}".`);
+        toastSuccess(`Course "${prog.title}" duplicated as "${cloned.title}".`);
         fetchPrograms();
       } else {
         const err = await res.json().catch(() => null);
@@ -253,19 +314,22 @@ export default function ProgramsPage() {
     const payload = {
       title: title.trim(),
       description: formatCourseInfo({
-        summary: description,
-        type,
+        summary: description.trim() || shortDescription.trim(),
+        short: shortDescription.trim(),
+        type: type || "Certification",
         duration,
         audience,
         inPerson,
         online,
         image,
-        points: points.split("\n"),
+        points: points.split("\n").filter((p) => p.trim().length > 0),
       }),
+      shortDescription: shortDescription.trim(),
       price: parseFloat(price) || 0,
+      hasCertificate: hasCert,
       ...(editingProgramId
         ? { isActive, status: isActive ? "PUBLISHED" : "DRAFT" }
-        : { slug: slugify(title), isActive, status: isActive ? "PUBLISHED" : "DRAFT" }),
+        : { slug: slugify(title), isActive: false, status: "DRAFT" }),
     };
 
     try {
@@ -285,146 +349,158 @@ export default function ProgramsPage() {
         const savedProgram = await res.json();
         setIsModalOpen(false);
         setEditingProgramId(null);
+        toastSuccess(editingProgramId ? "Program settings updated." : "Draft program created.");
         if (editingProgramId) {
           fetchPrograms();
         } else {
-          // Immediately route to the new Curriculum Authoring Studio!
           router.push(`/programs/${savedProgram.id}`);
         }
       } else {
         const data = await res.json().catch(() => null);
         const raw = data?.error?.message ?? data?.message;
-        const message = Array.isArray(raw) ? raw.join(", ") : raw;
-        setFormError(message || `Could not save the program (error ${res.status}).`);
+        setFormError(Array.isArray(raw) ? raw.join(", ") : raw || "Could not save the program.");
       }
     } catch (e) {
-      console.error("Failed to save program", e);
       setFormError("Could not reach the server. Check that the API is running.");
     } finally {
       setIsSaving(false);
     }
   };
 
+  // Status counts for the tabs
+  const statusCounts = useMemo(() => {
+    const counts = { ALL: programs.length, ACTIVE: 0, HIDDEN: 0 };
+    for (const p of programs) {
+      const isDraft = !p.isActive || p.status === "DRAFT";
+      if (isDraft) counts.HIDDEN++;
+      else counts.ACTIVE++;
+    }
+    return counts;
+  }, [programs]);
+
   // Filtered Programs Logic
-  const filteredPrograms = programs.filter((p) => {
-    const info = parseCourseInfo(p.description);
-    const matchesSearch =
-      p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredPrograms = useMemo(() => {
+    return programs.filter((p) => {
+      const matchesSearch =
+        !searchQuery.trim() ||
+        p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()));
 
-    const matchesCategory =
-      categoryFilter === "ALL" || (info.type && info.type.toUpperCase() === categoryFilter.toUpperCase());
+      const isDraft = !p.isActive || p.status === "DRAFT";
+      const matchesStatus =
+        statusFilter === "ALL" ||
+        (statusFilter === "ACTIVE" && !isDraft) ||
+        (statusFilter === "HIDDEN" && isDraft);
 
-    const matchesStatus =
-      statusFilter === "ALL" ||
-      (statusFilter === "ACTIVE" && p.isActive) ||
-      (statusFilter === "HIDDEN" && !p.isActive);
-
-    return matchesSearch && matchesCategory && matchesStatus;
-  });
-
-  // Summary Metrics
-  const totalPrograms = programs.length;
-  const activeProgramsCount = programs.filter((p) => p.isActive).length;
-  const draftsCount = programs.filter((p) => !p.isActive).length;
-  const displayRevenue = totalRevenue !== null
-    ? `$${totalRevenue.toLocaleString()}`
-    : `$${programs.reduce((acc, p) => acc + (p.price || 0), 0).toLocaleString()}`;
+      return matchesSearch && matchesStatus;
+    });
+  }, [programs, searchQuery, statusFilter]);
 
   return (
-    <div className={pstyles.container}>
-      {/* 1. Header & Primary Studio Action */}
-      <div className={pstyles.headerWrap}>
-        <div className={pstyles.titleArea}>
-          <h1>Programs &amp; Curriculum Studio</h1>
+    <div className={styles.dashboardContainer} style={{ gap: "1rem" }}>
+      {/* 1. Standard Header */}
+      <header
+        className={styles.header}
+        style={{
+          marginBottom: 0,
+          alignItems: "center",
+          display: "flex",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: "1rem",
+        }}
+      >
+        <div className={styles.headerText}>
+          <h1 className={styles.title} style={{ margin: 0 }}>
+            Programs
+          </h1>
         </div>
 
-        <div className={pstyles.headerActions}>
-          <Link
-            href="/programs/create"
+        <div className={styles.headerActions}>
+          <button
             className={styles.primaryBtn}
-            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.45rem" }}
+            onClick={handleCreateProgram}
+            disabled={isCreatingDraft}
+            style={{
+              opacity: isCreatingDraft ? 0.75 : 1,
+              cursor: isCreatingDraft ? "not-allowed" : "pointer",
+            }}
           >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            <span>+ New Program</span>
-          </Link>
+            {isCreatingDraft ? (
+              <>
+                <div
+                  style={{
+                    width: 14,
+                    height: 14,
+                    border: "2px solid rgba(255, 255, 255, 0.4)",
+                    borderTopColor: "#ffffff",
+                    borderRadius: "50%",
+                    animation: "uploaderSpin 0.75s linear infinite",
+                  }}
+                />
+                <span>Creating Draft...</span>
+              </>
+            ) : (
+              <>
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                <span>Create Program</span>
+              </>
+            )}
+          </button>
+        </div>
+      </header>
+
+      {/* 2. Status Tab Navigation (Matches Batches & Users) */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
+        <div className={styles.tabsContainer} role="tablist" aria-label="Program directory views">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={statusFilter === "ALL"}
+            className={`${styles.tabBtn} ${statusFilter === "ALL" ? styles.tabBtnActive : ""}`}
+            onClick={() => setStatusFilter("ALL")}
+          >
+            All Programs ({statusCounts.ALL})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={statusFilter === "ACTIVE"}
+            className={`${styles.tabBtn} ${statusFilter === "ACTIVE" ? styles.tabBtnActive : ""}`}
+            onClick={() => setStatusFilter("ACTIVE")}
+          >
+            Published ({statusCounts.ACTIVE})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={statusFilter === "HIDDEN"}
+            className={`${styles.tabBtn} ${statusFilter === "HIDDEN" ? styles.tabBtnActive : ""}`}
+            onClick={() => setStatusFilter("HIDDEN")}
+          >
+            Drafts ({statusCounts.HIDDEN})
+          </button>
         </div>
       </div>
 
-      {/* 2. 4 Top Summary KPI Cards */}
-      <div className={pstyles.metricsGrid}>
-        <div className={pstyles.metricCard}>
-          <div className={pstyles.metricIcon}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-            </svg>
-          </div>
-          <div className={pstyles.metricInfo}>
-            <span className={pstyles.metricValue}>{totalPrograms}</span>
-            <span className={pstyles.metricLabel}>Total Programs</span>
-          </div>
-        </div>
-
-        <div className={pstyles.metricCard}>
-          <div className={pstyles.metricIcon} style={{ background: "#dcfce7", color: "#15803d" }}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-              <polyline points="22 4 12 14.01 9 11.01" />
-            </svg>
-          </div>
-          <div className={pstyles.metricInfo}>
-            <span className={pstyles.metricValue}>{activeProgramsCount}</span>
-            <span className={pstyles.metricLabel}>Published</span>
-          </div>
-        </div>
-
-        <div className={pstyles.metricCard}>
-          <div className={pstyles.metricIcon} style={{ background: "#f3f4f6", color: "#6b7280" }}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-              <line x1="9" y1="9" x2="15" y2="15" />
-              <line x1="15" y1="9" x2="9" y2="15" />
-            </svg>
-          </div>
-          <div className={pstyles.metricInfo}>
-            <span className={pstyles.metricValue}>{draftsCount}</span>
-            <span className={pstyles.metricLabel}>Drafts</span>
-          </div>
-        </div>
-
-        <div className={pstyles.metricCard}>
-          <div className={pstyles.metricIcon} style={{ background: "#fff7ed", color: "#d97706" }}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <line x1="12" y1="1" x2="12" y2="23" />
-              <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-            </svg>
-          </div>
-          <div className={pstyles.metricInfo}>
-            <span className={pstyles.metricValue}>{displayRevenue}</span>
-            <span className={pstyles.metricLabel}>Total Revenue</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 3. Search & Control Bar */}
+      {/* 3. Search & View Mode Toggle Bar */}
       <div className={pstyles.controlBar}>
         <div className={pstyles.searchWrap}>
           <span className={pstyles.searchIcon} aria-hidden="true">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="8" />
               <line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
@@ -433,7 +509,7 @@ export default function ProgramsPage() {
             ref={searchInputRef}
             type="text"
             className={pstyles.searchInput}
-            placeholder="Search by title, category, or topic..."
+            placeholder="Search programs by title or topic..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -441,42 +517,6 @@ export default function ProgramsPage() {
         </div>
 
         <div className={pstyles.filtersGroup}>
-          <div className={pstyles.filterPills}>
-            {["ALL", "CERTIFICATION", "CORPORATE", "SINGLE SESSION"].map((cat) => (
-              <button
-                key={cat}
-                type="button"
-                className={`${pstyles.filterPill} ${categoryFilter === cat ? pstyles.filterPillActive : ""}`}
-                onClick={() => setCategoryFilter(cat)}
-              >
-                {cat === "ALL" ? "All Tracks" : cat.charAt(0) + cat.slice(1).toLowerCase()}
-              </button>
-            ))}
-          </div>
-
-          <div className={pstyles.filterPills}>
-            <button
-              type="button"
-              className={`${pstyles.filterPill} ${statusFilter === "ALL" ? pstyles.filterPillActive : ""}`}
-              onClick={() => setStatusFilter("ALL")}
-            >
-              All Status
-            </button>
-            <button
-              type="button"
-              className={`${pstyles.filterPill} ${statusFilter === "ACTIVE" ? pstyles.filterPillActive : ""}`}
-              onClick={() => setStatusFilter("ACTIVE")}
-            >
-              Active
-            </button>
-            <button
-              type="button"
-              className={`${pstyles.filterPill} ${statusFilter === "HIDDEN" ? pstyles.filterPillActive : ""}`}
-              onClick={() => setStatusFilter("HIDDEN")}
-            >
-              Hidden
-            </button>
-          </div>
 
           <div className={pstyles.viewModeToggle}>
             <button
@@ -510,80 +550,130 @@ export default function ProgramsPage() {
         </div>
       </div>
 
-      {/* 4. Content Area: Grid View or Dense Table View */}
+      {/* 4. Programs Content: Clean Cards Grid or Table View */}
       {isLoading ? (
-        <div className={pstyles.cardsGrid}>
+        <div className={pstyles.programsGrid}>
           {[1, 2, 3, 4, 5, 6].map((idx) => (
-            <div key={idx} className="skeleton" style={{ height: 320, borderRadius: 12 }} />
+            <div key={idx} className="skeleton" style={{ height: 340, borderRadius: 14 }} />
           ))}
         </div>
       ) : filteredPrograms.length === 0 ? (
-        <div className={pstyles.emptyState}>
-          <div className={pstyles.emptyIcon}>
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-            </svg>
-          </div>
-          <h3 className={pstyles.emptyTitle}>No matching programs found</h3>
-          <p className={pstyles.emptyDesc}>
-            {searchQuery
-              ? `No curriculum matches "${searchQuery}". Try adjusting your search query or filters.`
-              : "Start by authoring your first luxury learning curriculum track."}
-          </p>
-          <button className={styles.primaryBtn} onClick={openCreateModal}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            <span>Create New Course</span>
-          </button>
+        <div
+          style={{
+            background: "#ffffff",
+            border: "1px solid #ece4d7",
+            borderRadius: 14,
+            overflow: "hidden",
+            boxShadow: "0 1px 3px rgba(20, 17, 15, 0.03)",
+          }}
+        >
+          <EmptyState
+            icon={
+              searchQuery ? (
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+              ) : (
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                </svg>
+              )
+            }
+            title={
+              searchQuery
+                ? "No matching programs found"
+                : statusFilter === "HIDDEN"
+                ? "No draft programs"
+                : statusFilter === "ACTIVE"
+                ? "No published programs"
+                : "No programs found"
+            }
+            description={
+              searchQuery
+                ? `No curriculum matches "${searchQuery}". Check your keywords or clear your search to see all programs.`
+                : statusFilter === "HIDDEN"
+                ? "All programs are currently published. New drafts or unpublished programs will appear here."
+                : statusFilter === "ACTIVE"
+                ? "No programs are published to the catalog yet. Publish an existing draft or create a new program."
+                : "Get started by creating your first program curriculum with modules, lessons, and assessments."
+            }
+            actionLabel={
+              searchQuery
+                ? "Clear Search"
+                : statusFilter === "HIDDEN"
+                ? "Create Draft Program"
+                : "Create Program"
+            }
+            onAction={
+              searchQuery
+                ? () => setSearchQuery("")
+                : openCreateModal
+            }
+            secondaryActionLabel={searchQuery ? "Create Program" : undefined}
+            onSecondaryAction={searchQuery ? openCreateModal : undefined}
+          />
         </div>
       ) : viewMode === "grid" ? (
-        <div className={pstyles.cardsGrid}>
+        /* GRID VIEW: Self-Contained Executive Program Cards */
+        <div className={pstyles.programsGrid}>
           {filteredPrograms.map((prog) => {
             const info = parseCourseInfo(prog.description);
+            const imageUrl = getCourseImageUrl(info.image);
+            const hasValidImage = imageUrl && !failedImages[prog.id];
+            const stepsCount = prog._count?.steps ?? 0;
+            const batchesCount = prog._count?.batches ?? 0;
+            const enrolmentsCount = prog._count?.enrolments ?? 0;
+            const resourcesCount = prog._count?.resourceItems ?? 0;
+            const hasCertificate = prog.hasCertificate !== false;
+
             return (
               <div key={prog.id} className={pstyles.programCard}>
-                {/* Visual Banner Header */}
+                {/* 16:9 Banner Media */}
                 <div className={pstyles.cardMediaHeader}>
-                  {info.image && !failedImages[prog.id] ? (
+                  {hasValidImage ? (
                     <Image
-                      src={getCourseImageUrl(info.image)}
+                      src={imageUrl}
                       alt={prog.title}
-                      width={400}
-                      height={200}
-                      quality={80}
-                      loading="lazy"
-                      sizes="(max-width: 768px) 100vw, 360px"
-                      unoptimized={!getCourseImageUrl(info.image).startsWith("/")}
+                      fill
+                      sizes="(max-width: 768px) 100vw, 400px"
+                      unoptimized={!imageUrl.startsWith("/")}
                       className={pstyles.cardMediaImage}
-                      onError={() =>
-                        setFailedImages((prev) => ({ ...prev, [prog.id]: true }))
-                      }
+                      onError={() => setFailedImages((prev) => ({ ...prev, [prog.id]: true }))}
                     />
                   ) : (
                     <div className={pstyles.cardMediaFallback} aria-hidden="true">
-                      <svg
-                        width="38"
-                        height="38"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.25"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className={pstyles.fallbackIcon}
-                      >
+                      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.65 }}>
                         <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
                         <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
                       </svg>
                     </div>
                   )}
+
                   <div className={pstyles.cardMediaOverlay} />
 
                   <div className={pstyles.cardHeaderBadges}>
-                    <span className={pstyles.typeBadge}>{info.type || "Certification"}</span>
                     <span className={pstyles.statusIndicator}>
                       <span className={prog.isActive ? pstyles.dotActive : pstyles.dotHidden} />
                       <span>{prog.isActive ? "Published" : "Draft"}</span>
@@ -591,61 +681,102 @@ export default function ProgramsPage() {
                   </div>
 
                   <span className={pstyles.priceTag}>
-                    {prog.price ? `$${prog.price}` : "Complimentary"}
+                    {prog.price ? `$${prog.price.toLocaleString()}` : "Free"}
                   </span>
                 </div>
 
-                {/* Card Body */}
+                {/* Card Content Body */}
                 <div className={pstyles.cardBody}>
-                  <h3 className={pstyles.cardTitle}>{prog.title}</h3>
-                  <p className={pstyles.cardDescription}>
-                    {stripFormatting(info.summary) || "No course summary provided yet."}
+<h3 className={pstyles.cardTitle}>
+                    <Link href={`/programs/${prog.id}`} className={pstyles.cardTitleLink}>
+                      {prog.title}
+                    </Link>
+                  </h3>
+
+                  <p className={pstyles.cardSummary}>
+                    {stripFormatting(info.summary) || "Complete program with modules, video lectures, and assessments."}
                   </p>
 
-                  {/* Metadata Chips */}
-                  <div className={pstyles.cardMetaGrid}>
-                    <div className={pstyles.metaItem}>
-                      <span className={pstyles.metaValue}>{prog._count?.steps ?? 0}</span>
-                      <span className={pstyles.metaLabel}>Modules</span>
-                    </div>
-                    <div className={pstyles.metaItem}>
-                      <span className={pstyles.metaValue}>{info.duration || "Self-Paced"}</span>
-                      <span className={pstyles.metaLabel}>Duration</span>
-                    </div>
-                    <div className={pstyles.metaItem}>
-                      <span className={pstyles.metaValue}>{info.audience || "All"}</span>
-                      <span className={pstyles.metaLabel}>Audience</span>
-                    </div>
+                  {/* Program Asset Pill Counters */}
+                  <div className={pstyles.cardAssetPills}>
+                    <span className={`${pstyles.assetPill} ${pstyles.assetPillPrimary}`}>
+                      <strong>{stepsCount}</strong> {stepsCount === 1 ? "Module" : "Modules"}
+                    </span>
+                    <span className={pstyles.assetPill}>
+                      <strong>{batchesCount}</strong> {batchesCount === 1 ? "Batch" : "Batches"}
+                    </span>
+                    <span className={pstyles.assetPill}>
+                      <strong>{enrolmentsCount}</strong> {enrolmentsCount === 1 ? "Learner" : "Learners"}
+                    </span>
+                    {resourcesCount > 0 && (
+                      <span className={pstyles.assetPill}>
+                        <strong>{resourcesCount}</strong> Files
+                      </span>
+                    )}
+                    {hasCertificate ? (
+                      <span className={`${pstyles.assetPill} ${pstyles.assetPillSuccess}`} title="Certificate of Completion issued upon passing">
+                        Certificate
+                      </span>
+                    ) : (
+                      <span className={pstyles.assetPill} style={{ color: "#9ca3af" }}>
+                        No Certificate
+                      </span>
+                    )}
                   </div>
 
-                  {/* Direct Actions */}
-                  <div className={pstyles.cardActions}>
-                    <Link href={`/programs/${prog.id}`} className={pstyles.builderBtn}>
-                      <span>Open Curriculum Studio</span>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  {/* Card Bottom Actions */}
+                  <div className={pstyles.cardActionsRow}>
+                    <Link href={`/programs/${prog.id}`} className={pstyles.openHubBtn}>
+                      <span>Manage Program</span>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <line x1="5" y1="12" x2="19" y2="12" />
                         <polyline points="12 5 19 12 12 19" />
                       </svg>
                     </Link>
 
+                    <button
+                      type="button"
+                      className={pstyles.quickViewBtn}
+                      onClick={() => setQuickViewProgram(prog)}
+                      title="Quick summary view"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                      <span>Quick View</span>
+                    </button>
+
                     <ActionMenu
-                      ariaLabel={`More actions for ${prog.title}`}
+                      ariaLabel={`Actions for ${prog.title}`}
                       items={[
                         {
-                          label: "Open Studio",
+                          label: "Manage Program",
                           href: `/programs/${prog.id}`,
                           icon: (
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <path d="M12 20h9" />
-                              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                              <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                              <polyline points="2 17 12 22 22 17" />
+                              <polyline points="2 12 12 17 22 12" />
                             </svg>
                           ),
                         },
                         {
-                          label: "Edit Settings",
+                          label: "Quick Overview",
+                          onClick: () => setQuickViewProgram(prog),
+                          icon: (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                              <circle cx="12" cy="12" r="10" />
+                              <line x1="12" y1="16" x2="12" y2="12" />
+                              <line x1="12" y1="8" x2="12.01" y2="8" />
+                            </svg>
+                          ),
+                        },
+                        {
+                          label: "Edit Setup",
                           onClick: () => openEditModal(prog),
                           icon: (
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
                               <circle cx="12" cy="12" r="3" />
                               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
                             </svg>
@@ -655,7 +786,7 @@ export default function ProgramsPage() {
                           label: "Preview on LMS",
                           href: `${getLmsUrl()}/programs/${prog.id}/steps`,
                           icon: (
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
                               <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
                               <polyline points="15 3 21 3 21 9" />
                               <line x1="10" y1="14" x2="21" y2="3" />
@@ -663,22 +794,22 @@ export default function ProgramsPage() {
                           ),
                         },
                         {
-                          label: "Duplicate Track",
+                          label: "Duplicate Program",
                           onClick: () => handleDuplicateProgram(prog),
                           icon: (
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
                               <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
                               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                             </svg>
                           ),
                         },
                         {
-                          label: "Delete Track",
+                          label: "Delete Program",
                           danger: true,
                           dividerAbove: true,
                           onClick: () => handleDeleteProgram(prog),
                           icon: (
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
                               <polyline points="3 6 5 6 21 6" />
                               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                             </svg>
@@ -693,205 +824,242 @@ export default function ProgramsPage() {
           })}
         </div>
       ) : (
-        /* Horizontal Cards List View (Screen 5) */
-        <div className={pstyles.horizontalCardsList}>
-          {filteredPrograms.map((prog) => {
-            const info = parseCourseInfo(prog.description);
-            const imageUrl = getCourseImageUrl(info.image);
-            const hasValidImage = imageUrl && !failedImages[prog.id];
-            const isPublished = prog.isActive || prog.status === "PUBLISHED";
-            const stepsCount = prog._count?.steps ?? 0;
-            const enrollmentCount = (prog._count as Record<string, number> | undefined)?.enrollments ?? (prog._count as Record<string, number> | undefined)?.enrolments ?? 0;
+        /* TABLE VIEW: Dense, Scannable Ledger */
+        <div style={{ background: "#ffffff", border: "1px solid #ece4d7", borderRadius: 14, overflow: "hidden" }}>
+          <table className={pstyles.programsTable}>
+            <thead>
+              <tr>
+                <th>Program Title</th>
+                <th>Price</th>
+                <th>Modules</th>
+                <th>Batches</th>
+                <th>Enrolments</th>
+                <th>Certificate</th>
+                <th>Status</th>
+                <th style={{ textAlign: "right" }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredPrograms.map((prog) => {
+                const info = parseCourseInfo(prog.description);
+                const stepsCount = prog._count?.steps ?? 0;
+                const batchesCount = prog._count?.batches ?? 0;
+                const enrolmentsCount = prog._count?.enrolments ?? 0;
+                const hasCertificate = prog.hasCertificate !== false;
 
-            return (
-              <div key={prog.id} className={pstyles.horizontalCard}>
-                {/* 16:9 Thumbnail Wrap */}
-                <div className={pstyles.cardThumbnailWrap}>
-                  {hasValidImage ? (
-                    <Image
-                      src={imageUrl}
-                      alt={prog.title}
-                      fill
-                      sizes="(max-width: 768px) 100vw, 240px"
-                      unoptimized={!imageUrl.startsWith("/")}
-                      style={{ objectFit: "cover" }}
-                      onError={() =>
-                        setFailedImages((prev) => ({ ...prev, [prog.id]: true }))
-                      }
-                    />
-                  ) : (
-                    <div
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: "linear-gradient(135deg, #fdf6ec 0%, #faebd7 100%)",
-                      }}
-                    >
-                      <svg
-                        width="36"
-                        height="36"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="#d97706"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        style={{ opacity: 0.6 }}
-                      >
-                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                      </svg>
-                    </div>
-                  )}
+                return (
+                  <tr key={prog.id} className={pstyles.programsTableRow}>
+                    <td>
+                      <div style={{ fontWeight: 700, color: "#14110f" }}>
+                        <Link href={`/programs/${prog.id}`} className={pstyles.cardTitleLink}>
+                          {prog.title}
+                        </Link>
+                      </div>
+                      <div style={{ fontSize: "0.75rem", color: "#78716a", marginTop: 2 }}>
+                        {info.summary || "Program"}
+                      </div>
+                    </td>
+                    <td>
+                      <strong style={{ color: "#b45309" }}>
+                        {prog.price ? `$${prog.price.toLocaleString()}` : "Free"}
+                      </strong>
+                    </td>
+                    <td>
+                      <strong>{stepsCount}</strong>
+                    </td>
+                    <td>{batchesCount}</td>
+                    <td>{enrolmentsCount}</td>
+                    <td>
+                      {hasCertificate ? (
+                        <span style={{ color: "#15803d", fontWeight: 600, fontSize: "0.78rem" }}>Yes</span>
+                      ) : (
+                        <span style={{ color: "#9ca3af", fontSize: "0.78rem" }}>None</span>
+                      )}
+                    </td>
+                    <td>
+                      <span className={prog.isActive ? pstyles.statusPillPublished : pstyles.statusPillDraft}>
+                        <span className={prog.isActive ? pstyles.dotActive : pstyles.dotHidden} />
+                        {prog.isActive ? "Published" : "Draft"}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6 }}>
+                        <Link
+                          href={`/programs/${prog.id}`}
+                          className={styles.primaryBtn}
+                          style={{ padding: "0.3rem 0.65rem", fontSize: "0.75rem" }}
+                        >
+                          Manage
+                        </Link>
+                        <ActionMenu
+                          ariaLabel={`Actions for ${prog.title}`}
+                          items={[
+                            { label: "Manage Program", href: `/programs/${prog.id}` },
+                            { label: "Quick View", onClick: () => setQuickViewProgram(prog) },
+                            { label: "Edit Setup", onClick: () => openEditModal(prog) },
+                            { label: "Duplicate Program", onClick: () => handleDuplicateProgram(prog) },
+                            { label: "Delete Program", danger: true, onClick: () => handleDeleteProgram(prog) },
+                          ]}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* QUICK OVERVIEW MODAL (Everything inside the program at a glance) */}
+      {quickViewProgram && (
+        <div className={pstyles.quickOverviewOverlay} onClick={() => setQuickViewProgram(null)}>
+          <div className={pstyles.quickOverviewModal} onClick={(e) => e.stopPropagation()}>
+            <div className={pstyles.quickOverviewHeader}>
+              <div>
+                <span
+                  style={{
+                    fontSize: "0.72rem",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    color: "#b45309",
+                    letterSpacing: "0.06em",
+                  }}
+                >
+                  PROGRAM 360° SNAPSHOT
+                </span>
+                <h2 style={{ fontSize: "1.35rem", fontWeight: 700, color: "#14110f", margin: "0.25rem 0 0" }}>
+                  {quickViewProgram.title}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQuickViewProgram(null)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#78716a",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <div className={pstyles.quickOverviewBody}>
+              {/* Top Metrics Row */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "0.75rem" }}>
+                <div style={{ background: "#faf8f5", border: "1px solid #ebd9c4", borderRadius: 10, padding: "0.85rem" }}>
+                  <span style={{ fontSize: "0.72rem", color: "#78716a", fontWeight: 600, textTransform: "uppercase" }}>Modules</span>
+                  <div style={{ fontSize: "1.35rem", fontWeight: 800, color: "#14110f" }}>
+                    {quickViewProgram._count?.steps ?? 0}
+                  </div>
                 </div>
 
-                {/* Body Content */}
-                <div className={pstyles.horizontalCardBody}>
-                  {/* Top Row: Pills on left, Price on right */}
-                  <div className={pstyles.cardTopRow}>
-                    <div className={pstyles.cardPillsRow}>
-                      <span className={isPublished ? pstyles.statusPillPublished : pstyles.statusPillDraft}>
-                        <span
-                          style={{
-                            width: 7,
-                            height: 7,
-                            borderRadius: "50%",
-                            background: isPublished ? "#16a34a" : "#9ca3af",
-                            boxShadow: isPublished ? "0 0 0 2px rgba(22, 163, 74, 0.2)" : "none",
-                          }}
-                        />
-                        {isPublished ? "Published" : "Draft"}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: "0.75rem",
-                          fontWeight: 700,
-                          padding: "0.2rem 0.65rem",
-                          borderRadius: 9999,
-                          background: "#fdfbf7",
-                          border: "1px solid #ece6dd",
-                          color: "#78716a",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.03em",
-                        }}
-                      >
-                        {info.type || "Track"}
-                      </span>
-                    </div>
-
-                    <div className={pstyles.priceDisplay}>
-                      {prog.price ? `$${prog.price}` : "Complimentary"}
-                    </div>
+                <div style={{ background: "#faf8f5", border: "1px solid #ebd9c4", borderRadius: 10, padding: "0.85rem" }}>
+                  <span style={{ fontSize: "0.72rem", color: "#78716a", fontWeight: 600, textTransform: "uppercase" }}>Batches</span>
+                  <div style={{ fontSize: "1.35rem", fontWeight: 800, color: "#14110f" }}>
+                    {quickViewProgram._count?.batches ?? 0}
                   </div>
+                </div>
 
-                  {/* Title Link */}
-                  <div>
-                    <Link href={`/programs/${prog.id}`} className={pstyles.cardTitleLink}>
-                      {prog.title}
-                    </Link>
+                <div style={{ background: "#faf8f5", border: "1px solid #ebd9c4", borderRadius: 10, padding: "0.85rem" }}>
+                  <span style={{ fontSize: "0.72rem", color: "#78716a", fontWeight: 600, textTransform: "uppercase" }}>Learners</span>
+                  <div style={{ fontSize: "1.35rem", fontWeight: 800, color: "#14110f" }}>
+                    {quickViewProgram._count?.enrolments ?? 0}
                   </div>
+                </div>
 
-                  {/* 1-Line Summary */}
-                  <p className={pstyles.cardSummary}>
-                    {stripFormatting(info.summary) || "No course summary provided yet. Open curriculum studio to add syllabus."}
-                  </p>
-
-                  {/* Metadata Row: Modules, Duration, Enrolments */}
-                  <div className={pstyles.cardMetaRow}>
-                    <span className={pstyles.metaItemInline}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polygon points="12 2 2 7 12 12 22 7 12 2" />
-                        <polyline points="2 17 12 22 22 17" />
-                        <polyline points="2 12 12 17 22 12" />
-                      </svg>
-                      <strong>{stepsCount}</strong> {stepsCount === 1 ? "Module" : "Modules"}
-                    </span>
-                    <span style={{ color: "#d6d3d1" }}>•</span>
-                    <span className={pstyles.metaItemInline}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="10" />
-                        <polyline points="12 6 12 12 16 14" />
-                      </svg>
-                      {info.duration || "Self-Paced"}
-                    </span>
-                    <span style={{ color: "#d6d3d1" }}>•</span>
-                    <span className={pstyles.metaItemInline}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                        <circle cx="9" cy="7" r="4" />
-                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                      </svg>
-                      <strong>{enrollmentCount}</strong> Enrolments
-                    </span>
-                  </div>
-
-                  {/* Actions Row */}
-                  <div className={pstyles.cardActionsRow}>
-                    <Link href={`/programs/${prog.id}`} className={pstyles.manageLessonsBtn}>
-                      <span>Manage Lessons</span>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="5" y1="12" x2="19" y2="12" />
-                        <polyline points="12 5 19 12 12 19" />
-                      </svg>
-                    </Link>
-
-                    <ActionMenu
-                      ariaLabel={`Actions for ${prog.title}`}
-                      items={[
-                        {
-                          label: "Manage Lessons",
-                          href: `/programs/${prog.id}`,
-                          icon: (
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <polygon points="12 2 2 7 12 12 22 7 12 2" />
-                              <polyline points="2 17 12 22 22 17" />
-                              <polyline points="2 12 12 17 22 12" />
-                            </svg>
-                          ),
-                        },
-                        {
-                          label: "Edit Setup",
-                          onClick: () => openEditModal(prog),
-                          icon: (
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <circle cx="12" cy="12" r="3" />
-                              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                            </svg>
-                          ),
-                        },
-                        {
-                          label: "Duplicate Track",
-                          onClick: () => handleDuplicateProgram(prog),
-                          icon: (
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                            </svg>
-                          ),
-                        },
-                        {
-                          label: "Delete Track",
-                          danger: true,
-                          dividerAbove: true,
-                          onClick: () => handleDeleteProgram(prog),
-                          icon: (
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <polyline points="3 6 5 6 21 6" />
-                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                            </svg>
-                          ),
-                        },
-                      ]}
-                    />
+                <div style={{ background: "#faf8f5", border: "1px solid #ebd9c4", borderRadius: 10, padding: "0.85rem" }}>
+                  <span style={{ fontSize: "0.72rem", color: "#78716a", fontWeight: 600, textTransform: "uppercase" }}>Price</span>
+                  <div style={{ fontSize: "1.35rem", fontWeight: 800, color: "#b45309" }}>
+                    {quickViewProgram.price ? `${quickViewProgram.price.toLocaleString()}` : "Free"}
                   </div>
                 </div>
               </div>
-            );
-          })}
+
+              {/* Program Overview & Capabilities */}
+              <div style={{ background: "#ffffff", border: "1px solid #ece4d7", borderRadius: 12, padding: "1.15rem" }}>
+                <h4 style={{ fontSize: "0.9rem", fontWeight: 700, color: "#14110f", margin: "0 0 0.5rem" }}>
+                  Curriculum &amp; Completion Policy
+                </h4>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.82rem", color: "#44403c" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span>Sequential Step Lock</span>
+                    <strong style={{ color: "#15803d" }}>
+                      {quickViewProgram.sequentialProgressionEnabled !== false ? "Enabled (Steps unlock in sequence)" : "Disabled"}
+                    </strong>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span>Final Comprehensive Exam</span>
+                    <strong>{quickViewProgram.requireExam !== false ? "Required" : "Optional"}</strong>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span>Certificate of Completion</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <strong style={{ color: quickViewProgram.hasCertificate !== false ? "#15803d" : "#78716a" }}>
+                        {quickViewProgram.hasCertificate !== false ? "Active" : "Disabled"}
+                      </strong>
+                      {quickViewProgram.hasCertificate !== false && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPreviewConfig({
+                              isOpen: true,
+                              type: "CERTIFICATE",
+                              title: quickViewProgram.title,
+                              certificateData: {
+                                programTitle: quickViewProgram.title,
+                                studentName: "Sample Student",
+                                completionDate: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+                                certificateNumber: `WBM-${quickViewProgram.slug.substring(0, 4).toUpperCase()}-001`,
+                              },
+                            })
+                          }
+                          style={{
+                            background: "#fffbeb",
+                            border: "1px solid #fde68a",
+                            color: "#b45309",
+                            padding: "2px 8px",
+                            borderRadius: 6,
+                            fontSize: "0.74rem",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Preview Certificate
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className={pstyles.quickOverviewFooter}>
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={() => setQuickViewProgram(null)}
+              >
+                Close
+              </button>
+
+              <button
+                type="button"
+                className={styles.primaryBtn}
+                onClick={() => router.push(`/programs/${quickViewProgram.id}`)}
+              >
+                <span>Launch Full Curriculum Studio →</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -900,121 +1068,129 @@ export default function ProgramsPage() {
         <div className={styles.modalOverlay} onClick={() => setIsModalOpen(false)}>
           <div
             className={styles.modalContent}
-            style={{ maxWidth: "740px" }}
+            style={{ maxWidth: editingProgramId ? "720px" : "460px", borderRadius: "14px" }}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-labelledby="program-modal-title"
           >
-            <div className={styles.modalHeader}>
-              <div>
-                <h2 id="program-modal-title">
-                  {editingProgramId ? "Edit Course Settings" : "Create New Program Track"}
-                </h2>
-                <p className={styles.modalIntro}>
-                  Step 1 captures catalog metadata. The Curriculum Studio allows authoring videos, PDFs, and quizzes inline.
-                </p>
-              </div>
+            <div
+              className={styles.modalHeader}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "0.85rem 1.25rem",
+                borderBottom: "1px solid var(--border-light, #e7decb)",
+                background: "#ffffff",
+                gap: "1rem",
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 700, color: "var(--text-primary, #14110f)", lineHeight: 1.2 }}>
+                {editingProgramId ? "Edit Program Setup" : "Create New Program"}
+              </h2>
               <button
                 type="button"
                 className={styles.closeBtn}
                 onClick={() => setIsModalOpen(false)}
                 aria-label="Close dialog"
+                style={{
+                  width: "28px",
+                  height: "28px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: "8px",
+                  background: "#f5ede4",
+                  color: "#57534e",
+                  border: "none",
+                  fontSize: "1.2rem",
+                  lineHeight: 1,
+                  cursor: "pointer",
+                  margin: 0,
+                  padding: 0,
+                  flexShrink: 0,
+                }}
               >
                 ×
               </button>
             </div>
 
-            <form
-              onSubmit={handleSaveProgram}
-              style={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0, overflow: "hidden" }}
-            >
-              <div className={styles.modalBody}>
+            <form onSubmit={handleSaveProgram} style={{ display: "flex", flexDirection: "column", flex: "1 1 auto", overflow: "hidden" }}>
+              <div
+                className={styles.modalBody}
+                style={{
+                  padding: editingProgramId ? "1.25rem 1.25rem" : "1rem 1.25rem 1.25rem 1.25rem",
+                  gap: "0.85rem",
+                }}
+              >
                 <div className={styles.formGroup}>
-                  <label>
-                    Program Title <span style={{ color: "var(--status-error)" }}>*</span>
+                  <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-secondary, #78716a)", marginBottom: "4px" }}>
+                    Program Title <span style={{ color: "var(--status-error, #dc2626)" }}>*</span>
                   </label>
                   <input
                     type="text"
                     placeholder="e.g. 11 Steps to U Certification"
                     required
+                    autoFocus
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
+                    style={{
+                      padding: "0.65rem 0.85rem",
+                      borderRadius: "8px",
+                      border: "1px solid var(--border-light, #e7decb)",
+                      fontSize: "0.9rem",
+                    }}
                   />
                 </div>
 
-                <div className={styles.formRow}>
-                  <div className={styles.formGroup}>
-                    <label>
-                      Curriculum Type <span style={{ color: "var(--status-error)" }}>*</span>
-                    </label>
-                    <CustomSelect
-                      value={type}
-                      onChange={(val) => setType(val)}
-                      options={[
-                        { value: "Certification", label: "Certification" },
-                        { value: "Corporate", label: "Corporate" },
-                        { value: "Single Session", label: "Single Session" },
-                      ]}
-                      fullWidth
-                      ariaLabel="Curriculum Type"
-                    />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label>Tuition / Price (USD)</label>
-                    <input
-                      type="number"
-                      placeholder="1999"
-                      value={price}
-                      onChange={(e) => setPrice(e.target.value)}
-                    />
-                  </div>
-                </div>
-
                 <div className={styles.formGroup}>
-                  <label>Course Overview &amp; Summary</label>
-                  <textarea
-                    rows={3}
-                    placeholder="A transformative leadership journey designed for executives..."
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
+                  <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-secondary, #78716a)", marginBottom: "4px" }}>
+                    Price (USD)
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="1999"
+                    value={price}
+                    onChange={(e) => setPrice(e.target.value)}
                   />
                 </div>
 
-                <div className={styles.formRow}>
-                  <div className={styles.formGroup}>
-                    <label>Estimated Duration</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. 12 Masterclasses"
-                      value={duration}
-                      onChange={(e) => setDuration(e.target.value)}
-                    />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label>Target Audience</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Leaders, Teams"
-                      value={audience}
-                      onChange={(e) => setAudience(e.target.value)}
-                    />
-                  </div>
+                <div className={styles.formGroup}>
+                  <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-secondary, #78716a)", marginBottom: "4px" }}>
+                    Short Description
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Brief 1-2 sentence overview for catalog cards..."
+                    value={shortDescription}
+                    onChange={(e) => setShortDescription(e.target.value)}
+                    style={{
+                      padding: "0.65rem 0.85rem",
+                      borderRadius: "8px",
+                      border: "1px solid var(--border-light, #e7decb)",
+                      fontSize: "0.9rem",
+                    }}
+                  />
                 </div>
 
+
+                {/* Course Cover Image with Instant Preview */}
                 <div className={styles.formGroup}>
-                  <label>Course Cover Image</label>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                    <label style={{ margin: 0 }}>Cover Image</label>
+                    <HelpTooltip text="16:9 ratio recommended. Upload from your device or paste a URL." />
+                  </div>
                   <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                     <input
                       type="text"
-                      placeholder="https://... or upload an asset"
+                      placeholder="https://... or click browse to upload"
                       value={image}
                       onChange={(e) => setImage(e.target.value)}
                       style={{ flex: 1 }}
                     />
                     <label
                       className={styles.secondaryBtn}
-                      style={{ cursor: "pointer", margin: 0, padding: "0.55rem 1rem", fontSize: "0.85rem" }}
+                      style={{ cursor: "pointer", margin: 0, padding: "0.5rem 0.95rem", fontSize: "0.82rem" }}
                     >
                       {isUploading ? "Uploading..." : "Browse"}
                       <input
@@ -1037,6 +1213,7 @@ export default function ProgramsPage() {
                       />
                     </label>
                   </div>
+
                   {image && (
                     <div
                       style={{
@@ -1045,82 +1222,85 @@ export default function ProgramsPage() {
                         alignItems: "center",
                         gap: "12px",
                         padding: "8px 12px",
-                        background: "var(--bg-soft)",
+                        background: "#faf8f5",
                         borderRadius: "8px",
-                        border: "1px solid var(--border-light)",
+                        border: "1px solid #ebd9c4",
                       }}
                     >
-                      <Image
+                      <img
                         src={getCourseImageUrl(image)}
                         alt="Preview"
-                        width={48}
-                        height={36}
-                        quality={80}
-                        loading="lazy"
-                        unoptimized={!getCourseImageUrl(image).startsWith("/")}
-                        style={{ width: "48px", height: "36px", objectFit: "cover", borderRadius: "4px" }}
+                        style={{ width: "64px", height: "36px", objectFit: "cover", borderRadius: "4px" }}
                         onError={(e) => {
                           (e.currentTarget as HTMLImageElement).style.display = "none";
                         }}
                       />
-                      <span
-                        style={{
-                          fontSize: "0.78rem",
-                          color: "var(--text-secondary)",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
+                      <span style={{ fontSize: "0.78rem", color: "#78716a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         Preview: {image}
                       </span>
                     </div>
                   )}
                 </div>
 
-                <div className={styles.formGroup}>
-                  <label>Core Learning Objectives (one per line)</label>
-                  <textarea
-                    rows={3}
-                    placeholder="Master strategic emotional regulation&#10;Lead with ethical resilience&#10;Build self-sustaining team trust"
-                    value={points}
-                    onChange={(e) => setPoints(e.target.value)}
-                  />
-                </div>
-
-                <div className={styles.formGroup}>
+                {/* Certificate & Publish Toggles */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", marginTop: "0.5rem" }}>
                   <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
                     <input
                       type="checkbox"
-                      checked={isActive}
-                      onChange={(e) => setIsActive(e.target.checked)}
+                      checked={hasCert}
+                      onChange={(e) => setHasCert(e.target.checked)}
                       style={{ accentColor: "var(--accent-primary)" }}
                     />
-                    <span style={{ fontWeight: 600, fontSize: "0.88rem" }}>
-                      Publish to Learner Catalog immediately
+                    <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>
+                      Issue Certificate of Completion upon course completion
                     </span>
                   </label>
+
+                  {editingProgramId && (
+                    <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={isActive}
+                        onChange={(e) => setIsActive(e.target.checked)}
+                        style={{ accentColor: "var(--accent-primary)" }}
+                      />
+                      <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>
+                        Publish immediately to public catalog
+                      </span>
+                    </label>
+                  )}
                 </div>
 
                 {formError && <p className={styles.formError}>{formError}</p>}
               </div>
 
-              <div className={styles.modalFooter}>
+              <div
+                className={styles.modalFooter}
+                style={{
+                  padding: "0.75rem 1.25rem",
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  alignItems: "center",
+                  gap: "0.75rem",
+                  borderTop: "1px solid var(--border-light, #e7decb)",
+                  background: "#fdfbf7",
+                }}
+              >
                 <button
                   type="button"
                   className={styles.secondaryBtn}
                   onClick={() => setIsModalOpen(false)}
+                  style={{ padding: "0.45rem 0.95rem", fontSize: "0.85rem" }}
                 >
                   Cancel
                 </button>
-                <button type="submit" className={styles.primaryBtn} disabled={isSaving}>
-                  {isSaving ? (
-                    <>
-                      <span className="spinner" /> Saving...
-                    </>
-                  ) : (
-                    editingProgramId ? "Update Settings" : "Create & Author Curriculum →"
-                  )}
+                <button
+                  type="submit"
+                  className={styles.primaryBtn}
+                  disabled={isSaving || !title.trim()}
+                  style={{ padding: "0.45rem 1.15rem", fontSize: "0.85rem" }}
+                >
+                  {isSaving ? "Saving..." : editingProgramId ? "Update Program" : "Create Program"}
                 </button>
               </div>
             </form>
@@ -1128,35 +1308,27 @@ export default function ProgramsPage() {
         </div>
       )}
 
-      {/* Branded ConfirmDialog for Program Deletion / Archival */}
+      {/* REUSABLE MEDIA PREVIEW MODAL */}
+      <MediaPreviewModal
+        config={previewConfig}
+        onClose={() => setPreviewConfig(null)}
+      />
+
+      {/* CONFIRM DELETE DIALOG */}
       <ConfirmDialog
         isOpen={Boolean(programToDelete)}
         onClose={() => {
           if (!isDeletingProgram) setProgramToDelete(null);
         }}
         onConfirm={confirmDeleteProgram}
-        title="Delete Program Track & Clean Up Storage?"
+        title="Delete Program?"
         subtitle={programToDelete?.title}
-        description="Are you sure you want to permanently delete this program track? All associated videos, PDF documents, learning modules, quizzes, questions, and records will be permanently deleted from both Cloudinary storage and the database to free up space. This action cannot be undone."
+        description="Are you sure you want to delete this program? All associated modules, lessons, and records will be deleted."
         tone="danger"
-        confirmText={isDeletingProgram ? "Deleting..." : "Permanently Delete Track"}
+        confirmText={isDeletingProgram ? "Deleting..." : "Permanently Delete Program"}
         cancelText="Cancel"
         isLoading={isDeletingProgram}
         error={deleteError}
-        itemDetails={
-          programToDelete
-            ? [
-                { label: "Course Title", value: programToDelete.title },
-                { label: "Status", value: programToDelete.isActive ? "Published" : "Draft" },
-                { label: "Modules", value: programToDelete._count?.steps ?? 0 },
-                { label: "Price", value: programToDelete.price ? `$${programToDelete.price}` : "Free" },
-              ]
-            : []
-        }
-        callout={{
-          tone: "info",
-          text: "Student history safety: Archiving removes the course from the public catalog while keeping completed certificates and learner records fully intact.",
-        }}
       />
     </div>
   );

@@ -1,7 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import styles from "../curriculum.module.css";
+import { MediaPreviewModal, type MediaPreviewConfig } from "../../../components";
 
 interface Lesson {
   id: string;
@@ -39,6 +40,7 @@ export default function Step4ModuleDetails({
   onDeleteLesson,
   onDeleteQuiz,
 }: Step4ModuleDetailsProps) {
+  const [previewConfig, setPreviewConfig] = useState<MediaPreviewConfig | null>(null);
   const lessons = module.lessons || [];
   const hasQuiz = Boolean(module.quiz && module.quiz.id);
 
@@ -59,13 +61,7 @@ export default function Step4ModuleDetails({
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "2rem", flexWrap: "wrap", gap: "1rem" }}>
           <div>
-            <div className={styles.stepEyebrow}>MODULE {module.sequence} DETAILS</div>
-            <h2 className={styles.stepTitle}>
-              Module {module.sequence}: {module.title}
-            </h2>
-            <p className={styles.stepSubtitle}>
-              {module.description || "Manage lessons, video lectures, and quizzes attached to this module."}
-            </p>
+            <h2 className={styles.stepTitle}>Module {module.sequence}: {module.title}</h2>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
@@ -177,6 +173,29 @@ export default function Step4ModuleDetails({
 
                 {/* Row Actions */}
                 <div className={styles.lessonRowActions}>
+                  {lesson.mediaUrl && (
+                    <button
+                      type="button"
+                      className={styles.lessonIconBtn}
+                      onClick={() =>
+                        setPreviewConfig({
+                          isOpen: true,
+                          type: isVideo ? "VIDEO" : isPdf ? "PDF" : "IMAGE",
+                          title: lesson.title,
+                          src: lesson.mediaUrl.startsWith("upload:")
+                            ? lesson.mediaUrl.replace("upload:", "")
+                            : lesson.mediaUrl,
+                        })
+                      }
+                      title={isVideo ? "Preview Video" : isPdf ? "Preview PDF Document" : "Preview Content"}
+                      style={{ color: "var(--accent-primary, #c97a1e)" }}
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <polygon points="5 3 19 12 5 21 5 3" />
+                      </svg>
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     className={styles.lessonIconBtn}
@@ -321,6 +340,12 @@ export default function Step4ModuleDetails({
           </button>
         </div>
       </div>
+
+      {/* Media Preview Modal */}
+      <MediaPreviewModal
+        config={previewConfig}
+        onClose={() => setPreviewConfig(null)}
+      />
     </section>
   );
 }

@@ -10,7 +10,7 @@ export interface InputDialogProps {
   onSubmit: (value: string) => Promise<void> | void;
   title: string;
   subtitle?: string;
-  description: React.ReactNode;
+  description?: React.ReactNode;
   label: string;
   placeholder?: string;
   initialValue?: string;

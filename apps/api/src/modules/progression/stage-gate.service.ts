@@ -14,6 +14,7 @@ import {
   BookingStatus,
   CertificateType,
   ContentStatus,
+  EnrolmentStatus,
   LearnerStage,
   MissionStatementStatus,
   OralAssessmentStatus,
@@ -162,7 +163,7 @@ export class StageGateService {
       stepProgressList,
       examAttempts,
       oralAssessments,
-      programExamCount,
+      programExam,
       programOralCount,
       oneOnOneSessions,
       missionSubmissions,
@@ -226,9 +227,10 @@ export class StageGateService {
         select: { id: true, status: true, passed: true, overallScore: true, completedAt: true },
       }),
 
-      // 7. Exam configured count
-      this.prisma.exam.count({
+      // 7. Exam configured entity
+      this.prisma.exam.findFirst({
         where: { programId: enrolment.programId },
+        select: { id: true, passMark: true },
       }),
 
       // 8. Oral configured count
@@ -372,7 +374,13 @@ export class StageGateService {
 
     // ── PROGRAM MILESTONE TOGGLES ────────────────────────────────────────────
     const isSequential = programConfig?.sequentialProgressionEnabled !== false;
+    const programExamCount = programExam ? 1 : 0;
+    const examPassMark = programExam?.passMark ?? 75;
     const isExamRequired = (programConfig?.requireExam !== false) && !isCorporateTrack && programExamCount > 0;
+
+    const bestExamScore = examAttempts.length > 0
+      ? Math.max(...examAttempts.map((a) => (typeof a.score === 'number' ? a.score : 0)))
+      : null;
     const isAttendanceRequired = (programConfig?.attendanceRequired !== false) && !isCorporateTrack;
     const isCoachingRequired = (programConfig?.requireCoaching !== false) && !isCorporateTrack;
     const isMissionRequired = (programConfig?.requireMissionStatement !== false) && !isCorporateTrack;
@@ -572,10 +580,12 @@ export class StageGateService {
         details: {
           examRequired: isExamRequired,
           examPassed: Boolean(passedExam),
+          passMark: examPassMark,
+          bestScore: bestExamScore,
+          examScore: passedExam?.score ?? bestExamScore,
+          attemptCount: examAttempts.length,
           oralRequired,
           oralPassed: Boolean(passedOral),
-          examScore: passedExam?.score ?? null,
-          attemptCount: examAttempts.length,
           oralScore: passedOral?.overallScore ?? null,
           oralStatus: passedOral?.status ?? null,
         },
@@ -603,6 +613,7 @@ export class StageGateService {
           attendedSessions: attendanceCompliance.attendedSessionCount,
           requiredSessions: attendanceCompliance.requiredSessionCount,
           thresholdPercent: attendanceCompliance.thresholdUsed,
+          hasScheduledSessions: attendanceCompliance.requiredSessionCount > 0,
         },
         unmetPrerequisites: stage3Unlocked
           ? !stage3Met
@@ -769,5 +780,36 @@ export class StageGateService {
     // Invalidate evaluation by refreshing evaluation
     this.invalidateCache(enrolment.id);
     await this.evaluateStages(enrolment.id);
+  }
+
+  /**
+   * Evaluates 5-stage progression for all confirmed learners in a batch in a single optimized pass.
+   * Reduces N individual API requests down to 1 single request from the admin portal.
+   */
+  async evaluateBatchStages(batchId: string, actor?: any): Promise<Record<string, LearnerProgressionStages>> {
+    const enrolments = await this.prisma.enrolment.findMany({
+      where: {
+        batchId,
+        status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.COMPLETED] },
+      },
+      select: { id: true },
+    });
+
+    const results: Record<string, LearnerProgressionStages> = {};
+    const CHUNK_SIZE = 2;
+    for (let i = 0; i < enrolments.length; i += CHUNK_SIZE) {
+      const chunk = enrolments.slice(i, i + CHUNK_SIZE);
+      await Promise.all(
+        chunk.map(async (e) => {
+          try {
+            results[e.id] = await this.evaluateStages(e.id, actor);
+          } catch (err: any) {
+            this.logger.warn(`Failed evaluating batch stage for ${e.id}: ${err?.message || err}`);
+          }
+        }),
+      );
+    }
+
+    return results;
   }
 }

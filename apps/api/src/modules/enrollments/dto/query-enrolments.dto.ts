@@ -27,7 +27,7 @@ export class QueryEnrolmentsDto {
 
   @IsInt()
   @Min(1)
-  @Max(100)
+  @Max(250)
   @Type(() => Number)
   @IsOptional()
   limit?: number = 50;

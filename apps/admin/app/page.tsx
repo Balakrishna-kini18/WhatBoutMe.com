@@ -13,7 +13,7 @@ import {
   type OneOnOneRequestItem,
   type MissionStatementItem,
 } from "./lib/api";
-import { parseLeadMessage } from "./leads/page";
+import { parseLeadMessage } from "./lib/lead-parser";
 import { filterUpcomingDiscoveryCalls } from "./lib/discovery-calls";
 
 // Crisp outline SVG icons conforming to WhatBoutMe design standard

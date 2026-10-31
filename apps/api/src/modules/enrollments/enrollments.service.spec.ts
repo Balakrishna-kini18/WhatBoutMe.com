@@ -667,6 +667,44 @@ describe('D1-032: EnrollmentsService - State Machine, Concurrency & Waitlist Eng
       );
     });
 
+    it('promotes learner from WAITLIST to ACTIVE when transferred into a batch with open capacity', async () => {
+      prismaMock.enrolment.findUnique
+        .mockResolvedValueOnce({
+          id: 'enrol-waitlist',
+          userId: 'user-1',
+          programId: 'prog-1',
+          batchId: 'batch-old',
+          status: EnrolmentStatus.WAITLIST,
+          signedAgreement: { status: 'SIGNED' },
+          payments: [{ status: 'succeeded' }],
+        })
+        .mockResolvedValueOnce(null);
+
+      prismaMock.batch.findUnique.mockResolvedValue({
+        id: 'batch-new',
+        programId: 'prog-1',
+        capacity: 20,
+        status: BatchStatus.UPCOMING,
+      });
+      prismaMock.enrolment.count.mockResolvedValue(5);
+      prismaMock.enrolment.update.mockResolvedValue({
+        id: 'enrol-waitlist',
+        batchId: 'batch-new',
+        status: EnrolmentStatus.ACTIVE,
+      });
+
+      const res = await service.transferBatch('enrol-waitlist', {
+        destinationBatchId: 'batch-new',
+      });
+
+      expect(res.transferred).toBe(true);
+      expect(prismaMock.enrolment.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { batchId: 'batch-new', status: EnrolmentStatus.ACTIVE },
+        }),
+      );
+    });
+
     it('rejects transfer if destination batch belongs to a different program', async () => {
       prismaMock.enrolment.findUnique.mockResolvedValue({
         id: 'enrol-1',

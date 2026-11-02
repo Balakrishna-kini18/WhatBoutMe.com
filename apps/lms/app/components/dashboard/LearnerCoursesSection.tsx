@@ -34,7 +34,7 @@ export default function LearnerCoursesSection({
             </svg>
           </span>
           <div>
-            <h2 className={styles.sectionTitle}>Your Progress</h2>
+            <h2 className={styles.sectionTitle}>Your Courses</h2>
             <p className={styles.sectionSubtitle}>Continue where you left off</p>
           </div>
         </div>

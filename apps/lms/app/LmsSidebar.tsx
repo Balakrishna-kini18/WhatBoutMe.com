@@ -266,7 +266,8 @@ export default function LmsSidebar() {
 
   return (
     <>
-      {/* Mobile Tab Bar */}
+      {/* Mobile Tab Bar & Ambient Progressive Blur */}
+      <div className={styles.bottomBlurFog} aria-hidden="true" />
       <nav className={styles.tabBar} aria-label="Main Navigation">
         {mobileTabs.map((tab) => (
           <Link

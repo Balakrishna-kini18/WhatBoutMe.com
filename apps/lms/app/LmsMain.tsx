@@ -763,25 +763,26 @@ export default function LmsMain({ children }: { children: React.ReactNode }) {
   return (
     <main className={styles.mainContent}>
       <header className={styles.topbar}>
-        {/* shown on phones, where there is no sidebar to carry the logo; the
-            light logo, because the phone bar is dark like the website's */}
-        <Link href="/" className={styles.topbarLogo} aria-label="WhatBoutMe Home">
-          <Image
-            src="/brand/logo-dark.png"
-            alt="WhatBoutMe"
-            width={136}
-            height={18}
-            priority
-            style={{ width: "auto", height: "1.125rem", objectFit: "contain" }}
-          />
-        </Link>
-        {/* useSearchParams needs a Suspense boundary to prerender */}
-        <Suspense fallback={<div className={styles.searchContainer} />}>
-          <Search />
-        </Suspense>
-        <div className={styles.topbarActions}>
-          <Notifications />
-          <ProfileMenu />
+        <div className={styles.topbarInner}>
+          {/* shown on phones, where there is no sidebar to carry the logo */}
+          <Link href="/" className={styles.topbarLogo} aria-label="WhatBoutMe Home">
+            <Image
+              src="/brand/logo-dark.png"
+              alt="WhatBoutMe"
+              width={136}
+              height={18}
+              priority
+              style={{ width: "auto", height: "1.125rem", objectFit: "contain" }}
+            />
+          </Link>
+          {/* useSearchParams needs a Suspense boundary to prerender */}
+          <Suspense fallback={<div className={styles.searchContainer} />}>
+            <Search />
+          </Suspense>
+          <div className={styles.topbarActions}>
+            <Notifications />
+            <ProfileMenu />
+          </div>
         </div>
       </header>
       {children}

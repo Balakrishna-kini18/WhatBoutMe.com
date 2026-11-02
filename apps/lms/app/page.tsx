@@ -271,53 +271,64 @@ export default function LearnerDashboardPage() {
         quoteText="Small steps every day lead to big results."
       />
 
-      {/* 2. PROGRESS SUMMARY CARD (Placed immediately below Hero matching mobile reference) */}
-      <section
-        className={styles.yourProgressCard}
-        aria-labelledby="your-progress-heading"
-      >
-        <div className={styles.cardHeaderWithIcon}>
-          <span className={styles.cardHeaderIcon} aria-hidden="true">
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#ea580c"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
-              <polyline points="17 6 23 6 23 12" />
-            </svg>
-          </span>
-          <h2 id="your-progress-heading" className={styles.cardHeaderTitle}>
-            Your Progress
-          </h2>
+      {/* 2. MAIN 2-COLUMN DASHBOARD GRID (Left: Courses, Right: Progress & Certificates) */}
+      <div className={styles.dashboardGrid}>
+        {/* LEFT COLUMN: YOUR COURSES SECTION */}
+        <div className={styles.coursesColumn}>
+          <LearnerCoursesSection courses={displayCourses} />
         </div>
 
-        <div className={styles.donutsGrid}>
-          <LearnerProgressSummary
-            percentage={overallPct}
-            completedCourses={completedCourses}
-            totalCourses={totalCourses}
-          />
-          <LearnerAttendanceSummary
-            percentage={attendancePct}
-            attendedSessions={attendedSessions}
-            totalSessions={totalSessions}
-          />
-        </div>
-      </section>
+        {/* RIGHT COLUMN: PROGRESS & CERTIFICATES (Right side on desktop, top of grid on mobile) */}
+        <aside className={styles.rightStack} aria-label="Progress & Certificates">
+          {/* Card 1: Your Progress */}
+          <section
+            className={styles.yourProgressCard}
+            aria-labelledby="your-progress-heading"
+          >
+            <div className={styles.cardHeaderWithIcon}>
+              <span className={styles.cardHeaderIcon} aria-hidden="true">
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#ea580c"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+                  <polyline points="17 6 23 6 23 12" />
+                </svg>
+              </span>
+              <h2 id="your-progress-heading" className={styles.cardHeaderTitle}>
+                Your Progress
+              </h2>
+            </div>
 
-      {/* 3. YOUR COURSES SECTION (2-column responsive grid matching mobile reference) */}
-      <LearnerCoursesSection courses={displayCourses} />
+            <div className={styles.donutsGrid}>
+              <LearnerProgressSummary
+                percentage={overallPct}
+                completedCourses={completedCourses}
+                totalCourses={totalCourses}
+              />
+              <div className={styles.donutDivider} aria-hidden="true" />
+              <LearnerAttendanceSummary
+                percentage={attendancePct}
+                attendedSessions={attendedSessions}
+                totalSessions={totalSessions}
+              />
+            </div>
+          </section>
 
-      {/* 4. CERTIFICATES SECTION (De-emphasized / hidden on mobile, clean on desktop) */}
-      <div className={styles.certificatesWrapper}>
-        <LearnerCertificates certificates={certificates} />
+          {/* Card 2: Certificates */}
+          <div className={styles.certificatesWrapper}>
+            <LearnerCertificates certificates={certificates} />
+          </div>
+        </aside>
       </div>
+      {/* 5. BOTTOM BREATHING ZONE (Crucial clearance so last cards never touch or hide under floating nav) */}
+      <div className={styles.bottomBreathingZone} aria-hidden="true" />
     </div>
   );
 }

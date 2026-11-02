@@ -13,6 +13,22 @@ import RichNoteEditorModal from '../components/notes/RichNoteEditorModal';
 import { ConfirmModal } from '../components/ui/ConfirmModal';
 import { saveLastNotesContext } from '../lib/notesStorageEngine';
 
+/**
+ * Strips out duplicated title text from the note preview so the note card remains clean and concise.
+ */
+function getDistinctPreview(title?: string, preview?: string): string {
+  if (!preview) return '';
+  const cleanTitle = (title || '').trim();
+  const cleanPreview = preview.trim();
+  if (cleanPreview.toLowerCase() === cleanTitle.toLowerCase()) return '';
+  if (cleanTitle && cleanPreview.toLowerCase().startsWith(cleanTitle.toLowerCase())) {
+    const remainder = cleanPreview.slice(cleanTitle.length).replace(/^[—–\-:\s]+/, '').trim();
+    return remainder;
+  }
+  return cleanPreview;
+}
+
+
 export interface MyNotesThreePaneExplorerProps {
   courses: EnrolledCourse[];
   notes: ContextualNote[];
@@ -398,22 +414,34 @@ export function MyNotesThreePaneExplorer({
           <p className={styles.subtitle}>
             All your notes organized by course &rarr; module &rarr; lesson. Access and revise anytime.
           </p>
+          <div className={styles.heroStatsRow}>
+            <div className={styles.badgeTotal}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+                <polyline points="10 9 9 9 8 9" />
+              </svg>
+              {notesLoading ? (
+                <div className={styles.skeletonPulse} style={{ width: 44, height: 14, borderRadius: 4 }} />
+              ) : (
+                <span>
+                  {notes.length} {notes.length === 1 ? 'Note' : 'Notes'}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
-        <div className={styles.badgeTotal}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-            <line x1="16" y1="13" x2="8" y2="13" />
-            <line x1="16" y1="17" x2="8" y2="17" />
-            <polyline points="10 9 9 9 8 9" />
+
+        <div className={styles.heroIllustration} aria-hidden="true">
+          <svg width="74" height="74" viewBox="0 0 84 84" fill="none">
+            <rect x="22" y="10" width="52" height="62" rx="10" fill="#fed7aa" transform="rotate(7 22 10)" opacity="0.85" />
+            <rect x="14" y="16" width="54" height="60" rx="10" fill="#ffffff" stroke="#ffedd5" strokeWidth="1.5" />
+            <rect x="24" y="27" width="34" height="3.5" rx="1.75" fill="#ea580c" opacity="0.85" />
+            <rect x="24" y="36" width="24" height="3.5" rx="1.75" fill="#f97316" opacity="0.65" />
+            <rect x="24" y="45" width="28" height="3.5" rx="1.75" fill="#fdba74" opacity="0.5" />
           </svg>
-          {notesLoading ? (
-            <div className={styles.skeletonPulse} style={{ width: 44, height: 14, borderRadius: 4 }} />
-          ) : (
-            <span>
-              {notes.length} {notes.length === 1 ? 'Note' : 'Notes'}
-            </span>
-          )}
         </div>
       </header>
 
@@ -474,7 +502,7 @@ export function MyNotesThreePaneExplorer({
           <button
             type="button"
             onClick={() => setViewMode('all')}
-            className={`${styles.tabBtn} ${viewMode === 'all' ? styles.tabBtnActive : ''}`}
+            className={`${styles.tabBtn} ${styles.tabAllNotes} ${viewMode === 'all' ? styles.tabBtnActive : ''}`}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -512,7 +540,7 @@ export function MyNotesThreePaneExplorer({
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search notes, tags, or concepts..."
+              placeholder="Search notes..."
               className={styles.searchInput}
             />
           </div>
@@ -537,7 +565,8 @@ export function MyNotesThreePaneExplorer({
           ───────────────────────────────────────────────────────────── */}
       {isGlobalMode && (
         <section className={styles.contentSection}>
-          <div className={styles.navRow}>
+          <div className={styles.globalNotesHeadingBlock}>
+            <div className={styles.navRow}>
             <div className={styles.navGroup}>
               <button
                 type="button"
@@ -588,6 +617,7 @@ export function MyNotesThreePaneExplorer({
               </p>
             </div>
           </div>
+          </div>
 
           {notesLoading ? (
             <NotesSkeletonList />
@@ -608,84 +638,75 @@ export function MyNotesThreePaneExplorer({
             </div>
           ) : (
             <div className={styles.lessonNotesStack}>
-              {globalModeNotes.map((note) => (
-                <article
-                  key={note.noteId}
-                  onClick={() => onSelectNoteForEdit(note)}
-                  className={styles.singleNoteCard}
-                >
-                  <div className={styles.noteCardHeader}>
-                    <div>
-                      <div className={styles.globalNoteMeta}>
-                        <span className={styles.globalNoteMetaCourse}>{note.courseName}</span>
-                        <span className={styles.globalNoteMetaDivider}>&rsaquo;</span>
-                        <span className={styles.globalNoteMetaLesson}>{note.lessonName}</span>
-                      </div>
-                      <h3 className={styles.noteCardTitle}>
-                        {note.noteTitle}
-                      </h3>
-                    </div>
+              {globalModeNotes.map((note) => {
+                const distinctPreview = getDistinctPreview(note.noteTitle, note.plainTextPreview);
 
-                    <div className={styles.noteCardHeaderRight}>
-                      {note.videoTimestampSec !== null && (
+                return (
+                  <article
+                    key={note.noteId}
+                    onClick={() => onSelectNoteForEdit(note)}
+                    className={styles.singleNoteCard}
+                  >
+                    <div className={styles.noteCardHeader}>
+                      <div className={styles.noteCardHeaderLeft}>
+                        <h3 className={styles.noteCardTitle}>
+                          {note.noteTitle}
+                        </h3>
+                      </div>
+
+                      <div className={styles.noteCardHeaderRight}>
+                        {note.videoTimestampSec !== null && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onJumpToLessonPlayer(
+                                note.courseId,
+                                note.lessonId,
+                                note.videoTimestampSec,
+                                note.moduleId
+                              );
+                            }}
+                            className={styles.timestampBadge}
+                            title="Jump to video at this timestamp"
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <circle cx="12" cy="12" r="10" />
+                              <polyline points="12 6 12 12 16 14" />
+                            </svg>
+                            <span>{formatSecondsToTimestamp(note.videoTimestampSec)}</span>
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation();
-                            onJumpToLessonPlayer(
-                              note.courseId,
-                              note.lessonId,
-                              note.videoTimestampSec,
-                              note.moduleId
-                            );
+                            await onToggleFavorite(note.noteId);
                           }}
-                          className={styles.timestampBadge}
-                          title="Jump to video at this timestamp"
+                          className={styles.starBtn}
+                          style={{ color: note.isFavorite ? '#f59e0b' : '#cbd5e1' }}
+                          title={note.isFavorite ? 'Remove favorite' : 'Mark as favorite'}
+                          aria-label={note.isFavorite ? 'Remove favorite' : 'Mark as favorite'}
                         >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <circle cx="12" cy="12" r="10" />
-                            <polyline points="12 6 12 12 16 14" />
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill={note.isFavorite ? '#f59e0b' : 'none'} stroke={note.isFavorite ? '#f59e0b' : '#94a3b8'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                           </svg>
-                          <span>{formatSecondsToTimestamp(note.videoTimestampSec)}</span>
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          await onToggleFavorite(note.noteId);
-                        }}
-                        className={styles.starBtn}
-                        style={{ color: note.isFavorite ? '#f59e0b' : '#cbd5e1' }}
-                        title={note.isFavorite ? 'Remove favorite' : 'Mark as favorite'}
-                        aria-label={note.isFavorite ? 'Remove favorite' : 'Mark as favorite'}
-                      >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill={note.isFavorite ? '#f59e0b' : 'none'} stroke={note.isFavorite ? '#f59e0b' : '#94a3b8'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                        </svg>
-                      </button>
+                      </div>
                     </div>
-                  </div>
 
-                  <p className={styles.notePreviewText}>
-                    {note.plainTextPreview}
-                  </p>
+                    {distinctPreview ? (
+                      <p className={styles.notePreviewText}>
+                        {distinctPreview}
+                      </p>
+                    ) : null}
 
-                  <div className={styles.noteCardFooter}>
-                    <span>Updated {new Date(note.updatedAt).toLocaleDateString()}</span>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleSelectLesson(note.courseId, note.moduleId, note.lessonId);
-                      }}
-                      className={styles.noteJumpBtn}
-                    >
-                      View in Lesson Notes &rarr;
-                    </button>
-                  </div>
-                </article>
-              ))}
+                    <div className={styles.noteCardFooter}>
+                      <span>Updated {new Date(note.updatedAt).toLocaleDateString()}</span>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           )}
         </section>
@@ -697,7 +718,7 @@ export function MyNotesThreePaneExplorer({
           ───────────────────────────────────────────────────────────── */}
       {!isGlobalMode && !selectedCourseId && (
         <section className={styles.contentSection}>
-          <div className={styles.sectionHeaderRow}>
+          <div className={`${styles.sectionHeaderRow} ${styles.courseSelectHeader}`}>
             <div>
               <h2 className={styles.sectionTitle}>
                 Select a Course
@@ -752,7 +773,12 @@ export function MyNotesThreePaneExplorer({
                           {course.title}
                         </h3>
                         <p className={styles.courseCardMeta}>
-                          {course.modules.length} {course.modules.length === 1 ? 'module' : 'modules'}
+                          <svg className={styles.moduleMetaIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                            <polyline points="2 17 12 22 22 17" />
+                            <polyline points="2 12 12 17 22 12" />
+                          </svg>
+                          <span>{course.modules.length} {course.modules.length === 1 ? 'module' : 'modules'}</span>
                         </p>
                       </div>
                       <div className={styles.courseCardBadgeSlot}>
@@ -774,10 +800,23 @@ export function MyNotesThreePaneExplorer({
                           </span>
                         )}
                       </div>
+                      <div className={styles.courseCardActionArrow} aria-hidden="true">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ea580c" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="9 18 15 12 9 6" />
+                        </svg>
+                      </div>
                     </div>
 
                     <div className={styles.courseCardFooter}>
-                      <span>Click to browse curriculum notes</span>
+                      <span className={styles.courseCardFooterHelper}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                          <polyline points="14 2 14 8 20 8" />
+                          <line x1="16" y1="13" x2="8" y2="13" />
+                          <line x1="16" y1="17" x2="8" y2="17" />
+                        </svg>
+                        <span>Click to browse curriculum notes</span>
+                      </span>
                       <span className={styles.courseCardCta}>
                         View Notes &rarr;
                       </span>
@@ -827,7 +866,7 @@ export function MyNotesThreePaneExplorer({
 
           {/* Heading */}
           <div className={styles.sectionHeaderRow}>
-            <div>
+            <div className={styles.courseNotesHeadingBlock}>
               <h2 className={styles.sectionTitle}>
                 {activeCourse ? `${activeCourse.title} – Notes` : 'Course Notes'}
               </h2>
@@ -1040,7 +1079,7 @@ export function MyNotesThreePaneExplorer({
           {/* Card Container for Lesson Notes */}
           <div className={styles.lessonNotesContainer}>
             <div className={styles.lessonNotesTopHeader}>
-              <div>
+              <div className={styles.lessonNotesHeadingBlock}>
                 <h2 className={styles.lessonNotesTitle}>
                   {activeModuleAndLesson ? `Notes for: ${activeModuleAndLesson.lesson.title}` : 'Lesson Notes'}
                 </h2>
@@ -1304,9 +1343,11 @@ export function MyNotesThreePaneExplorer({
                       </div>
                     </div>
 
-                    <p className={styles.notePreviewText}>
-                      {note.plainTextPreview}
-                    </p>
+                    {getDistinctPreview(note.noteTitle, note.plainTextPreview) ? (
+                      <p className={styles.notePreviewText}>
+                        {getDistinctPreview(note.noteTitle, note.plainTextPreview)}
+                      </p>
+                    ) : null}
 
                     {/* Tag Pills */}
                     {note.tags && note.tags.length > 0 && (

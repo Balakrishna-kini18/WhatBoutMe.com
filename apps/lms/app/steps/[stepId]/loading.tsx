@@ -24,15 +24,15 @@ export default function StepLoading() {
           TOP HEADER SKELETON (Pixel-perfect match with Step Page Header)
           ===================================================================== */}
       <header className={styles.header}>
-        <div className={styles.backLink} style={{ pointerEvents: "none", opacity: 0.85 }}>
-          <span className={styles.backIconWrap}>{ArrowLeft}</span>
-          <span className={styles.backText}>Back</span>
+        <div className={styles.headerNavRow}>
+          <div className={styles.backLink} style={{ pointerEvents: "none", opacity: 0.85 }}>
+            <span className={styles.backIconWrap}>{ArrowLeft}</span>
+            <span className={styles.backText}>Back</span>
+          </div>
+          <span className={styles.headerDivider} aria-hidden="true" />
+          <div className={styles.skeletonPulse} style={{ width: 180, height: 26, borderRadius: 6, minWidth: 0, flexShrink: 1 }} />
         </div>
-        <span className={styles.headerDivider} aria-hidden="true" />
-        <div className={styles.headerTitleGroup} style={{ gap: 8 }}>
-          <div className={styles.skeletonPulse} style={{ width: 200, height: 26, borderRadius: 6 }} />
-          <div className={styles.skeletonPulse} style={{ width: 230, height: 20, borderRadius: 999 }} />
-        </div>
+        <div className={`${styles.skeletonPulse} ${styles.cardMetaBadgeSkeleton}`} style={{ width: 200, height: 20, borderRadius: 999 }} />
       </header>
 
       {/* =====================================================================

@@ -271,12 +271,14 @@ export default function LearnerDashboardPage() {
         quoteText="Small steps every day lead to big results."
       />
 
-      {/* 2. MAIN 2-COLUMN DASHBOARD GRID */}
+      {/* 2. MAIN 2-COLUMN DASHBOARD GRID (Left: Courses, Right: Progress & Certificates) */}
       <div className={styles.dashboardGrid}>
-        {/* LEFT COLUMN: YOUR COURSES CONTAINER */}
-        <LearnerCoursesSection courses={displayCourses} />
+        {/* LEFT COLUMN: YOUR COURSES SECTION */}
+        <div className={styles.coursesColumn}>
+          <LearnerCoursesSection courses={displayCourses} />
+        </div>
 
-        {/* RIGHT COLUMN: PROGRESS & CERTIFICATES */}
+        {/* RIGHT COLUMN: PROGRESS & CERTIFICATES (Right side on desktop, top of grid on mobile) */}
         <aside className={styles.rightStack} aria-label="Progress & Certificates">
           {/* Card 1: Your Progress */}
           <section
@@ -310,6 +312,7 @@ export default function LearnerDashboardPage() {
                 completedCourses={completedCourses}
                 totalCourses={totalCourses}
               />
+              <div className={styles.donutDivider} aria-hidden="true" />
               <LearnerAttendanceSummary
                 percentage={attendancePct}
                 attendedSessions={attendedSessions}
@@ -319,9 +322,13 @@ export default function LearnerDashboardPage() {
           </section>
 
           {/* Card 2: Certificates */}
-          <LearnerCertificates certificates={certificates} />
+          <div className={styles.certificatesWrapper}>
+            <LearnerCertificates certificates={certificates} />
+          </div>
         </aside>
       </div>
+      {/* 5. BOTTOM BREATHING ZONE (Crucial clearance so last cards never touch or hide under floating nav) */}
+      <div className={styles.bottomBreathingZone} aria-hidden="true" />
     </div>
   );
 }

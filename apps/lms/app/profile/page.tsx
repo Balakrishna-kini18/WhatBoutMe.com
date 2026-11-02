@@ -11,6 +11,7 @@ import ProfileCoursesCard from "./components/ProfileCoursesCard";
 import DigitalSignatureSection, {
   SavedSignatureState,
 } from "./components/DigitalSignatureSection";
+import AccountActionsCard from "./components/AccountActionsCard";
 import ActiveDevicesSecuritySection, {
   DeviceSession,
 } from "./components/ActiveDevicesSecuritySection";
@@ -260,29 +261,22 @@ export default function ProfilePage() {
           role={profile.role}
           initials={initials || "L"}
           accountType={accountType}
-          onSignOut={signOut}
-          onSignOutEverywhere={signOutEverywhere}
-          isBusy={busy}
         />
 
-        {/* 2. Three Summary Metric Stats Cards */}
+        {/* 2. Account Details Card (Placed together at the beginning with Profile Hero) */}
+        <AccountDetailsCard
+          fullName={profile.name || "Not set"}
+          email={profile.email}
+          phone={profile.phone || "Not set"}
+          accountType={accountType}
+        />
+
+        {/* 3. Three Summary Metric Stats Cards */}
         <ProfileStatsRow
           coursesCount={profile.enrolledPrograms.length}
           scheduledMeetingsCount={profile.upcomingSessions?.length ?? 0}
           certificatesCount={certificates}
         />
-
-        {/* 3. Two-Column Grid: Account Details (Left) + My Courses (Right) */}
-        <div className={styles.twoColumnGrid}>
-          <AccountDetailsCard
-            fullName={profile.name || "Not set"}
-            email={profile.email}
-            phone={profile.phone || "Not set"}
-            accountType={accountType}
-          />
-
-          <ProfileCoursesCard courses={profile.enrolledPrograms} />
-        </div>
 
         {/* 4. Digital Signature Section */}
         <DigitalSignatureSection
@@ -304,6 +298,13 @@ export default function ProfilePage() {
           sessions={sessions}
           onSignOutEverywhere={signOutEverywhere}
           onRevokeSession={revokeSession}
+          isBusy={busy}
+        />
+
+        {/* 6. Account Session & Sign Out Card */}
+        <AccountActionsCard
+          onSignOut={signOut}
+          onSignOutEverywhere={signOutEverywhere}
           isBusy={busy}
         />
       </div>

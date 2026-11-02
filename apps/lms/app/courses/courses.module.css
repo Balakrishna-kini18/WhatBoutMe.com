@@ -554,13 +554,22 @@ div.statCard:hover {
 
 @media (max-width: 1200px) {
   .cardGrid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 767px) {
   .cardGrid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+}
+
+@media (max-width: 359px) {
+  .cardGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6px !important;
   }
 }
 
@@ -940,10 +949,10 @@ div.statCard:hover {
 /* =========================================================================
    MOBILE & TABLET RESPONSIVE REFINEMENTS
    ========================================================================= */
-@media (max-width: 640px) {
+@media (max-width: 767px) {
   .pageWrapper {
-    padding: 1rem 1rem 3.5rem;
-    gap: 1.25rem;
+    padding: 0.5rem 14px calc(100px + env(safe-area-inset-bottom, 0px));
+    gap: 12px;
   }
 
   .pageTitle {
@@ -955,13 +964,13 @@ div.statCard:hover {
   }
 
   .heroBanner {
-    padding: 18px 20px;
+    padding: 16px 16px;
     border-radius: 18px;
-    gap: 16px;
+    gap: 14px;
   }
 
   .bannerLeft {
-    gap: 16px;
+    gap: 14px;
     width: 100%;
     align-items: flex-start;
   }
@@ -971,30 +980,30 @@ div.statCard:hover {
   }
 
   .bannerProgressRing {
-    width: 76px;
-    height: 76px;
+    width: 70px;
+    height: 70px;
   }
 
   .bannerProgressPercent {
-    font-size: 1.25rem;
+    font-size: 1.15rem;
   }
 
   .bannerTitle {
-    font-size: 1.65rem;
+    font-size: 1.45rem;
     margin: 0 0 4px;
   }
 
   .bannerSubtitle {
-    font-size: 0.88rem;
-    margin: 0 0 10px;
+    font-size: 0.82rem;
+    margin: 0 0 8px;
   }
 
   .bannerProgressDone {
-    font-size: 0.88rem;
+    font-size: 0.82rem;
   }
 
   .bannerProgressPending {
-    font-size: 0.82rem;
+    font-size: 0.78rem;
   }
 
   .bannerRight {
@@ -1002,55 +1011,252 @@ div.statCard:hover {
   }
 
   .statsGrid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 0.85rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px 10px;
+    width: 100%;
   }
 
   .statCard {
-    padding: 0.95rem 1rem;
-    gap: 12px;
+    padding: 0.8rem 0.85rem;
+    gap: 10px;
+    border-radius: 14px;
   }
 
   .statBadgeCourses,
   .statBadgeCompleted,
   .statBadgeAttendance,
   .statBadgeCertificate {
-    width: 42px;
-    height: 42px;
-    font-size: 1.15rem;
+    width: 38px;
+    height: 38px;
+    font-size: 1.05rem;
   }
 
   .statValue {
-    font-size: 1.45rem;
+    font-size: 1.3rem;
+  }
+
+  .statLabel {
+    font-size: 0.78rem;
+  }
+
+  .statSubtext {
+    font-size: 0.68rem;
   }
 
   .sectionHeader {
     flex-direction: column;
     align-items: stretch;
     gap: 12px;
+    width: 100%;
   }
 
   .controlsGroup {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px 8px;
+    width: 100%;
   }
 
   .searchInputWrapper {
+    grid-column: 1 / 2;
     width: 100%;
+    min-width: 0;
   }
 
   .searchInput {
     width: 100%;
+    height: 40px;
+    font-size: 0.82rem;
     box-sizing: border-box;
   }
 
   .viewToggleGroup {
-    align-self: flex-start;
+    grid-column: 2 / 3;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .viewToggleBtn {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
   }
 
   .addCourseBtn {
+    grid-column: 1 / -1;
+    display: inline-flex;
+    width: 100%;
     justify-content: center;
+    min-height: 42px;
+    border-radius: 10px;
+    box-sizing: border-box;
+  }
+
+  /* Compact 2-column Course Cards styling */
+  .courseCard {
+    min-width: 0;
+    border-radius: 14px;
+    box-sizing: border-box;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .cardCover {
+    aspect-ratio: 16 / 9;
+    width: 100%;
+    height: auto;
+    position: relative;
+  }
+
+  .playCircle {
+    width: 30px;
+    height: 30px;
+  }
+
+  .playCircle svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  .statusBadgeTopRight {
+    top: 6px;
+    right: 6px;
+    position: absolute;
+    z-index: 2;
+  }
+
+  .pillCompleted,
+  .pillActive,
+  .pillGated {
+    font-size: 0.62rem;
+    padding: 2px 6px;
+    gap: 2px;
+  }
+
+  .cardBody {
+    padding: 8px 8px 4px;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .courseTitle {
+    font-size: 0.8rem;
+    font-weight: 700;
+    line-height: 1.25;
+    min-height: 2.5em;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin: 0 0 3px;
+  }
+
+  .progressRow {
+    gap: 5px;
+    margin: 3px 0;
+    display: flex;
+    align-items: center;
+  }
+
+  .progressBar {
+    height: 4px;
+    flex: 1;
+  }
+
+  .progressPercent {
+    font-size: 0.7rem;
+    min-width: 26px;
+  }
+
+  .upNext {
+    font-size: 0.65rem;
+    line-height: 1.25;
+    min-height: 2.5em;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin: 0 0 4px;
+  }
+
+  .cardFooter {
+    padding: 6px 8px 8px;
+    gap: 5px;
+    display: flex;
+    align-items: center;
+    border-top: 1px solid #f8fafc;
+    margin-top: auto;
+  }
+
+  .btnReview {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 34px;
+    padding: 0 4px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    border-radius: 8px;
+    background: #ea580c;
+    color: #ffffff;
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    box-shadow: 0 1px 3px rgba(234, 88, 12, 0.25);
+    box-sizing: border-box;
+  }
+
+  .btnReview svg {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+  }
+
+  .btnReview span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+  }
+
+  .btnCertificate {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 34px;
+    padding: 0 4px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    box-sizing: border-box;
+  }
+
+  .btnCertificate svg {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+  }
+
+  .btnCertificate span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
   }
 
   .courseCardRow {
@@ -1067,10 +1273,49 @@ div.statCard:hover {
     padding: 0.85rem 1.25rem 1.15rem;
     border-top: 1px solid #f1f5f9;
   }
+
+  /* Bottom breathing zone */
+  .bottomBreathingZone {
+    height: 60px;
+    min-height: 60px;
+    width: 100%;
+    display: block;
+    flex-shrink: 0;
+  }
 }
 
-@media (max-width: 480px) {
+/* Very narrow mobile (< 360px) */
+@media (max-width: 359px) {
   .statsGrid {
-    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .statCard {
+    padding: 0.6rem 0.65rem;
+    gap: 6px;
+  }
+
+  .cardGrid {
+    gap: 6px !important;
+  }
+
+  .cardBody {
+    padding: 6px 6px 3px;
+  }
+
+  .cardFooter {
+    padding: 4px 6px 6px;
+    gap: 4px;
+  }
+
+  .courseTitle {
+    font-size: 0.74rem;
+  }
+
+  .btnReview,
+  .btnCertificate {
+    font-size: 0.66rem;
+    min-height: 30px;
+    padding: 0 2px;
   }
 }

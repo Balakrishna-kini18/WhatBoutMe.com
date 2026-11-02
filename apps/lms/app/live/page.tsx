@@ -418,7 +418,13 @@ export default function LiveSessionsPage() {
 
       let sessionList: Session[] = [];
       if (sessRes.ok) {
-        sessionList = await sessRes.json();
+        const rawList = await sessRes.json();
+        const seen = new Set<string>();
+        sessionList = (Array.isArray(rawList) ? rawList : []).filter((s: Session) => {
+          if (!s || !s.id || seen.has(s.id)) return false;
+          seen.add(s.id);
+          return true;
+        });
       }
 
       // Overlay booking status on each session
@@ -526,14 +532,22 @@ export default function LiveSessionsPage() {
         dayNum,
         isCurrentMonth: false,
         isToday: false,
-        events: sessions.filter((s) => {
-          const mDate = new Date(s.startTime);
-          return (
-            mDate.getFullYear() === d.getFullYear() &&
-            mDate.getMonth() === d.getMonth() &&
-            mDate.getDate() === d.getDate()
-          );
-        }),
+        events: (() => {
+          const seen = new Set<string>();
+          return sessions.filter((s) => {
+            if (!s || !s.id || seen.has(s.id)) return false;
+            const mDate = new Date(s.startTime);
+            const matches =
+              mDate.getFullYear() === d.getFullYear() &&
+              mDate.getMonth() === d.getMonth() &&
+              mDate.getDate() === d.getDate();
+            if (matches) {
+              seen.add(s.id);
+              return true;
+            }
+            return false;
+          });
+        })(),
       });
     }
 
@@ -547,14 +561,22 @@ export default function LiveSessionsPage() {
         dayNum,
         isCurrentMonth: true,
         isToday,
-        events: sessions.filter((s) => {
-          const mDate = new Date(s.startTime);
-          return (
-            mDate.getFullYear() === year &&
-            mDate.getMonth() === month &&
-            mDate.getDate() === dayNum
-          );
-        }),
+        events: (() => {
+          const seen = new Set<string>();
+          return sessions.filter((s) => {
+            if (!s || !s.id || seen.has(s.id)) return false;
+            const mDate = new Date(s.startTime);
+            const matches =
+              mDate.getFullYear() === year &&
+              mDate.getMonth() === month &&
+              mDate.getDate() === dayNum;
+            if (matches) {
+              seen.add(s.id);
+              return true;
+            }
+            return false;
+          });
+        })(),
       });
     }
 
@@ -693,7 +715,7 @@ export default function LiveSessionsPage() {
                 </div>
 
                 <div className={styles.calEventsStack}>
-                  {cell.events.map((evt: Session) => {
+                  {cell.events.map((evt: Session, eIdx: number) => {
                     const isBooked =
                       evt.bookingStatus === "BOOKED" ||
                       evt.bookingStatus === "CONFIRMED" ||
@@ -705,7 +727,7 @@ export default function LiveSessionsPage() {
 
                     return (
                       <div
-                        key={evt.id}
+                        key={`${cell.dateStr}-${evt.id}-${eIdx}`}
                         className={`${styles.calPill} ${isOneOnOne ? styles.calPillCoaching : styles.calPillCohort} ${isBooked ? styles.calPillBooked : ""}`}
                         title={`${evt.title} (${formatTime(new Date(evt.startTime))})`}
                         onClick={() => {
@@ -817,7 +839,7 @@ export default function LiveSessionsPage() {
           id={`tabpanel-${tab}`}
           aria-labelledby={`tab-${tab}`}
         >
-          {visible.map((s) => {
+          {visible.map((s, sIdx) => {
             const start = new Date(s.startTime);
             const end = new Date(s.endTime);
             const live = now >= start.getTime() - 5 * 60000 && now <= end.getTime();
@@ -837,7 +859,7 @@ export default function LiveSessionsPage() {
 
             return (
               <article
-                key={s.id}
+                key={`${s.id}-${sIdx}`}
                 className={`${styles.card} ${isNext ? styles.cardNext : ""} ${live ? styles.cardLive : ""} ${ended ? styles.cardEnded : ""}`}
                 aria-label={s.title}
               >

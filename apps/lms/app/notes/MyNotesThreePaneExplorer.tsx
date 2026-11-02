@@ -196,6 +196,7 @@ export function MyNotesThreePaneExplorer({
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'timestamp'>('newest');
+  const favoritesCount = useMemo(() => notes.filter((n) => n.isFavorite).length, [notes]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -398,22 +399,46 @@ export function MyNotesThreePaneExplorer({
           <p className={styles.subtitle}>
             All your notes organized by course &rarr; module &rarr; lesson. Access and revise anytime.
           </p>
+          <div className={styles.heroStatsRow}>
+            <div className={styles.badgeTotal}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+                <polyline points="10 9 9 9 8 9" />
+              </svg>
+              {notesLoading ? (
+                <div className={styles.skeletonPulse} style={{ width: 44, height: 14, borderRadius: 4 }} />
+              ) : (
+                <span>
+                  {notes.length} {notes.length === 1 ? 'Note' : 'Notes'}
+                </span>
+              )}
+            </div>
+            <div className={styles.badgeFavorites}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+              </svg>
+              {notesLoading ? (
+                <div className={styles.skeletonPulse} style={{ width: 44, height: 14, borderRadius: 4 }} />
+              ) : (
+                <span>
+                  {favoritesCount} {favoritesCount === 1 ? 'Favorite' : 'Favorites'}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
-        <div className={styles.badgeTotal}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-            <line x1="16" y1="13" x2="8" y2="13" />
-            <line x1="16" y1="17" x2="8" y2="17" />
-            <polyline points="10 9 9 9 8 9" />
+
+        <div className={styles.heroIllustration} aria-hidden="true">
+          <svg width="74" height="74" viewBox="0 0 84 84" fill="none">
+            <rect x="22" y="10" width="52" height="62" rx="10" fill="#fed7aa" transform="rotate(7 22 10)" opacity="0.85" />
+            <rect x="14" y="16" width="54" height="60" rx="10" fill="#ffffff" stroke="#ffedd5" strokeWidth="1.5" />
+            <rect x="24" y="27" width="34" height="3.5" rx="1.75" fill="#ea580c" opacity="0.85" />
+            <rect x="24" y="36" width="24" height="3.5" rx="1.75" fill="#f97316" opacity="0.65" />
+            <rect x="24" y="45" width="28" height="3.5" rx="1.75" fill="#fdba74" opacity="0.5" />
           </svg>
-          {notesLoading ? (
-            <div className={styles.skeletonPulse} style={{ width: 44, height: 14, borderRadius: 4 }} />
-          ) : (
-            <span>
-              {notes.length} {notes.length === 1 ? 'Note' : 'Notes'}
-            </span>
-          )}
         </div>
       </header>
 
@@ -474,7 +499,7 @@ export function MyNotesThreePaneExplorer({
           <button
             type="button"
             onClick={() => setViewMode('all')}
-            className={`${styles.tabBtn} ${viewMode === 'all' ? styles.tabBtnActive : ''}`}
+            className={`${styles.tabBtn} ${styles.tabAllNotes} ${viewMode === 'all' ? styles.tabBtnActive : ''}`}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -512,7 +537,7 @@ export function MyNotesThreePaneExplorer({
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search notes, tags, or concepts..."
+              placeholder="Search notes..."
               className={styles.searchInput}
             />
           </div>
@@ -752,7 +777,12 @@ export function MyNotesThreePaneExplorer({
                           {course.title}
                         </h3>
                         <p className={styles.courseCardMeta}>
-                          {course.modules.length} {course.modules.length === 1 ? 'module' : 'modules'}
+                          <svg className={styles.moduleMetaIcon} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                            <polyline points="2 17 12 22 22 17" />
+                            <polyline points="2 12 12 17 22 12" />
+                          </svg>
+                          <span>{course.modules.length} {course.modules.length === 1 ? 'module' : 'modules'}</span>
                         </p>
                       </div>
                       <div className={styles.courseCardBadgeSlot}>
@@ -774,10 +804,23 @@ export function MyNotesThreePaneExplorer({
                           </span>
                         )}
                       </div>
+                      <div className={styles.courseCardActionArrow} aria-hidden="true">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ea580c" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="9 18 15 12 9 6" />
+                        </svg>
+                      </div>
                     </div>
 
                     <div className={styles.courseCardFooter}>
-                      <span>Click to browse curriculum notes</span>
+                      <span className={styles.courseCardFooterHelper}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                          <polyline points="14 2 14 8 20 8" />
+                          <line x1="16" y1="13" x2="8" y2="13" />
+                          <line x1="16" y1="17" x2="8" y2="17" />
+                        </svg>
+                        <span>Click to browse curriculum notes</span>
+                      </span>
                       <span className={styles.courseCardCta}>
                         View Notes &rarr;
                       </span>

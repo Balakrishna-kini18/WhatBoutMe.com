@@ -59,7 +59,38 @@ export function isValidLmsOrigin(origin: string | null | undefined): boolean {
   try {
     const url = new URL(trimmed);
     if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-    return ALLOWED_LMS_ORIGIN_PATTERNS.some((pattern) => pattern.test(url.origin));
+
+    // 1. Explicitly approved origin patterns (whatboutme.com, testfox.in, vercel.app, localhost, LAN)
+    if (ALLOWED_LMS_ORIGIN_PATTERNS.some((pattern) => pattern.test(url.origin))) {
+      return true;
+    }
+
+    // 2. Configured NEXT_PUBLIC_LMS_URL in environment (supports any future custom domain)
+    const envLms = process.env.NEXT_PUBLIC_LMS_URL;
+    if (envLms) {
+      try {
+        if (new URL(envLms).origin.toLowerCase() === url.origin.toLowerCase()) {
+          return true;
+        }
+      } catch { }
+    }
+
+    // 3. Dynamic custom root domain match (e.g. learn.mybrand.com matches mybrand.com)
+    if (typeof window !== "undefined" && window.location?.hostname) {
+      const currentHost = window.location.hostname.toLowerCase();
+      const originHost = url.hostname.toLowerCase();
+      const currentParts = currentHost.split(".");
+      const originParts = originHost.split(".");
+      if (currentParts.length >= 2 && originParts.length >= 2) {
+        const currentRoot = currentParts.slice(-2).join(".");
+        const originRoot = originParts.slice(-2).join(".");
+        if (currentRoot === originRoot) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   } catch {
     return false;
   }
@@ -85,7 +116,7 @@ export function saveLmsOrigin(origin: string | null | undefined): void {
     if (typeof localStorage !== "undefined") {
       localStorage.setItem(LMS_ORIGIN_STORAGE_KEY, sanitized);
     }
-  } catch {}
+  } catch { }
 }
 
 export function getStoredLmsOrigin(): string | null {
@@ -98,7 +129,7 @@ export function getStoredLmsOrigin(): string | null {
       const stored = localStorage.getItem(LMS_ORIGIN_STORAGE_KEY);
       if (isValidLmsOrigin(stored)) return sanitizeLmsOrigin(stored);
     }
-  } catch {}
+  } catch { }
   return null;
 }
 
@@ -110,7 +141,7 @@ export function clearStoredLmsOrigin(): void {
     if (typeof localStorage !== "undefined") {
       localStorage.removeItem(LMS_ORIGIN_STORAGE_KEY);
     }
-  } catch {}
+  } catch { }
 }
 
 export function extractLmsOriginParam(
@@ -185,8 +216,8 @@ export function sanitizeReturnUrl(
     fallback === ""
       ? ""
       : typeof fallback === "string" && fallback.startsWith("/") && !fallback.startsWith("//")
-      ? fallback
-      : "/courses";
+        ? fallback
+        : "/courses";
 
   if (!rawUrl || typeof rawUrl !== "string") {
     return safeFallback;
@@ -402,7 +433,7 @@ export function peekEnrollmentIntent(now = Date.now()): StoredEnrollmentIntent |
   } catch {
     try {
       localStorage.removeItem(ENROLLMENT_INTENT_STORAGE_KEY);
-    } catch {}
+    } catch { }
     return null;
   }
 }
@@ -472,8 +503,8 @@ export function buildAuthHref(
     typeof window !== "undefined" && window?.location?.search
       ? extractLmsOriginParam(window.location.search) || getStoredLmsOrigin()
       : typeof window !== "undefined"
-      ? getStoredLmsOrigin()
-      : null;
+        ? getStoredLmsOrigin()
+        : null;
   if (currentLmsOrigin) {
     params.set("lms_origin", currentLmsOrigin);
   }

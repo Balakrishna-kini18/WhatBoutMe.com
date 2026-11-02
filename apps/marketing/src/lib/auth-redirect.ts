@@ -2,13 +2,14 @@
  * Stateful Enrollment Intent Preservation & Open-Redirect Sanitizer
  *
  * Implements a 3-layer persistence strategy across Marketing, Auth, and LMS:
- *  1. URL Query Parameter (?redirect=... / ?returnTo=... / ?portal=...)
- *  2. Cross-Tab localStorage Fallback (`wbm_enrollment_intent` with 30-min TTL)
+ *  1. URL Query Parameter (?redirect=... / ?returnTo=... / ?portal=... / ?lms_origin=...)
+ *  2. Cross-Tab localStorage Fallback (`wbm_enrollment_intent` with 30-min TTL & `wbm_lms_origin`)
  *  3. Auth Flow Link Threading (/signup <-> /login <-> /forgot-password <-> /verify-email)
  */
 
 export const ENROLLMENT_INTENT_STORAGE_KEY = "wbm_enrollment_intent";
 export const ENROLLMENT_INTENT_TTL_MS = 30 * 60 * 1000; // 30 minutes
+export const LMS_ORIGIN_STORAGE_KEY = "wbm_lms_origin";
 
 export interface EnrollmentIntentInput {
   returnUrl: string;
@@ -18,6 +19,7 @@ export interface EnrollmentIntentInput {
   couponCode?: string;
   autoEnroll?: boolean;
   ttlMs?: number;
+  lmsOrigin?: string;
 }
 
 export interface StoredEnrollmentIntent {
@@ -27,8 +29,107 @@ export interface StoredEnrollmentIntent {
   batchId?: string;
   couponCode?: string;
   autoEnroll?: boolean;
+  lmsOrigin?: string;
   createdAt: number;
   expiresAt: number;
+}
+
+/**
+ * Whitelist patterns for legitimate LMS origins across environments:
+ * - Staging (lms.testfox.in, *.testfox.in)
+ * - Vercel deployments (what-bout-me-com-lms.vercel.app, *.vercel.app)
+ * - Production custom domain (learn.whatboutme.com, lms.whatboutme.com, *.whatboutme.com)
+ * - Localhost / private IP development (localhost:3003, 127.0.0.1:3003, 192.168.x.x:3003)
+ */
+const ALLOWED_LMS_ORIGIN_PATTERNS = [
+  /^https?:\/\/lms\.testfox\.in(?::\d+)?$/i,
+  /^https?:\/\/(?:[a-zA-Z0-9-]+\.)*testfox\.in(?::\d+)?$/i,
+  /^https?:\/\/what-bout-me-com-lms\.vercel\.app(?::\d+)?$/i,
+  /^https?:\/\/(?:[a-zA-Z0-9-]+\.)*vercel\.app(?::\d+)?$/i,
+  /^https?:\/\/(?:learn|lms)\.whatboutme\.com(?::\d+)?$/i,
+  /^https?:\/\/(?:[a-zA-Z0-9-]+\.)*whatboutme\.com(?::\d+)?$/i,
+  /^https?:\/\/localhost(?::\d+)?$/i,
+  /^https?:\/\/127\.0\.0\.1(?::\d+)?$/i,
+  /^https?:\/\/(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)\d+\.\d+(?::\d+)?$/i,
+];
+
+export function isValidLmsOrigin(origin: string | null | undefined): boolean {
+  if (!origin || typeof origin !== "string") return false;
+  const trimmed = origin.trim();
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    return ALLOWED_LMS_ORIGIN_PATTERNS.some((pattern) => pattern.test(url.origin));
+  } catch {
+    return false;
+  }
+}
+
+export function sanitizeLmsOrigin(origin: string | null | undefined): string | null {
+  if (!isValidLmsOrigin(origin)) return null;
+  try {
+    const url = new URL(origin!.trim());
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+export function saveLmsOrigin(origin: string | null | undefined): void {
+  const sanitized = sanitizeLmsOrigin(origin);
+  if (!sanitized) return;
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem(LMS_ORIGIN_STORAGE_KEY, sanitized);
+    }
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(LMS_ORIGIN_STORAGE_KEY, sanitized);
+    }
+  } catch {}
+}
+
+export function getStoredLmsOrigin(): string | null {
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      const stored = sessionStorage.getItem(LMS_ORIGIN_STORAGE_KEY);
+      if (isValidLmsOrigin(stored)) return sanitizeLmsOrigin(stored);
+    }
+    if (typeof localStorage !== "undefined") {
+      const stored = localStorage.getItem(LMS_ORIGIN_STORAGE_KEY);
+      if (isValidLmsOrigin(stored)) return sanitizeLmsOrigin(stored);
+    }
+  } catch {}
+  return null;
+}
+
+export function clearStoredLmsOrigin(): void {
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.removeItem(LMS_ORIGIN_STORAGE_KEY);
+    }
+    if (typeof localStorage !== "undefined") {
+      localStorage.removeItem(LMS_ORIGIN_STORAGE_KEY);
+    }
+  } catch {}
+}
+
+export function extractLmsOriginParam(
+  searchParams?:
+    | URLSearchParams
+    | { get(name: string): string | null }
+    | string
+    | null,
+): string | null {
+  if (!searchParams) return null;
+  const params =
+    typeof searchParams === "string"
+      ? new URLSearchParams(searchParams.startsWith("?") ? searchParams.slice(1) : searchParams)
+      : searchParams;
+  const raw =
+    params.get("lms_origin") ??
+    params.get("lmsOrigin") ??
+    params.get("origin");
+  return sanitizeLmsOrigin(raw);
 }
 
 /**
@@ -233,12 +334,18 @@ export function saveEnrollmentIntent(
       ? intent.ttlMs
       : ENROLLMENT_INTENT_TTL_MS;
 
+  const sanitizedLmsOrigin = sanitizeLmsOrigin(intent.lmsOrigin);
+  if (sanitizedLmsOrigin) {
+    saveLmsOrigin(sanitizedLmsOrigin);
+  }
+
   const record: StoredEnrollmentIntent = {
     returnUrl: sanitizedUrl,
     ...(intent.programId ? { programId: intent.programId } : {}),
     ...(intent.slug ? { slug: intent.slug } : {}),
     ...(intent.batchId ? { batchId: intent.batchId } : {}),
     ...(intent.couponCode ? { couponCode: intent.couponCode } : {}),
+    ...(sanitizedLmsOrigin ? { lmsOrigin: sanitizedLmsOrigin } : {}),
     createdAt: now,
     expiresAt: now + ttl,
   };
@@ -346,7 +453,7 @@ export function consumeEnrollmentIntent(
 
 /**
  * Builds an auth page link (`/login`, `/signup`, `/forgot-password`, `/verify-email`)
- * that preserves the active redirect parameter across auth screen transitions.
+ * that preserves the active redirect parameter and LMS origin across auth screen transitions.
  */
 export function buildAuthHref(
   authPath: "/login" | "/signup" | "/register" | "/forgot-password" | "/verify-email",
@@ -359,6 +466,18 @@ export function buildAuthHref(
     params.set("redirect", sanitized);
     params.set("portal", sanitized);
   }
+
+  // Preserve lms_origin across auth page transitions
+  const currentLmsOrigin =
+    typeof window !== "undefined" && window?.location?.search
+      ? extractLmsOriginParam(window.location.search) || getStoredLmsOrigin()
+      : typeof window !== "undefined"
+      ? getStoredLmsOrigin()
+      : null;
+  if (currentLmsOrigin) {
+    params.set("lms_origin", currentLmsOrigin);
+  }
+
   if (extraParams) {
     for (const [k, v] of Object.entries(extraParams)) {
       if (v !== undefined && v !== null && v !== "") {

@@ -16,9 +16,11 @@ import {
 import { signUp, sendSignupOtp, portalUrl, continueToPortal } from "@/lib/auth";
 import {
   buildAuthHref,
+  extractLmsOriginParam,
   extractRedirectParam,
   peekEnrollmentIntent,
   saveEnrollmentIntent,
+  saveLmsOrigin,
 } from "@/lib/auth-redirect";
 
 export default function SignupPage() {
@@ -60,8 +62,14 @@ export default function SignupPage() {
 
     const params = new URLSearchParams(window.location.search);
     const redirectFromUrl = extractRedirectParam(params);
+    const lmsOriginFromUrl = extractLmsOriginParam(params);
+
+    if (lmsOriginFromUrl) {
+      saveLmsOrigin(lmsOriginFromUrl);
+    }
+
     if (redirectFromUrl) {
-      saveEnrollmentIntent({ returnUrl: redirectFromUrl });
+      saveEnrollmentIntent({ returnUrl: redirectFromUrl, lmsOrigin: lmsOriginFromUrl || undefined });
       setActiveRedirect(redirectFromUrl);
     } else {
       const stored = peekEnrollmentIntent();
@@ -71,7 +79,7 @@ export default function SignupPage() {
     }
 
     if (localStorage.getItem("wbm_user") && (redirectFromUrl || peekEnrollmentIntent())) {
-      continueToPortal(redirectFromUrl);
+      continueToPortal(redirectFromUrl, lmsOriginFromUrl);
     }
   }, []);
 

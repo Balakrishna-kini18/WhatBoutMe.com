@@ -22,11 +22,37 @@ export interface AppUrls {
 export function getAppUrls(): AppUrls {
   const isProduction = process.env.NODE_ENV === 'production';
   const rootDomain = process.env.ROOT_DOMAIN || 'whatboutme.com';
+  const isStaging =
+    process.env.APP_ENV === 'staging' ||
+    rootDomain.includes('testfox.in') ||
+    Boolean(process.env.VERCEL_GIT_COMMIT_REF?.includes('staging'));
 
-  const defaultAdmin = isProduction ? `https://admin.${rootDomain}` : 'http://localhost:3002';
-  const defaultLms = isProduction ? `https://learn.${rootDomain}` : 'http://localhost:3003';
-  const defaultMarketing = isProduction ? `https://${rootDomain}` : 'http://localhost:3000';
-  const defaultApi = isProduction ? `https://api.${rootDomain}` : 'http://localhost:4000';
+  let defaultAdmin: string;
+  let defaultLms: string;
+  let defaultMarketing: string;
+  let defaultApi: string;
+
+  if (isStaging) {
+    defaultAdmin = 'https://admin.testfox.in';
+    defaultLms = 'https://lms.testfox.in';
+    defaultMarketing = 'https://marketing.testfox.in';
+    defaultApi = 'https://whatboutme.testfox.in';
+  } else if (process.env.VERCEL && !process.env.ROOT_DOMAIN) {
+    defaultAdmin = 'https://what-bout-me-com-admin.vercel.app';
+    defaultLms = 'https://what-bout-me-com-lms.vercel.app';
+    defaultMarketing = 'https://what-bout-me-com-atyb.vercel.app';
+    defaultApi = 'https://what-bout-me-com.vercel.app';
+  } else if (isProduction) {
+    defaultAdmin = `https://admin.${rootDomain}`;
+    defaultLms = `https://learn.${rootDomain}`;
+    defaultMarketing = `https://${rootDomain}`;
+    defaultApi = `https://api.${rootDomain}`;
+  } else {
+    defaultAdmin = 'http://localhost:3002';
+    defaultLms = 'http://localhost:3003';
+    defaultMarketing = 'http://localhost:3000';
+    defaultApi = 'http://localhost:4000';
+  }
 
   const adminUrl = (
     process.env.ADMIN_URL ||
@@ -60,4 +86,3 @@ export function getAppUrls(): AppUrls {
     apiUrl,
   };
 }
-

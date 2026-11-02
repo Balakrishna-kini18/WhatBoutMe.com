@@ -1729,24 +1729,24 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           TOP HEADER (Consistent Learning Path format)
           ===================================================================== */}
       <header className={styles.header}>
-        <Link
-          href={step?.programId ? `/programs/${step.programId}/steps` : "/"}
-          className={styles.backLink}
-          title="Back to Learning Path"
-        >
-          <span className={styles.backIconWrap}>{ArrowLeft}</span>
-          <span className={styles.backText}>Back</span>
-        </Link>
-        <span className={styles.headerDivider} aria-hidden="true" />
-        <div className={styles.headerTitleGroup}>
+        <div className={styles.headerNavRow}>
+          <Link
+            href={step?.programId ? `/programs/${step.programId}/steps` : "/"}
+            className={styles.backLink}
+            title="Back to Learning Path"
+          >
+            <span className={styles.backIconWrap}>{ArrowLeft}</span>
+            <span className={styles.backText}>Back</span>
+          </Link>
+          <span className={styles.headerDivider} aria-hidden="true" />
           <h1 className={styles.pageMainTitle}>
             Step {step?.sequence}: {step?.title}
           </h1>
-          <span className={styles.cardMetaBadge}>
-            <span className={styles.cardMetaDot} aria-hidden="true" />
-            {step?.title || `Module ${step?.sequence}`} • {completedLessonsCount} of {totalLessonsCount} lessons completed
-          </span>
         </div>
+        <span className={styles.cardMetaBadge}>
+          <span className={styles.cardMetaDot} aria-hidden="true" />
+          {step?.title || `Module ${step?.sequence}`} • {completedLessonsCount} of {totalLessonsCount} lessons completed
+        </span>
       </header>
 
       {/* =====================================================================

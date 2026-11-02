@@ -379,6 +379,7 @@
 .courseSelectHeader {}
 .courseNotesHeadingBlock {}
 .lessonNotesHeadingBlock {}
+.globalNotesHeadingBlock {}
 
 .sectionHeaderRow {
   display: flex;
@@ -1328,6 +1329,16 @@
    RESPONSIVE LAYOUT
    ───────────────────────────────────────────────────────────────────────────── */
 
+/* Responsive Headings Hidden on Mobile & Tablet */
+@media (max-width: 1023px) {
+  .courseSelectHeader,
+  .courseNotesHeadingBlock,
+  .lessonNotesHeadingBlock,
+  .globalNotesHeadingBlock {
+    display: none !important;
+  }
+}
+
 /* Tablet (768px - 1023px) */
 @media (min-width: 768px) and (max-width: 1023px) {
   .pageNavContainer {
@@ -1602,7 +1613,8 @@
   /* 4. Section Heading */
   .courseSelectHeader,
   .courseNotesHeadingBlock,
-  .lessonNotesHeadingBlock {
+  .lessonNotesHeadingBlock,
+  .globalNotesHeadingBlock {
     display: none !important;
   }
   .sectionHeaderRow {

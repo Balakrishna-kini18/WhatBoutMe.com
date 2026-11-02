@@ -17,7 +17,8 @@
   align-items: center;
   gap: 0.85rem;
   margin-bottom: 0.85rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .backLink {
@@ -736,14 +737,21 @@
   /* 1. Mobile Header & Title */
   .header {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
+    flex-direction: row;
+    align-items: center;
     gap: 8px;
     margin-bottom: 12px;
+    flex-wrap: nowrap;
+    min-width: 0;
+    width: 100%;
   }
 
   .headerDivider {
-    display: none;
+    display: block;
+    width: 1px;
+    height: 1.2rem;
+    background: var(--border-light, #ece4d7);
+    flex-shrink: 0;
   }
 
   .backLink {
@@ -755,6 +763,8 @@
     border: 1px solid #fed7aa;
     color: #0f172a;
     box-shadow: 0 1px 3px rgba(234, 88, 12, 0.05);
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   .backIconWrap {
@@ -762,15 +772,21 @@
     height: 20px;
     background: #fff7ed;
     color: #ea580c;
+    flex-shrink: 0;
   }
 
   .title {
-    font-size: 1.25rem;
+    font-size: 1.12rem;
     font-weight: 800;
-    line-height: 1.22;
+    line-height: 1.25;
     color: #0f172a;
     letter-spacing: -0.015em;
     margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex: 1;
   }
 
   /* 2. Layout Grid: Single Column on Mobile */
@@ -1162,6 +1178,15 @@
   .container {
     padding-left: 10px;
     padding-right: 10px;
+  }
+
+  .title {
+    font-size: 1rem;
+  }
+
+  .backLink {
+    padding: 3px 8px 3px 4px;
+    font-size: 0.72rem;
   }
 
   .card {

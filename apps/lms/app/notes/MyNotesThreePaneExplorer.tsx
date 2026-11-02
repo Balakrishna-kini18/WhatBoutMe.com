@@ -13,6 +13,22 @@ import RichNoteEditorModal from '../components/notes/RichNoteEditorModal';
 import { ConfirmModal } from '../components/ui/ConfirmModal';
 import { saveLastNotesContext } from '../lib/notesStorageEngine';
 
+/**
+ * Strips out duplicated title text from the note preview so the note card remains clean and concise.
+ */
+function getDistinctPreview(title?: string, preview?: string): string {
+  if (!preview) return '';
+  const cleanTitle = (title || '').trim();
+  const cleanPreview = preview.trim();
+  if (cleanPreview.toLowerCase() === cleanTitle.toLowerCase()) return '';
+  if (cleanTitle && cleanPreview.toLowerCase().startsWith(cleanTitle.toLowerCase())) {
+    const remainder = cleanPreview.slice(cleanTitle.length).replace(/^[—–\-:\s]+/, '').trim();
+    return remainder;
+  }
+  return cleanPreview;
+}
+
+
 export interface MyNotesThreePaneExplorerProps {
   courses: EnrolledCourse[];
   notes: ContextualNote[];
@@ -549,7 +565,8 @@ export function MyNotesThreePaneExplorer({
           ───────────────────────────────────────────────────────────── */}
       {isGlobalMode && (
         <section className={styles.contentSection}>
-          <div className={styles.navRow}>
+          <div className={styles.globalNotesHeadingBlock}>
+            <div className={styles.navRow}>
             <div className={styles.navGroup}>
               <button
                 type="button"
@@ -600,6 +617,7 @@ export function MyNotesThreePaneExplorer({
               </p>
             </div>
           </div>
+          </div>
 
           {notesLoading ? (
             <NotesSkeletonList />
@@ -620,84 +638,75 @@ export function MyNotesThreePaneExplorer({
             </div>
           ) : (
             <div className={styles.lessonNotesStack}>
-              {globalModeNotes.map((note) => (
-                <article
-                  key={note.noteId}
-                  onClick={() => onSelectNoteForEdit(note)}
-                  className={styles.singleNoteCard}
-                >
-                  <div className={styles.noteCardHeader}>
-                    <div>
-                      <div className={styles.globalNoteMeta}>
-                        <span className={styles.globalNoteMetaCourse}>{note.courseName}</span>
-                        <span className={styles.globalNoteMetaDivider}>&rsaquo;</span>
-                        <span className={styles.globalNoteMetaLesson}>{note.lessonName}</span>
-                      </div>
-                      <h3 className={styles.noteCardTitle}>
-                        {note.noteTitle}
-                      </h3>
-                    </div>
+              {globalModeNotes.map((note) => {
+                const distinctPreview = getDistinctPreview(note.noteTitle, note.plainTextPreview);
 
-                    <div className={styles.noteCardHeaderRight}>
-                      {note.videoTimestampSec !== null && (
+                return (
+                  <article
+                    key={note.noteId}
+                    onClick={() => onSelectNoteForEdit(note)}
+                    className={styles.singleNoteCard}
+                  >
+                    <div className={styles.noteCardHeader}>
+                      <div className={styles.noteCardHeaderLeft}>
+                        <h3 className={styles.noteCardTitle}>
+                          {note.noteTitle}
+                        </h3>
+                      </div>
+
+                      <div className={styles.noteCardHeaderRight}>
+                        {note.videoTimestampSec !== null && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onJumpToLessonPlayer(
+                                note.courseId,
+                                note.lessonId,
+                                note.videoTimestampSec,
+                                note.moduleId
+                              );
+                            }}
+                            className={styles.timestampBadge}
+                            title="Jump to video at this timestamp"
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <circle cx="12" cy="12" r="10" />
+                              <polyline points="12 6 12 12 16 14" />
+                            </svg>
+                            <span>{formatSecondsToTimestamp(note.videoTimestampSec)}</span>
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation();
-                            onJumpToLessonPlayer(
-                              note.courseId,
-                              note.lessonId,
-                              note.videoTimestampSec,
-                              note.moduleId
-                            );
+                            await onToggleFavorite(note.noteId);
                           }}
-                          className={styles.timestampBadge}
-                          title="Jump to video at this timestamp"
+                          className={styles.starBtn}
+                          style={{ color: note.isFavorite ? '#f59e0b' : '#cbd5e1' }}
+                          title={note.isFavorite ? 'Remove favorite' : 'Mark as favorite'}
+                          aria-label={note.isFavorite ? 'Remove favorite' : 'Mark as favorite'}
                         >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <circle cx="12" cy="12" r="10" />
-                            <polyline points="12 6 12 12 16 14" />
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill={note.isFavorite ? '#f59e0b' : 'none'} stroke={note.isFavorite ? '#f59e0b' : '#94a3b8'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
                           </svg>
-                          <span>{formatSecondsToTimestamp(note.videoTimestampSec)}</span>
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          await onToggleFavorite(note.noteId);
-                        }}
-                        className={styles.starBtn}
-                        style={{ color: note.isFavorite ? '#f59e0b' : '#cbd5e1' }}
-                        title={note.isFavorite ? 'Remove favorite' : 'Mark as favorite'}
-                        aria-label={note.isFavorite ? 'Remove favorite' : 'Mark as favorite'}
-                      >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill={note.isFavorite ? '#f59e0b' : 'none'} stroke={note.isFavorite ? '#f59e0b' : '#94a3b8'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                        </svg>
-                      </button>
+                      </div>
                     </div>
-                  </div>
 
-                  <p className={styles.notePreviewText}>
-                    {note.plainTextPreview}
-                  </p>
+                    {distinctPreview ? (
+                      <p className={styles.notePreviewText}>
+                        {distinctPreview}
+                      </p>
+                    ) : null}
 
-                  <div className={styles.noteCardFooter}>
-                    <span>Updated {new Date(note.updatedAt).toLocaleDateString()}</span>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleSelectLesson(note.courseId, note.moduleId, note.lessonId);
-                      }}
-                      className={styles.noteJumpBtn}
-                    >
-                      View in Lesson Notes &rarr;
-                    </button>
-                  </div>
-                </article>
-              ))}
+                    <div className={styles.noteCardFooter}>
+                      <span>Updated {new Date(note.updatedAt).toLocaleDateString()}</span>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           )}
         </section>
@@ -1334,9 +1343,11 @@ export function MyNotesThreePaneExplorer({
                       </div>
                     </div>
 
-                    <p className={styles.notePreviewText}>
-                      {note.plainTextPreview}
-                    </p>
+                    {getDistinctPreview(note.noteTitle, note.plainTextPreview) ? (
+                      <p className={styles.notePreviewText}>
+                        {getDistinctPreview(note.noteTitle, note.plainTextPreview)}
+                      </p>
+                    ) : null}
 
                     {/* Tag Pills */}
                     {note.tags && note.tags.length > 0 && (

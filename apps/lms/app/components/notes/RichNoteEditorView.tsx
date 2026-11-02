@@ -179,30 +179,6 @@ export function RichNoteEditorView({
                 </button>
               </div>
 
-              {/* Mobile Context Rows: Module, Lesson, Note State */}
-              <div className={styles.mobileContextRows}>
-                <div className={styles.contextItemRow}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <polyline points="9 18 15 12 9 6" />
-                  </svg>
-                  <span className={styles.contextModuleText}>{note.moduleName}</span>
-                </div>
-                <div className={styles.contextItemRow}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <polyline points="9 18 15 12 9 6" />
-                  </svg>
-                  <button
-                    type="button"
-                    onClick={() => onJumpToLesson(note.courseId, note.lessonId, note.videoTimestampSec, note.moduleId)}
-                    className={styles.contextLessonBtn}
-                  >
-                    {note.lessonName}
-                  </button>
-                </div>
-                <div className={styles.noteStateRow}>
-                  <span>New Note</span>
-                </div>
-              </div>
             </div>
           </div>
 

@@ -1166,17 +1166,17 @@
 }
 
 .signOutItemsList {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 12px;
 }
 
 .signOutItemRow {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   justify-content: space-between;
-  gap: 20px;
-  padding: 16px 18px;
+  gap: 14px;
+  padding: 16px 16px;
   background: #faf8f5;
   border: 1px solid #efeae1;
   border-radius: 12px;
@@ -1240,18 +1240,18 @@
   color: #ffffff;
   border: 1px solid #18181b;
   border-radius: 8px;
-  padding: 9px 18px;
-  font-size: 0.85rem;
+  padding: 10px 14px;
+  font-size: 0.84rem;
   font-weight: 600;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  white-space: nowrap;
+  width: 100%;
+  box-sizing: border-box;
   transition: all 0.15s ease;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  flex-shrink: 0;
 }
 
 .signOutActionBtnPrimary:hover {
@@ -1265,18 +1265,18 @@
   color: #18181b;
   border: 1px solid #d6cfc5;
   border-radius: 8px;
-  padding: 9px 18px;
-  font-size: 0.85rem;
+  padding: 10px 14px;
+  font-size: 0.84rem;
   font-weight: 600;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  white-space: nowrap;
+  width: 100%;
+  box-sizing: border-box;
   transition: all 0.15s ease;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
-  flex-shrink: 0;
 }
 
 .signOutActionBtnOutline:hover:not(:disabled) {
@@ -1471,20 +1471,52 @@
   }
 
   .signOutSectionCard {
-    padding: 16px 14px;
+    padding: 14px 12px;
+  }
+
+  .signOutItemsList {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
   }
 
   .signOutItemRow {
     flex-direction: column;
+    justify-content: space-between;
     align-items: stretch;
-    gap: 12px;
-    padding: 14px 12px;
+    gap: 10px;
+    padding: 12px 10px !important;
+  }
+
+  .signOutItemTitle {
+    font-size: 0.78rem !important;
+    line-height: 1.25 !important;
+    gap: 4px !important;
+  }
+
+  .sessionBadgeThisDevice,
+  .sessionBadgeAll {
+    font-size: 0.65rem !important;
+    padding: 1px 5px !important;
+  }
+
+  .signOutItemDesc {
+    font-size: 0.7rem !important;
+    line-height: 1.25 !important;
   }
 
   .signOutActionBtnPrimary,
   .signOutActionBtnOutline {
-    width: 100%;
-    padding: 10px 16px;
-    font-size: 0.88rem;
+    width: 100% !important;
+    padding: 8px 6px !important;
+    font-size: 0.74rem !important;
+    gap: 5px !important;
+    border-radius: 6px !important;
+  }
+
+  .signOutActionBtnPrimary svg,
+  .signOutActionBtnOutline svg {
+    width: 13px !important;
+    height: 13px !important;
+    flex-shrink: 0 !important;
   }
 }

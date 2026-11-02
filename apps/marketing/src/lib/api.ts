@@ -1,10 +1,80 @@
+import {
+  extractLmsOriginParam,
+  getStoredLmsOrigin,
+  sanitizeLmsOrigin,
+  saveLmsOrigin,
+} from "./auth-redirect";
+
 /**
  * Production-Level Host & API URL Resolution (Marketing Website)
+ *
+ * Provides resilient, self-healing API URL resolution:
+ * 1. Checks if explicit env var exists AND belongs to the active domain family.
+ *    (Prevents build-time inlined production/preview URLs from leaking into staging or localhost).
+ * 2. Client-side runtime detection (window.location):
+ *    - Local development (localhost / 127.0.0.1) -> http://localhost:4000
+ *    - Local Wi-Fi LAN IP -> http://<ip>:4000
+ *    - Staging (*.testfox.in) -> https://whatboutme.testfox.in (API), https://marketing.testfox.in (Marketing), https://admin.testfox.in (Admin), https://lms.testfox.in (LMS)
+ *    - Vercel deployments (*.vercel.app) -> https://what-bout-me-com.vercel.app (API), https://what-bout-me-com-admin.vercel.app (Admin), https://what-bout-me-com-lms.vercel.app (LMS)
+ *    - Live Custom Domains (e.g. whatboutme.com) -> https://api.<root-domain>, https://admin.<root-domain>, https://learn.<root-domain>
  */
+
+export function matchesDomainFamily(candidateUrl: string, currentHost: string): boolean {
+  try {
+    const candidateHost = new URL(candidateUrl).hostname.toLowerCase();
+    const host = currentHost.toLowerCase();
+
+    // Localhost
+    if (host === "localhost" || host === "127.0.0.1") {
+      return candidateHost === "localhost" || candidateHost === "127.0.0.1";
+    }
+
+    // Local LAN IP
+    if (/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(host)) {
+      return (
+        /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(candidateHost) ||
+        candidateHost === "localhost"
+      );
+    }
+
+    // Staging testfox.in
+    if (host.endsWith("testfox.in")) {
+      return candidateHost.endsWith("testfox.in");
+    }
+
+    // Vercel deployment preview domains
+    if (host.endsWith("vercel.app")) {
+      return candidateHost.endsWith("vercel.app");
+    }
+
+    // Custom domain production (whatboutme.com)
+    if (host.endsWith("whatboutme.com")) {
+      return candidateHost.endsWith("whatboutme.com");
+    }
+
+    // Fallback: compare root domains
+    const parts = host.split(".");
+    if (parts.length >= 2) {
+      const rootDomain = parts.slice(-2).join(".");
+      return candidateHost.endsWith(rootDomain);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function getApiBaseUrl(): string {
   const envUrl = process.env.NEXT_PUBLIC_API_URL;
   if (envUrl && typeof envUrl === "string" && envUrl.trim().length > 0) {
-    return envUrl.trim().replace(/\/+$/, "");
+    const trimmed = envUrl.trim().replace(/\/+$/, "");
+    if (typeof window !== "undefined" && window.location?.hostname) {
+      if (matchesDomainFamily(trimmed, window.location.hostname)) {
+        return trimmed;
+      }
+    } else {
+      return trimmed;
+    }
   }
 
   if (typeof window !== "undefined" && window.location) {
@@ -14,6 +84,10 @@ export function getApiBaseUrl(): string {
     }
     if (/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(hostname)) {
       return `http://${hostname}:4000`;
+    }
+    // Staging testfox.in
+    if (hostname.endsWith("testfox.in")) {
+      return "https://whatboutme.testfox.in";
     }
     if (hostname.endsWith(".vercel.app")) {
       return "https://what-bout-me-com.vercel.app";
@@ -33,13 +107,27 @@ export function getApiBaseUrl(): string {
 export function getAdminUrl(): string {
   const envUrl = process.env.NEXT_PUBLIC_ADMIN_URL;
   if (envUrl && typeof envUrl === "string" && envUrl.trim().length > 0) {
-    return envUrl.trim().replace(/\/+$/, "");
+    const trimmed = envUrl.trim().replace(/\/+$/, "");
+    if (typeof window !== "undefined" && window.location?.hostname) {
+      if (matchesDomainFamily(trimmed, window.location.hostname)) {
+        return trimmed;
+      }
+    } else {
+      return trimmed;
+    }
   }
 
   if (typeof window !== "undefined" && window.location) {
     const { hostname } = window.location;
     if (hostname === "localhost" || hostname === "127.0.0.1") return "http://localhost:3002";
-    if (hostname.endsWith(".vercel.app")) return "https://what-bout-me-admin.vercel.app";
+    if (/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(hostname)) {
+      return `http://${hostname}:3002`;
+    }
+    // Staging testfox.in
+    if (hostname.endsWith("testfox.in")) {
+      return "https://admin.testfox.in";
+    }
+    if (hostname.endsWith(".vercel.app")) return "https://what-bout-me-com-admin.vercel.app";
     const parts = hostname.split(".");
     const rootDomain = parts.length >= 2 ? parts.slice(-2).join(".") : hostname;
     return `https://admin.${rootDomain}`;
@@ -47,16 +135,59 @@ export function getAdminUrl(): string {
   return "http://localhost:3002";
 }
 
-export function getLmsUrl(): string {
-  const envUrl = process.env.NEXT_PUBLIC_LMS_URL;
-  if (envUrl && typeof envUrl === "string" && envUrl.trim().length > 0) {
-    return envUrl.trim().replace(/\/+$/, "");
+export function getLmsUrl(candidateOrigin?: string | null): string {
+  // 1. Explicit candidate origin passed as parameter
+  const candidateSanitized = sanitizeLmsOrigin(candidateOrigin);
+  if (candidateSanitized) {
+    return candidateSanitized;
   }
 
+  // 2. Client-side URL search param (?lms_origin=...) or storage fallback
+  if (typeof window !== "undefined") {
+    if (window.location?.search) {
+      const fromParam = extractLmsOriginParam(window.location.search);
+      if (fromParam) {
+        saveLmsOrigin(fromParam);
+        return fromParam;
+      }
+    }
+    const fromStorage = getStoredLmsOrigin();
+    if (fromStorage) {
+      const host = window.location.hostname;
+      if (matchesDomainFamily(fromStorage, host)) {
+        return fromStorage;
+      }
+    }
+  }
+
+  // 3. Environment variable NEXT_PUBLIC_LMS_URL validated against current domain family
+  const envUrl = process.env.NEXT_PUBLIC_LMS_URL;
+  if (envUrl && typeof envUrl === "string" && envUrl.trim().length > 0) {
+    const trimmed = envUrl.trim().replace(/\/+$/, "");
+    if (typeof window !== "undefined" && window.location?.hostname) {
+      if (matchesDomainFamily(trimmed, window.location.hostname)) {
+        return trimmed;
+      }
+    } else {
+      return trimmed;
+    }
+  }
+
+  // 4. Client-side runtime domain detection
   if (typeof window !== "undefined" && window.location) {
     const { hostname } = window.location;
     if (hostname === "localhost" || hostname === "127.0.0.1") return "http://localhost:3003";
-    if (hostname.endsWith(".vercel.app")) return "https://what-bout-me-lms.vercel.app";
+    if (/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(hostname)) {
+      return `http://${hostname}:3003`;
+    }
+    // Staging testfox.in
+    if (hostname.endsWith("testfox.in")) {
+      return "https://lms.testfox.in";
+    }
+    // Vercel deployment preview domains
+    if (hostname.endsWith(".vercel.app")) {
+      return "https://what-bout-me-com-lms.vercel.app";
+    }
     const parts = hostname.split(".");
     const rootDomain = parts.length >= 2 ? parts.slice(-2).join(".") : hostname;
     return `https://learn.${rootDomain}`;

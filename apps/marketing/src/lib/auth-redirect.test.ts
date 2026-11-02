@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   sanitizeReturnUrl,
   extractRedirectParam,
@@ -8,9 +8,15 @@ import {
   clearEnrollmentIntent,
   consumeEnrollmentIntent,
   buildAuthHref,
+  isValidLmsOrigin,
+  sanitizeLmsOrigin,
+  saveLmsOrigin,
+  getStoredLmsOrigin,
   ENROLLMENT_INTENT_STORAGE_KEY,
   ENROLLMENT_INTENT_TTL_MS,
 } from "./auth-redirect";
+import { getLmsUrl } from "./api";
+import { portalUrl } from "./auth";
 
 // Robust in-memory mock for localStorage
 class MockLocalStorage {
@@ -308,6 +314,106 @@ describe("Marketing & Post-Auth Redirect Engine (Senior Dev Comprehensive Audit)
       expect(programReturnUrl).toBe(
         "/programs/prog-abc?autoEnroll=true&batchId=batch-xyz&coupon=DISCOUNT",
       );
+    });
+  });
+
+  // =========================================================================
+  // 5. STAGING LMS ORIGIN ISOLATION & HANDOFF (ANTI-PRODUCTION REDIRECT)
+  // =========================================================================
+  describe("5. Staging LMS Origin Isolation & Handoff", () => {
+    const originalWindow = globalThis.window;
+    const originalEnv = process.env;
+
+    afterEach(() => {
+      globalThis.window = originalWindow;
+      process.env = originalEnv;
+    });
+
+    it("validates legitimate LMS domains and rejects untrusted origins", () => {
+      expect(isValidLmsOrigin("https://lms.testfox.in")).toBe(true);
+      expect(isValidLmsOrigin("https://what-bout-me-com-lms.vercel.app")).toBe(true);
+      expect(isValidLmsOrigin("https://learn.whatboutme.com")).toBe(true);
+      expect(isValidLmsOrigin("http://localhost:3003")).toBe(true);
+      expect(isValidLmsOrigin("https://evil.com")).toBe(false);
+      expect(sanitizeLmsOrigin("https://lms.testfox.in/some/path")).toBe("https://lms.testfox.in");
+    });
+
+    it("when running on marketing.testfox.in, getLmsUrl returns https://lms.testfox.in even if NEXT_PUBLIC_LMS_URL points to Production Vercel", () => {
+      Object.defineProperty(globalThis, "window", {
+        value: {
+          location: {
+            hostname: "marketing.testfox.in",
+            origin: "https://marketing.testfox.in",
+            search: "",
+          },
+          localStorage: mockStorage,
+          sessionStorage: mockStorage,
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      // Simulate the bug condition: Vercel inlined production LMS URL into staging build
+      process.env.NEXT_PUBLIC_LMS_URL = "https://what-bout-me-com-lms.vercel.app";
+
+      const resolved = getLmsUrl();
+      // MUST NOT be the production Vercel URL!
+      expect(resolved).not.toBe("https://what-bout-me-com-lms.vercel.app");
+      // MUST be the canonical staging LMS URL!
+      expect(resolved).toBe("https://lms.testfox.in");
+    });
+
+    it("portalUrl constructs SSO handoff destination on staging without routing to Production", () => {
+      Object.defineProperty(globalThis, "window", {
+        value: {
+          location: {
+            hostname: "marketing.testfox.in",
+            origin: "https://marketing.testfox.in",
+            search: "?lms_origin=https%3A%2F%2Flms.testfox.in",
+          },
+          localStorage: mockStorage,
+          sessionStorage: mockStorage,
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      process.env.NEXT_PUBLIC_LMS_URL = "https://what-bout-me-com-lms.vercel.app";
+
+      mockStorage.setItem("wbm_token", "jwt-mock-token-staging");
+      mockStorage.setItem(
+        "wbm_user",
+        JSON.stringify({ id: "user-1", email: "learner@testfox.in" }),
+      );
+
+      const targetUrl = portalUrl("/dashboard");
+      // Must start with staging LMS URL
+      expect(targetUrl.startsWith("https://lms.testfox.in/sso#")).toBe(true);
+      // Must NEVER contain the production URL
+      expect(targetUrl).not.toContain("what-bout-me-com-lms.vercel.app");
+      expect(targetUrl).toContain("next=%2Fdashboard");
+      expect(targetUrl).toContain("token=jwt-mock-token-staging");
+    });
+
+    it("threads lms_origin parameter across /login and /signup", () => {
+      Object.defineProperty(globalThis, "window", {
+        value: {
+          location: {
+            hostname: "marketing.testfox.in",
+            origin: "https://marketing.testfox.in",
+            search: "?lms_origin=https%3A%2F%2Flms.testfox.in",
+          },
+          localStorage: mockStorage,
+          sessionStorage: mockStorage,
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      const href = buildAuthHref("/signup", "/agreement?programId=p1");
+      expect(href).toContain("/signup?");
+      expect(href).toContain("redirect=%2Fagreement%3FprogramId%3Dp1");
+      expect(href).toContain("lms_origin=https%3A%2F%2Flms.testfox.in");
     });
   });
 });

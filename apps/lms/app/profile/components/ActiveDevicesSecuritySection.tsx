@@ -1,12 +1,13 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import styles from "../profile.module.css";
 
 export interface DeviceSession {
   id: string;
   ipAddress?: string | null;
   userAgent?: string | null;
+  deviceFingerprint?: string | null;
   deviceInfo?: {
     browser: string;
     os: string;
@@ -24,162 +25,151 @@ export interface ActiveDevicesSecuritySectionProps {
   isBusy: boolean;
 }
 
+interface UniqueDevice {
+  key: string;
+  primarySessionId: string;
+  allSessionIds: string[];
+  browser: string;
+  os: string;
+  deviceType: "desktop" | "mobile" | "tablet";
+  ipAddress: string;
+  lastActive: string;
+  isCurrent: boolean;
+}
+
 export default function ActiveDevicesSecuritySection({
   sessions,
   onSignOutEverywhere,
   onRevokeSession,
   isBusy,
 }: ActiveDevicesSecuritySectionProps) {
+  // Deduplicate sessions for the same physical device so identical sessions aren't listed one-by-one
+  const devices = useMemo(() => {
+    const map = new Map<string, UniqueDevice>();
+
+    for (const sess of sessions) {
+      const browser = sess.deviceInfo?.browser || "Web Browser";
+      const os = sess.deviceInfo?.os || "";
+      const deviceType = sess.deviceInfo?.deviceType || "desktop";
+      const ip = sess.ipAddress || "127.0.0.1";
+
+      // Group key: fingerprint if present, else ip + browser + os + deviceType
+      const key = sess.deviceFingerprint
+        ? `fp:${sess.deviceFingerprint}`
+        : `${ip}|${browser}|${os}|${deviceType}`;
+
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, {
+          key,
+          primarySessionId: sess.id,
+          allSessionIds: [sess.id],
+          browser,
+          os,
+          deviceType,
+          ipAddress: ip,
+          lastActive: sess.lastActive,
+          isCurrent: !!sess.isCurrent,
+        });
+      } else {
+        existing.allSessionIds.push(sess.id);
+        if (sess.isCurrent) {
+          existing.isCurrent = true;
+          existing.primarySessionId = sess.id;
+        }
+        if (new Date(sess.lastActive).getTime() > new Date(existing.lastActive).getTime()) {
+          existing.lastActive = sess.lastActive;
+          if (!existing.isCurrent) {
+            existing.primarySessionId = sess.id;
+          }
+        }
+      }
+    }
+
+    // Sort: Current device first, then newest lastActive
+    return Array.from(map.values()).sort((a, b) => {
+      if (a.isCurrent) return -1;
+      if (b.isCurrent) return 1;
+      return new Date(b.lastActive).getTime() - new Date(a.lastActive).getTime();
+    });
+  }, [sessions]);
+
+  const getDeviceDisplayName = (device: UniqueDevice) => {
+    const hasBrowser = device.browser && device.browser !== "Web Browser";
+    const hasOs = device.os && device.os !== "Unknown OS" && device.os !== "Desktop Device";
+
+    if (hasBrowser && hasOs) {
+      return `${device.browser} on ${device.os}`;
+    }
+    if (hasBrowser) {
+      return device.browser;
+    }
+    if (hasOs) {
+      return `${device.os} Device`;
+    }
+    return device.isCurrent ? "Current Browser" : "Web Browser";
+  };
+
+  const handleRevokeDevice = (device: UniqueDevice) => {
+    // Revoke all session IDs registered under this physical device
+    for (const id of device.allSessionIds) {
+      onRevokeSession(id);
+    }
+  };
+
   return (
     <section className={styles.sectionCard} aria-labelledby="active-devices-heading">
-      {/* Top Banner Row: Explanation + Security Illustration */}
-      <div className={styles.deviceHeroRow}>
-        <div className={styles.deviceHeroLeft}>
-          <div className={styles.deviceHeaderTitleRow}>
-            <div className={`${styles.sectionHeaderIcon} ${styles.statThemeOrange}`}>
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-              </svg>
-            </div>
-            <div>
-              <div className={styles.deviceTitleWithBadge}>
-                <h2 id="active-devices-heading" className={styles.sectionCardTitle}>
-                  Active Devices &amp; Security
-                </h2>
-                <span className={styles.singleDeviceBadge}>
-                  Single Active Device Enforced (1 Device Max)
-                </span>
-              </div>
-              <p className={styles.deviceExplanationText}>
-                To protect your course materials and prevent unauthorized sharing, WhatBoutMe limits each account to <strong>1 active session</strong>. Signing in on another browser or device automatically signs out previous sessions.
-              </p>
-            </div>
+      {/* Clean Header: No walls of text or bulky illustrations */}
+      <div className={styles.sectionHeaderRow}>
+        <div className={styles.sectionTitleGroup}>
+          <div className={`${styles.sectionHeaderIcon} ${styles.statThemeOrange}`}>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+          </div>
+          <div>
+            <h2 id="active-devices-heading" className={styles.sectionCardTitle}>
+              Active Devices &amp; Security
+            </h2>
+            <p className={styles.sectionCardSubtitle}>
+              Devices currently signed in to your account.
+            </p>
           </div>
         </div>
 
-        {/* Crisp Vector Device Illustration Matching Screenshot */}
-        <div className={styles.deviceIllustrationWrap} aria-hidden="true">
-          <svg
-            width="140"
-            height="85"
-            viewBox="0 0 140 85"
-            fill="none"
-            className={styles.deviceSvg}
+        {devices.length > 1 && (
+          <button
+            type="button"
+            onClick={onSignOutEverywhere}
+            disabled={isBusy}
+            className={styles.signOutOtherDevicesBtn}
           >
-            {/* Ambient warm glow */}
-            <ellipse cx="70" cy="78" rx="60" ry="6" fill="rgba(234, 88, 12, 0.08)" />
-
-            {/* Laptop Base */}
-            <path
-              d="M10 65 L95 65 C97 65 98 66 98 67 L96 71 C95 72 94 72 93 72 L12 72 C11 72 10 72 9 71 L7 67 C7 66 8 65 10 65 Z"
-              fill="#f5efe6"
-              stroke="#e2dcd4"
-              strokeWidth="1.2"
-            />
-            {/* Laptop Screen */}
-            <rect
-              x="16"
-              y="18"
-              width="73"
-              height="47"
-              rx="4"
-              fill="#ffffff"
-              stroke="#e2dcd4"
-              strokeWidth="1.2"
-            />
-            {/* Laptop Display Bezel */}
-            <rect
-              x="20"
-              y="22"
-              width="65"
-              height="39"
-              rx="2"
-              fill="#fbf9f6"
-            />
-            {/* Laptop Screen Content Lines */}
-            <line x1="28" y1="30" x2="60" y2="30" stroke="#fed7aa" strokeWidth="2.5" strokeLinecap="round" />
-            <line x1="28" y1="36" x2="50" y2="36" stroke="#fed7aa" strokeWidth="2" strokeLinecap="round" />
-            <line x1="28" y1="42" x2="68" y2="42" stroke="#f3ebe1" strokeWidth="2" strokeLinecap="round" />
-            <line x1="28" y1="48" x2="58" y2="48" stroke="#f3ebe1" strokeWidth="2" strokeLinecap="round" />
-
-            {/* Smartphone standing next to laptop */}
-            <rect
-              x="92"
-              y="32"
-              width="24"
-              height="40"
-              rx="4"
-              fill="#ffffff"
-              stroke="#e2dcd4"
-              strokeWidth="1.2"
-            />
-            <rect
-              x="95"
-              y="36"
-              width="18"
-              height="32"
-              rx="2"
-              fill="#fbf9f6"
-            />
-            {/* Smartphone speaker / camera */}
-            <line x1="101" y1="34" x2="107" y2="34" stroke="#d6cfc5" strokeWidth="1" strokeLinecap="round" />
-
-            {/* Security Shield Badge */}
-            <g transform="translate(112, 52)">
-              <circle cx="9" cy="11" r="13" fill="#ffffff" filter="drop-shadow(0 2px 4px rgba(234, 88, 12, 0.15))" />
-              <path
-                d="M9 2 L17 5 V11 C17 16 13.5 19 9 20 C4.5 19 1 16 1 11 V5 L9 2 Z"
-                fill="#ea580c"
-              />
-              <path
-                d="M6 11 L8 13 L12 8"
-                stroke="#ffffff"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </g>
-          </svg>
-        </div>
+            {isBusy ? "Signing Out..." : "Sign Out Other Devices"}
+          </button>
+        )}
       </div>
 
-      {/* Active Device Sessions List (if sessions exist) */}
-      {sessions.length > 0 && (
+      {/* Device List */}
+      {devices.length > 0 && (
         <div className={styles.deviceSessionsContainer}>
-          <div className={styles.deviceSessionsHeaderRow}>
-            <span className={styles.deviceSessionsTitle}>
-              Authenticated Sessions ({sessions.length})
-            </span>
-            {sessions.length > 1 && (
-              <button
-                type="button"
-                onClick={onSignOutEverywhere}
-                disabled={isBusy}
-                className={styles.signOutOtherDevicesBtn}
-              >
-                Sign Out Other Devices
-              </button>
-            )}
-          </div>
-
           <div className={styles.deviceGrid}>
-            {sessions.map((sess) => (
+            {devices.map((device) => (
               <div
-                key={sess.id}
-                className={`${styles.deviceCard} ${sess.isCurrent ? styles.deviceCardActive : ""}`}
+                key={device.key}
+                className={`${styles.deviceCard} ${device.isCurrent ? styles.deviceCardActive : ""}`}
               >
                 <div className={styles.deviceIconWrap}>
-                  {sess.deviceInfo?.deviceType === "mobile" ? (
+                  {device.deviceType === "mobile" ? (
                     <svg
                       width="20"
                       height="20"
@@ -189,11 +179,12 @@ export default function ActiveDevicesSecuritySection({
                       strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
+                      aria-hidden="true"
                     >
                       <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
                       <line x1="12" y1="18" x2="12.01" y2="18" />
                     </svg>
-                  ) : sess.deviceInfo?.deviceType === "tablet" ? (
+                  ) : device.deviceType === "tablet" ? (
                     <svg
                       width="20"
                       height="20"
@@ -203,6 +194,7 @@ export default function ActiveDevicesSecuritySection({
                       strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
+                      aria-hidden="true"
                     >
                       <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
                       <line x1="12" y1="18" x2="12.01" y2="18" />
@@ -217,6 +209,7 @@ export default function ActiveDevicesSecuritySection({
                       strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
+                      aria-hidden="true"
                     >
                       <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
                       <line x1="8" y1="21" x2="16" y2="21" />
@@ -228,30 +221,29 @@ export default function ActiveDevicesSecuritySection({
                 <div className={styles.deviceDetails}>
                   <div className={styles.deviceTitleRow}>
                     <strong className={styles.deviceName}>
-                      {sess.deviceInfo?.browser || "Web Browser"} on{" "}
-                      {sess.deviceInfo?.os || "Desktop Device"}
+                      {getDeviceDisplayName(device)}
                     </strong>
-                    {sess.isCurrent && (
+                    {device.isCurrent && (
                       <span className={styles.thisDeviceBadge}>This Device</span>
                     )}
                   </div>
                   <div className={styles.deviceMetaRow}>
-                    <span>IP: {sess.ipAddress || "127.0.0.1"}</span>
+                    <span>IP: {device.ipAddress}</span>
                     <span>&bull;</span>
                     <span>
-                      {sess.isCurrent
+                      {device.isCurrent
                         ? "Active now"
-                        : `Last active ${new Date(sess.lastActive).toLocaleDateString()}`}
+                        : `Last active ${new Date(device.lastActive).toLocaleDateString()}`}
                     </span>
                   </div>
                 </div>
 
-                {!sess.isCurrent && (
+                {!device.isCurrent && (
                   <button
                     type="button"
-                    onClick={() => onRevokeSession(sess.id)}
+                    onClick={() => handleRevokeDevice(device)}
                     className={styles.revokeSessionBtn}
-                    title="Revoke session"
+                    title="Revoke device access"
                   >
                     Revoke
                   </button>

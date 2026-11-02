@@ -196,7 +196,6 @@ export function MyNotesThreePaneExplorer({
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'timestamp'>('newest');
-  const favoritesCount = useMemo(() => notes.filter((n) => n.isFavorite).length, [notes]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -413,18 +412,6 @@ export function MyNotesThreePaneExplorer({
               ) : (
                 <span>
                   {notes.length} {notes.length === 1 ? 'Note' : 'Notes'}
-                </span>
-              )}
-            </div>
-            <div className={styles.badgeFavorites}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-              </svg>
-              {notesLoading ? (
-                <div className={styles.skeletonPulse} style={{ width: 44, height: 14, borderRadius: 4 }} />
-              ) : (
-                <span>
-                  {favoritesCount} {favoritesCount === 1 ? 'Favorite' : 'Favorites'}
                 </span>
               )}
             </div>
@@ -722,7 +709,7 @@ export function MyNotesThreePaneExplorer({
           ───────────────────────────────────────────────────────────── */}
       {!isGlobalMode && !selectedCourseId && (
         <section className={styles.contentSection}>
-          <div className={styles.sectionHeaderRow}>
+          <div className={`${styles.sectionHeaderRow} ${styles.courseSelectHeader}`}>
             <div>
               <h2 className={styles.sectionTitle}>
                 Select a Course
@@ -870,7 +857,7 @@ export function MyNotesThreePaneExplorer({
 
           {/* Heading */}
           <div className={styles.sectionHeaderRow}>
-            <div>
+            <div className={styles.courseNotesHeadingBlock}>
               <h2 className={styles.sectionTitle}>
                 {activeCourse ? `${activeCourse.title} – Notes` : 'Course Notes'}
               </h2>
@@ -1083,7 +1070,7 @@ export function MyNotesThreePaneExplorer({
           {/* Card Container for Lesson Notes */}
           <div className={styles.lessonNotesContainer}>
             <div className={styles.lessonNotesTopHeader}>
-              <div>
+              <div className={styles.lessonNotesHeadingBlock}>
                 <h2 className={styles.lessonNotesTitle}>
                   {activeModuleAndLesson ? `Notes for: ${activeModuleAndLesson.lesson.title}` : 'Lesson Notes'}
                 </h2>

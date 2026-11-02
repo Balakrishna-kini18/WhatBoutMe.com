@@ -1463,7 +1463,7 @@ export class AuthService {
     });
 
     const parseUA = (ua?: string | null) => {
-      if (!ua) return { browser: 'Web Browser', os: 'Unknown OS', deviceType: 'desktop' };
+      if (!ua) return { browser: 'Web Browser', os: '', deviceType: 'desktop' as const };
       const lower = ua.toLowerCase();
       let browser = 'Web Browser';
       if (lower.includes('edg/')) browser = 'Microsoft Edge';
@@ -1472,7 +1472,7 @@ export class AuthService {
       else if (lower.includes('safari/') && !lower.includes('chrome/')) browser = 'Apple Safari';
       else if (lower.includes('opr/') || lower.includes('opera/')) browser = 'Opera';
 
-      let os = 'Unknown OS';
+      let os = '';
       if (lower.includes('windows nt 10.0')) os = 'Windows 10/11';
       else if (lower.includes('windows')) os = 'Windows';
       else if (lower.includes('mac os x') || lower.includes('macintosh')) os = 'macOS';
@@ -1487,7 +1487,34 @@ export class AuthService {
       return { browser, os, deviceType };
     };
 
-    return sessions.map((s) => ({
+    // Deduplicate duplicate sessions for the same physical device/browser
+    const seenDevices = new Set<string>();
+    const uniqueSessions: typeof sessions = [];
+    const obsoleteIds: string[] = [];
+
+    for (const s of sessions) {
+      const key = s.deviceFingerprint
+        ? `fp:${s.deviceFingerprint}`
+        : `${s.ipAddress || 'unknown'}:${s.userAgent || 'unknown'}`;
+
+      const isCurrent = currentSessionId ? s.id === currentSessionId : false;
+
+      if (!seenDevices.has(key) || isCurrent) {
+        seenDevices.add(key);
+        uniqueSessions.push(s);
+      } else {
+        obsoleteIds.push(s.id);
+      }
+    }
+
+    if (obsoleteIds.length > 0) {
+      this.prisma.userSession.updateMany({
+        where: { id: { in: obsoleteIds } },
+        data: { revokedAt: new Date(), revokedReason: 'SUPERSEDED_BY_NEWER_SESSION' },
+      }).catch(() => null);
+    }
+
+    return uniqueSessions.map((s) => ({
       id: s.id,
       deviceFingerprint: s.deviceFingerprint,
       ipAddress: s.ipAddress,

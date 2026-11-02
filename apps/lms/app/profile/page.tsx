@@ -11,6 +11,7 @@ import ProfileCoursesCard from "./components/ProfileCoursesCard";
 import DigitalSignatureSection, {
   SavedSignatureState,
 } from "./components/DigitalSignatureSection";
+import AccountActionsCard from "./components/AccountActionsCard";
 import ActiveDevicesSecuritySection, {
   DeviceSession,
 } from "./components/ActiveDevicesSecuritySection";
@@ -260,9 +261,6 @@ export default function ProfilePage() {
           role={profile.role}
           initials={initials || "L"}
           accountType={accountType}
-          onSignOut={signOut}
-          onSignOutEverywhere={signOutEverywhere}
-          isBusy={busy}
         />
 
         {/* 2. Three Summary Metric Stats Cards */}
@@ -281,7 +279,7 @@ export default function ProfilePage() {
             accountType={accountType}
           />
 
-          <ProfileCoursesCard courses={profile.enrolledPrograms} />
+          {/* <ProfileCoursesCard courses={profile.enrolledPrograms} /> */}
         </div>
 
         {/* 4. Digital Signature Section */}
@@ -304,6 +302,13 @@ export default function ProfilePage() {
           sessions={sessions}
           onSignOutEverywhere={signOutEverywhere}
           onRevokeSession={revokeSession}
+          isBusy={busy}
+        />
+
+        {/* 6. Account Session & Sign Out Card */}
+        <AccountActionsCard
+          onSignOut={signOut}
+          onSignOutEverywhere={signOutEverywhere}
           isBusy={busy}
         />
       </div>

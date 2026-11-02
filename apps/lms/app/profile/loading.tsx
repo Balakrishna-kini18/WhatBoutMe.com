@@ -31,18 +31,7 @@ export default function ProfileLoading() {
               />
             </div>
           </div>
-          <div className={styles.heroActions}>
-            <div
-              className="skeleton"
-              style={{ width: 100, height: 38, borderRadius: 10 }}
-              aria-hidden="true"
-            />
-            <div
-              className="skeleton"
-              style={{ width: 170, height: 38, borderRadius: 10 }}
-              aria-hidden="true"
-            />
-          </div>
+
         </article>
 
         {/* 2. Three Stats Cards Skeleton */}
@@ -171,6 +160,14 @@ export default function ProfileLoading() {
           <div
             className="skeleton"
             style={{ width: "100%", height: 90, borderRadius: 16 }}
+          />
+        </section>
+
+        {/* 6. Account Session & Sign Out Skeleton */}
+        <section className={styles.sectionCard} aria-hidden="true">
+          <div
+            className="skeleton"
+            style={{ width: "100%", height: 110, borderRadius: 16 }}
           />
         </section>
       </div>

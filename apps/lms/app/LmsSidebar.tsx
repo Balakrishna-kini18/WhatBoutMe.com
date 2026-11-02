@@ -260,7 +260,7 @@ export default function LmsSidebar() {
   const mobileTabs = [
     { href: "/", label: "Home", icon: <Icons.Dashboard />, active: pathname === "/" },
     { href: "/courses", label: "Courses", icon: <Icons.Courses />, active: pathname === "/courses" || pathname.startsWith("/programs") || pathname.startsWith("/steps") },
-    { href: "/notes", label: "Notes", icon: <Icons.Notes />, active: pathname === "/notes" },
+    { href: "/notes", label: "Notes", icon: <Icons.Notes />, active: pathname === "/notes" || pathname.startsWith("/notes/") },
     { href: "/profile", label: "Profile", icon: <Icons.User />, active: pathname === "/profile" },
   ];
 

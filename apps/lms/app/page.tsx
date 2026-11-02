@@ -271,56 +271,52 @@ export default function LearnerDashboardPage() {
         quoteText="Small steps every day lead to big results."
       />
 
-      {/* 2. MAIN 2-COLUMN DASHBOARD GRID */}
-      <div className={styles.dashboardGrid}>
-        {/* LEFT COLUMN: YOUR COURSES CONTAINER */}
-        <LearnerCoursesSection courses={displayCourses} />
+      {/* 2. PROGRESS SUMMARY CARD (Placed immediately below Hero matching mobile reference) */}
+      <section
+        className={styles.yourProgressCard}
+        aria-labelledby="your-progress-heading"
+      >
+        <div className={styles.cardHeaderWithIcon}>
+          <span className={styles.cardHeaderIcon} aria-hidden="true">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#ea580c"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+              <polyline points="17 6 23 6 23 12" />
+            </svg>
+          </span>
+          <h2 id="your-progress-heading" className={styles.cardHeaderTitle}>
+            Your Progress
+          </h2>
+        </div>
 
-        {/* RIGHT COLUMN: PROGRESS & CERTIFICATES */}
-        <aside className={styles.rightStack} aria-label="Progress & Certificates">
-          {/* Card 1: Your Progress */}
-          <section
-            className={styles.yourProgressCard}
-            aria-labelledby="your-progress-heading"
-          >
-            <div className={styles.cardHeaderWithIcon}>
-              <span className={styles.cardHeaderIcon} aria-hidden="true">
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#ea580c"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
-                  <polyline points="17 6 23 6 23 12" />
-                </svg>
-              </span>
-              <h2 id="your-progress-heading" className={styles.cardHeaderTitle}>
-                Your Progress
-              </h2>
-            </div>
+        <div className={styles.donutsGrid}>
+          <LearnerProgressSummary
+            percentage={overallPct}
+            completedCourses={completedCourses}
+            totalCourses={totalCourses}
+          />
+          <LearnerAttendanceSummary
+            percentage={attendancePct}
+            attendedSessions={attendedSessions}
+            totalSessions={totalSessions}
+          />
+        </div>
+      </section>
 
-            <div className={styles.donutsGrid}>
-              <LearnerProgressSummary
-                percentage={overallPct}
-                completedCourses={completedCourses}
-                totalCourses={totalCourses}
-              />
-              <LearnerAttendanceSummary
-                percentage={attendancePct}
-                attendedSessions={attendedSessions}
-                totalSessions={totalSessions}
-              />
-            </div>
-          </section>
+      {/* 3. YOUR COURSES SECTION (2-column responsive grid matching mobile reference) */}
+      <LearnerCoursesSection courses={displayCourses} />
 
-          {/* Card 2: Certificates */}
-          <LearnerCertificates certificates={certificates} />
-        </aside>
+      {/* 4. CERTIFICATES SECTION (De-emphasized / hidden on mobile, clean on desktop) */}
+      <div className={styles.certificatesWrapper}>
+        <LearnerCertificates certificates={certificates} />
       </div>
     </div>
   );

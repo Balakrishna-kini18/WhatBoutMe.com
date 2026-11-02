@@ -68,6 +68,12 @@ const Icons = {
       <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
     </svg>
   ),
+  User: () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  ),
   Settings: () => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="3"></circle>
@@ -255,7 +261,7 @@ export default function LmsSidebar() {
     { href: "/", label: "Home", icon: <Icons.Dashboard />, active: pathname === "/" },
     { href: "/courses", label: "Courses", icon: <Icons.Courses />, active: pathname === "/courses" || pathname.startsWith("/programs") || pathname.startsWith("/steps") },
     { href: "/notes", label: "Notes", icon: <Icons.Notes />, active: pathname === "/notes" },
-    { href: "/profile", label: "Profile", icon: <Icons.ChevronDown />, active: pathname === "/profile" },
+    { href: "/profile", label: "Profile", icon: <Icons.User />, active: pathname === "/profile" },
   ];
 
   return (
@@ -270,8 +276,8 @@ export default function LmsSidebar() {
             aria-current={tab.active ? "page" : undefined}
             className={`${styles.tab} ${tab.active ? styles.tabActive : ""}`}
           >
-            {tab.icon}
-            <span>{tab.label}</span>
+            <span className={styles.tabIconWrap} aria-hidden="true">{tab.icon}</span>
+            <span className={styles.tabLabel}>{tab.label}</span>
           </Link>
         ))}
       </nav>

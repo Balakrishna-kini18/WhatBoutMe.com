@@ -20,8 +20,8 @@ export default function LearnerCoursesSection({
         <div className={styles.sectionHeaderTitleGroup}>
           <span className={styles.coursesIconBadge} aria-hidden="true">
             <svg
-              width="20"
-              height="20"
+              width="18"
+              height="18"
               viewBox="0 0 24 24"
               fill="none"
               stroke="#ffffff"
@@ -34,7 +34,7 @@ export default function LearnerCoursesSection({
             </svg>
           </span>
           <div>
-            <h2 className={styles.sectionTitle}>Your Courses</h2>
+            <h2 className={styles.sectionTitle}>Your Progress</h2>
             <p className={styles.sectionSubtitle}>Continue where you left off</p>
           </div>
         </div>
@@ -45,7 +45,7 @@ export default function LearnerCoursesSection({
         </Link>
       </div>
 
-      {/* 2x2 Course Cards Grid or Empty State */}
+      {/* 2-Column Responsive Grid on Mobile & Desktop */}
       {courses.length > 0 ? (
         <div className={styles.coursesGrid2x2}>
           {courses.map((course, idx) => (

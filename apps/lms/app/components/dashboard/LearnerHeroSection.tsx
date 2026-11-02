@@ -28,18 +28,20 @@ export default function LearnerHeroSection({
       className={`${styles.topGreetingBar} ${className || ""}`.trim()}
       aria-label="Welcome greeting"
     >
-      {/* 1. Left side: Dynamic greeting, name, and progress summary */}
-      <HeroGreetingBlock
-        name={name}
-        activeCoursesCount={activeCoursesCount}
-        supportingText={supportingText}
-      />
-
-      {/* 2. Right side: Banner visual composition & Floating quote card */}
-      <div className={styles.greetingRight}>
-        {illustration || <HeroBannerVisual priority />}
-        <HeroQuoteCard quote={quoteText} />
+      <div className={styles.heroTopRow}>
+        <HeroGreetingBlock
+          name={name}
+          activeCoursesCount={activeCoursesCount}
+          supportingText={supportingText}
+        />
+        <div className={styles.heroVisualCol}>
+          {illustration || <HeroBannerVisual priority />}
+        </div>
       </div>
+
+        <div className={styles.heroBottomRow}>
+          <HeroQuoteCard quote={quoteText} />
+        </div>
     </section>
   );
 }

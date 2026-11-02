@@ -767,7 +767,7 @@ export default function LmsMain({ children }: { children: React.ReactNode }) {
             light logo, because the phone bar is dark like the website's */}
         <Link href="/" className={styles.topbarLogo} aria-label="WhatBoutMe Home">
           <Image
-            src="/brand/logo-light.png"
+            src="/brand/logo-dark.png"
             alt="WhatBoutMe"
             width={136}
             height={18}

@@ -8,7 +8,7 @@ export default function AttendanceLoading() {
         <div style={{ width: 80, height: 36, borderRadius: 999, background: "#ede8e0", animation: "pulse 1.5s infinite" }} />
         <div className={styles.headerTitleGroup}>
           <div style={{ width: 180, height: 36, borderRadius: 8, background: "#ede8e0", animation: "pulse 1.5s infinite" }} />
-          <div style={{ width: 340, height: 28, borderRadius: 999, background: "#ede8e0", animation: "pulse 1.5s infinite" }} />
+          <div className={styles.headerBadge} style={{ width: 340, height: 28, borderRadius: 999, background: "#ede8e0", animation: "pulse 1.5s infinite" }} />
         </div>
       </header>
 

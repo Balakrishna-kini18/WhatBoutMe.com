@@ -1743,15 +1743,23 @@
 
   /* 6. Level 2 & 3: Navigation Row, Back Button & Breadcrumb */
   .navRow {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    flex-wrap: nowrap !important;
+    gap: 8px;
+    width: 100%;
     margin-bottom: 12px;
   }
 
   .navGroup {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
+    flex-direction: row;
+    align-items: center;
     gap: 8px;
-    width: 100%;
+    width: auto;
+    flex-shrink: 0;
   }
 
   .backButton {
@@ -1767,6 +1775,24 @@
     font-weight: 700;
     box-shadow: 0 1px 3px rgba(28, 25, 23, 0.03);
     cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .navRow .badgeTotal {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    color: #ea580c;
+    font-size: 0.78rem;
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+    box-shadow: none;
   }
 
   .backArrow {
@@ -1806,24 +1832,7 @@
   }
 
   .sectionHeaderRight {
-    width: 100%;
-    display: flex;
-    justify-content: flex-start;
-    margin-top: 4px;
-  }
-
-  .sectionHeaderRight .badgeTotal {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 12px;
-    border-radius: 999px;
-    background: #fff7ed;
-    border: 1px solid #fed7aa;
-    color: #ea580c;
-    font-size: 0.78rem;
-    font-weight: 700;
-    box-shadow: none;
+    display: none !important;
   }
 
   /* 7. Level 2: Modules & Lessons */

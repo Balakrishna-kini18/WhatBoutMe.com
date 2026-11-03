@@ -108,6 +108,7 @@ export default function CoachingApprovalsTab({
   const [pageSize, setPageSize] = useState(10);
 
   // Approve Modal State
+  const displayTimezone = getSystemTimezone();
   const [approvingReq, setApprovingReq] = useState<OneOnOneRequestItem | null>(null);
   const [approvalDate, setApprovalDate] = useState("");
   const [approvalStartTime, setApprovalStartTime] = useState("10:00");
@@ -117,6 +118,22 @@ export default function CoachingApprovalsTab({
   const [submittingApproval, setSubmittingApproval] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
 
+  // Expired / Past-Due helpers for modal
+  const isApprovingPast = useMemo(() => {
+    if (!approvingReq?.requestedStart) return false;
+    return new Date(approvingReq.requestedStart).getTime() < Date.now();
+  }, [approvingReq]);
+
+  const originalSlotText = useMemo(() => {
+    if (!approvingReq?.requestedStart) return "";
+    const { date, time } = formatSessionSlotParts(
+      approvingReq.requestedStart,
+      approvingReq.requestedEnd,
+      displayTimezone
+    );
+    return date + (time ? " at " + time : "");
+  }, [approvingReq, displayTimezone]);
+
   // Reject Modal State
   const [rejectingReq, setRejectingReq] = useState<OneOnOneRequestItem | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -125,8 +142,6 @@ export default function CoachingApprovalsTab({
 
   // Mark Completed Action State
   const [completingId, setCompletingId] = useState<string | null>(null);
-
-  const displayTimezone = getSystemTimezone();
 
   async function loadRequests() {
     setLoading(true);
@@ -304,10 +319,24 @@ export default function CoachingApprovalsTab({
     const isPast = startD.getTime() < Date.now();
 
     if (isPast) {
-      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      setApprovalDate(tomorrow.toISOString().split("T")[0] || "");
-      setApprovalStartTime("10:00");
-      setApprovalEndTime("10:45");
+      const now = new Date();
+      const currentHour = now.getHours();
+      const currentMin = now.getMinutes();
+      const todayStr = now.toISOString().split("T")[0] || "";
+
+      // Allow scheduling TODAY if earlier than 19:00, otherwise tomorrow
+      if (currentHour < 19) {
+        setApprovalDate(todayStr);
+        const nextHour = currentMin >= 30 ? currentHour + 2 : currentHour + 1;
+        const clampedH = Math.min(Math.max(nextHour, 10), 20);
+        setApprovalStartTime(String(clampedH).padStart(2, '0') + ':00');
+        setApprovalEndTime(String(clampedH).padStart(2, '0') + ':45');
+      } else {
+        const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        setApprovalDate(tomorrow.toISOString().split("T")[0] || "");
+        setApprovalStartTime("10:00");
+        setApprovalEndTime("10:45");
+      }
     } else {
       setApprovalDate(startD.toISOString().split("T")[0] || "");
       setApprovalStartTime(startD.toTimeString().slice(0, 5) || "10:00");
@@ -576,6 +605,7 @@ export default function CoachingApprovalsTab({
 
                 const slotStart = req.session?.startTime || req.requestedStart;
                 const slotEnd = req.session?.endTime || req.requestedEnd;
+                const isPastSlot = isPending && Boolean(req.requestedStart) && new Date(req.requestedStart).getTime() < Date.now();
                 const { date: slotDate, time: slotTime } = formatSessionSlotParts(slotStart, slotEnd, displayTimezone);
                 const hostMeetingUrl = (req.session as any)?.hostUrl || req.session?.joinUrl;
 
@@ -618,12 +648,32 @@ export default function CoachingApprovalsTab({
                     {/* Session Slot */}
                     <td>
                       <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                        <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.84rem" }}>
+                        <span style={{ fontWeight: 600, color: isPastSlot ? "#b91c1c" : "var(--text-primary)", fontSize: "0.84rem" }}>
                           {slotDate}
                         </span>
                         {slotTime && (
-                          <span style={{ fontSize: "0.76rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                          <span style={{ fontSize: "0.76rem", color: isPastSlot ? "#b91c1c" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
                             {slotTime}
+                          </span>
+                        )}
+                        {isPastSlot && (
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "3px",
+                              fontSize: "0.7rem",
+                              color: "#b91c1c",
+                              fontWeight: 600,
+                              background: "#fef2f2",
+                              border: "1px solid #fecaca",
+                              borderRadius: "4px",
+                              padding: "1px 6px",
+                              width: "fit-content",
+                              marginTop: "2px",
+                            }}
+                          >
+                            ⚠️ Slot passed
                           </span>
                         )}
                         {hostMeetingUrl && !isCompleted && (
@@ -671,7 +721,14 @@ export default function CoachingApprovalsTab({
 
                     {/* Status */}
                     <td>
-                      <StatusBadge status={isCompleted ? "COMPLETED" : req.status} />
+                      {isPastSlot ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px", alignItems: "flex-start" }}>
+                          <StatusBadge status="EXPIRED" />
+                          <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Past due</span>
+                        </div>
+                      ) : (
+                        <StatusBadge status={isCompleted ? "COMPLETED" : req.status} />
+                      )}
                     </td>
 
                     {/* Actions */}
@@ -690,8 +747,9 @@ export default function CoachingApprovalsTab({
                               type="button"
                               className={styles.primaryBtnSmall}
                               onClick={() => handleOpenApprove(req)}
+                              title={isPastSlot ? "Slot has passed - reschedule for today or future" : "Approve and schedule session"}
                             >
-                              Schedule
+                              {isPastSlot ? "Reschedule" : "Schedule"}
                             </button>
                             <button
                               type="button"
@@ -772,7 +830,7 @@ export default function CoachingApprovalsTab({
       <Modal
         isOpen={Boolean(approvingReq)}
         onClose={() => setApprovingReq(null)}
-        title="Schedule 1:1 Call"
+        title={isApprovingPast ? "Reschedule 1:1 Call" : "Schedule 1:1 Call"}
         subtitle={
           approvingReq
             ? `Learner: ${approvingReq.user?.name || "Learner"} (${approvingReq.user?.email || ""})`
@@ -784,12 +842,34 @@ export default function CoachingApprovalsTab({
           <form onSubmit={handleSubmitApproval} className={styles.modalForm}>
             {approvalError && <div className={styles.alertError}>{approvalError}</div>}
 
+            {isApprovingPast && (
+              <div
+                style={{
+                  background: "#fffbeb",
+                  border: "1px solid #fde68a",
+                  color: "#92400e",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  fontSize: "0.82rem",
+                  marginBottom: "14px",
+                  lineHeight: 1.45,
+                }}
+              >
+                <strong>⚠️ Original Requested Slot Expired:</strong>
+                <div>
+                  The learner requested a slot for <strong>{originalSlotText}</strong>, which has already passed.
+                  Please select a new date and time for <strong>today (upcoming time)</strong> or a future date to confirm the session.
+                </div>
+              </div>
+            )}
+
             <div className={styles.formGroup}>
               <label>Session Date *</label>
               <DatePicker
                 value={approvalDate}
                 onChange={(val) => setApprovalDate(val)}
                 placeholder="Select session date"
+                minDate={new Date().toISOString().split("T")[0]}
               />
             </div>
 
@@ -852,7 +932,11 @@ export default function CoachingApprovalsTab({
                 className={styles.primaryBtn}
                 disabled={submittingApproval}
               >
-                {submittingApproval ? "Scheduling..." : "Confirm & Schedule"}
+                {submittingApproval
+                  ? "Scheduling..."
+                  : isApprovingPast
+                  ? "Confirm & Reschedule"
+                  : "Confirm & Schedule"}
               </button>
             </div>
           </form>

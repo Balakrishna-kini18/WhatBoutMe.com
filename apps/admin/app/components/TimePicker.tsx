@@ -15,9 +15,15 @@ export interface TimePickerProps {
   size?: "sm" | "md";
   className?: string;
   ariaLabel?: string;
+  /** Format mode: "12h" (default) with AM/PM toggle, or "24h" military/standard format */
+  format?: "12h" | "24h";
 }
 
 const HOURS_12 = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"];
+const HOURS_24 = [
+  "00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11",
+  "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23",
+];
 
 interface TimeDropdownProps {
   value: string;
@@ -242,9 +248,9 @@ function TimeDropdown({
   );
 }
 
-function parseTime24(timeStr: string): { hour12: string; minute: string; ampm: "AM" | "PM" } {
+function parseTime24(timeStr: string): { hour12: string; hour24: string; minute: string; ampm: "AM" | "PM" } {
   if (!timeStr || !timeStr.includes(":")) {
-    return { hour12: "07", minute: "00", ampm: "PM" };
+    return { hour12: "07", hour24: "19", minute: "00", ampm: "PM" };
   }
   const [hPart, mPart] = timeStr.split(":");
   let h = parseInt(hPart || "0", 10);
@@ -255,9 +261,10 @@ function parseTime24(timeStr: string): { hour12: string; minute: string; ampm: "
   const ampm: "AM" | "PM" = h >= 12 ? "PM" : "AM";
   const displayH = h % 12 === 0 ? 12 : h % 12;
   const hour12 = displayH < 10 ? `0${displayH}` : String(displayH);
+  const hour24 = h < 10 ? `0${h}` : String(h);
   const minute = m < 10 ? `0${m}` : String(m);
 
-  return { hour12, minute, ampm };
+  return { hour12, hour24, minute, ampm };
 }
 
 function formatToTime24(hour12: string, minute: string, ampm: "AM" | "PM"): string {
@@ -279,17 +286,19 @@ export function TimePicker({
   size = "md",
   className = "",
   ariaLabel = "Time picker",
+  format = "12h",
 }: TimePickerProps) {
   const generatedId = useId();
   const pickerId = id || generatedId;
 
-  const { hour12, minute, ampm } = useMemo(() => {
+  const { hour12, hour24, minute, ampm } = useMemo(() => {
     return parseTime24(value);
   }, [value]);
 
   const hourOptions = useMemo(() => {
-    return HOURS_12.map((h) => ({ value: h, label: h }));
-  }, []);
+    const list = format === "24h" ? HOURS_24 : HOURS_12;
+    return list.map((h) => ({ value: h, label: h }));
+  }, [format]);
 
   const minuteOptions = useMemo(() => {
     const step = Math.max(1, Math.min(60, minuteStep));
@@ -306,13 +315,21 @@ export function TimePicker({
   }, [minuteStep, minute]);
 
   const handleHourChange = (newHour: string) => {
-    const nextTime = formatToTime24(newHour, minute, ampm);
-    onChange(nextTime);
+    if (format === "24h") {
+      onChange(`${newHour}:${minute}`);
+    } else {
+      const nextTime = formatToTime24(newHour, minute, ampm);
+      onChange(nextTime);
+    }
   };
 
   const handleMinuteChange = (newMinute: string) => {
-    const nextTime = formatToTime24(hour12, newMinute, ampm);
-    onChange(nextTime);
+    if (format === "24h") {
+      onChange(`${hour24}:${newMinute}`);
+    } else {
+      const nextTime = formatToTime24(hour12, newMinute, ampm);
+      onChange(nextTime);
+    }
   };
 
   const handleAmPmToggle = (newAmPm: "AM" | "PM") => {
@@ -327,12 +344,12 @@ export function TimePicker({
       className={`${styles.timePickerContainer} ${size === "sm" ? styles.sm : ""} ${className}`}
       aria-label={ariaLabel}
     >
-      {/* 12-Hour Dropdown */}
+      {/* Hour Dropdown */}
       <TimeDropdown
-        value={hour12}
+        value={format === "24h" ? hour24 : hour12}
         onChange={handleHourChange}
         options={hourOptions}
-        ariaLabel="Select hour"
+        ariaLabel={format === "24h" ? "Select hour (24-hour format)" : "Select hour (12-hour format)"}
         disabled={disabled}
         size={size}
       />
@@ -347,24 +364,47 @@ export function TimePicker({
         size={size}
       />
 
-      {/* AM / PM Segmented Toggle */}
-      <div className={styles.ampmGroup} role="group" aria-label="AM or PM">
-        {(["AM", "PM"] as const).map((period) => {
-          const isActive = ampm === period;
-          return (
-            <button
-              key={period}
-              type="button"
-              disabled={disabled}
-              className={`${styles.ampmBtn} ${isActive ? styles.ampmBtnActive : ""}`}
-              onClick={() => handleAmPmToggle(period)}
-              aria-pressed={isActive}
-            >
-              {period}
-            </button>
-          );
-        })}
-      </div>
+      {/* AM / PM Segmented Toggle (Shown for 12-hour format) */}
+      {format === "12h" ? (
+        <div className={styles.ampmGroup} role="group" aria-label="AM or PM">
+          {(["AM", "PM"] as const).map((period) => {
+            const isActive = ampm === period;
+            return (
+              <button
+                key={period}
+                type="button"
+                disabled={disabled}
+                className={`${styles.ampmBtn} ${isActive ? styles.ampmBtnActive : ""}`}
+                onClick={() => handleAmPmToggle(period)}
+                aria-pressed={isActive}
+              >
+                {period}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            height: size === "sm" ? "32px" : "38px",
+            padding: "0 8px",
+            borderRadius: "8px",
+            background: "#fbf6ee",
+            border: "1px solid #ece4d7",
+            color: "#854d0e",
+            fontSize: "0.72rem",
+            fontWeight: 700,
+            letterSpacing: "0.02em",
+            userSelect: "none",
+          }}
+          title="24-Hour Format (00:00 – 23:59)"
+        >
+          24H
+        </div>
+      )}
     </div>
   );
 }

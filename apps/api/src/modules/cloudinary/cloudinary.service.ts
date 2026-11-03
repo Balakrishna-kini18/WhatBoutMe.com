@@ -110,8 +110,13 @@ export class CloudinaryMediaProvider implements IMediaProvider {
   }
   async deleteMedia(publicId: string, resourceType: string = 'video'): Promise<boolean> {
     return this.executeWithRetry(async () => {
-      const result = await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
-      return result.result === 'ok' || result.result === 'not found';
+      // For videos, try authenticated first because video uploads in WhatBoutMe are authenticated
+      if (resourceType === 'video') {
+        const authRes = await cloudinary.uploader.destroy(publicId, { resource_type: 'video', type: 'authenticated' }).catch(() => null);
+        if (authRes?.result === 'ok') return true;
+      }
+      const result = await cloudinary.uploader.destroy(publicId, { resource_type: resourceType }).catch(() => null);
+      return result?.result === 'ok' || result?.result === 'not found';
     });
   }
 }

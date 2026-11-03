@@ -1094,7 +1094,20 @@ export class SessionsService {
       return enrichSessionWithTimezone(base, displayTz);
     });
 
-    return [...mappedOneOnOnes, ...mappedCohorts].sort(
+    const allSessions = [...mappedOneOnOnes, ...mappedCohorts];
+    const uniqueMap = new Map<string, (typeof allSessions)[0]>();
+    for (const s of allSessions) {
+      if (!uniqueMap.has(s.id)) {
+        uniqueMap.set(s.id, s);
+      } else {
+        const existing = uniqueMap.get(s.id)!;
+        if (s.attended || s.batch) {
+          uniqueMap.set(s.id, { ...existing, ...s });
+        }
+      }
+    }
+
+    return Array.from(uniqueMap.values()).sort(
       (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime(),
     );
   }

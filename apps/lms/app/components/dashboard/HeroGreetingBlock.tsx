@@ -28,26 +28,29 @@ export default function HeroGreetingBlock({
   className,
 }: HeroGreetingBlockProps) {
   // Initialize with deterministic fallback, sync on mount to avoid hydration mismatch
-  const [greetingText, setGreetingText] = useState("Good Afternoon");
+  const [greetingText, setGreetingText] = useState("Good Morning");
 
   useEffect(() => {
     setGreetingText(getTimeOfDayGreeting(new Date()));
   }, []);
 
   const firstName = formatLearnerFirstName(name);
-  const subtitle = supportingText || formatSupportingCourseText(activeCoursesCount);
+  const subtitle =
+    supportingText ||
+    `You have ${activeCoursesCount} active courses in progress — keep learning and build a better version of yourself every day.`;
 
   return (
     <div className={`${styles.greetingLeft} ${className || ""}`.trim()}>
-      <h1 className={styles.greetingTitle}>
+      <div className={styles.greetingTitleWrap}>
         <span className={styles.greetingPrefix}>{greetingText},</span>
-        <br />
-        <span className={styles.greetingName}>{firstName}</span>{" "}
-        <span className={styles.greetingWave} aria-hidden="true">
-          👋
-        </span>
-      </h1>
+        <h1 className={styles.greetingTitle}>
+          <span className={styles.greetingName}>{firstName}</span>{" "}
+          <span className={styles.greetingWave} aria-hidden="true">
+            👋
+          </span>
+        </h1>
+      </div>
       <p className={styles.greetingSubtitle}>{subtitle}</p>
-    </div>
+    </div >
   );
 }

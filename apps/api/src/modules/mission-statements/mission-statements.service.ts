@@ -188,23 +188,13 @@ export class MissionStatementsService {
       }
     }
 
-    // Always persist to local disk in UPLOAD_DIR and fallback directories for immediate static serving
-    const targetDirs = [UPLOAD_DIR];
-    const cwdStorage = join(process.cwd(), 'storage', 'uploads');
-    if (!targetDirs.includes(cwdStorage)) targetDirs.push(cwdStorage);
-    if (!process.cwd().replace(/\\/g, '/').endsWith('apps/api')) {
-      const monorepoSubDir = join(process.cwd(), 'apps', 'api', 'storage', 'uploads');
-      if (!targetDirs.includes(monorepoSubDir)) targetDirs.push(monorepoSubDir);
-    }
-
-    for (const baseDir of targetDirs) {
-      try {
-        const localFilePath = join(baseDir, storageKey);
-        await fs.mkdir(dirname(localFilePath), { recursive: true });
-        await fs.writeFile(localFilePath, file.buffer);
-      } catch {
-        // Fallback directory write failure is safe to ignore
-      }
+    // Persist to local disk in UPLOAD_DIR for static serving if accessible
+    try {
+      const localFilePath = join(UPLOAD_DIR, storageKey);
+      await fs.mkdir(dirname(localFilePath), { recursive: true });
+      await fs.writeFile(localFilePath, file.buffer);
+    } catch {
+      // Local write failure is safe to ignore (e.g. on serverless or ephemeral filesystems)
     }
 
     // Crucial for Serverless (Vercel Lambda): if Object Storage did not return an external URL,
@@ -434,7 +424,6 @@ export class MissionStatementsService {
 
     const baseDirs = [
       UPLOAD_DIR,
-      join(process.cwd(), 'storage', 'uploads'),
       join(process.cwd(), 'apps', 'api', 'storage', 'uploads'),
     ];
 

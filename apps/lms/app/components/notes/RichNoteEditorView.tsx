@@ -92,6 +92,9 @@ export function RichNoteEditorView({
   return (
     <div className={styles.editorPageWrapper}>
       <div className={styles.editorPageCard}>
+        {/* Mobile Sheet Drag Handle */}
+        <div className={styles.sheetHandle} aria-hidden="true" />
+
         {/* Top Navigation & Delete Bar */}
         <div className={styles.editorPageTopBar}>
           <button
@@ -99,7 +102,11 @@ export function RichNoteEditorView({
             onClick={onBackToNotes}
             className={styles.editorPageBackBtn}
           >
-            <span>&larr;</span> Back to Notes
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="19" y1="12" x2="5" y2="12" />
+              <polyline points="12 19 5 12 12 5" />
+            </svg>
+            <span>Back to notes</span>
           </button>
 
           <button
@@ -126,7 +133,7 @@ export function RichNoteEditorView({
 
         {/* Context Provenance Header Card */}
         <div className={styles.editorPageHeader}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, flex: 1 }}>
+          <div className={styles.headerLeftContainer}>
             <div className={styles.docIconBadge}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ea580c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -137,53 +144,41 @@ export function RichNoteEditorView({
               </svg>
             </div>
 
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div className={styles.headerInfoCol}>
               <input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="Note title (e.g. Installation Steps)..."
+                placeholder="Note title (e.g., Inst)"
                 className={styles.editorPageTitleInput}
               />
 
-              {/* Interactive Course > Module > Lesson Breadcrumb */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: '0.85rem', color: '#64748b' }}>
+              {/* Course Badge (shown on mobile directly below title) */}
+              <div className={styles.courseBadgeRow}>
+                <span className={styles.courseBadge}>{note.courseName}</span>
+              </div>
+
+              {/* Interactive Course > Module > Lesson Breadcrumb (Desktop) */}
+              <div className={styles.breadcrumbDesktop}>
                 <button
                   type="button"
                   onClick={() => onJumpToLesson(note.courseId, note.lessonId, null, note.moduleId)}
-                  style={{ background: 'none', border: 'none', color: '#ea580c', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                  className={styles.breadcrumbCourseLink}
                 >
                   {note.courseName}
                 </button>
-                <span>&rsaquo;</span>
-                <span>{note.moduleName}</span>
-                <span>&rsaquo;</span>
+                <span className={styles.breadcrumbSep}>&rsaquo;</span>
+                <span className={styles.breadcrumbModuleText}>{note.moduleName}</span>
+                <span className={styles.breadcrumbSep}>&rsaquo;</span>
                 <button
                   type="button"
                   onClick={() => onJumpToLesson(note.courseId, note.lessonId, note.videoTimestampSec, note.moduleId)}
-                  style={{ background: 'none', border: 'none', color: '#334155', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                  className={styles.breadcrumbLessonLink}
                 >
                   {note.lessonName}
                 </button>
               </div>
 
-              {/* Video Timestamp Chip + Last Updated */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, fontSize: '0.78rem', color: '#94a3b8' }}>
-                {timestampDisplay && (
-                  <button
-                    type="button"
-                    onClick={() => onJumpToLesson(note.courseId, note.lessonId, note.videoTimestampSec, note.moduleId)}
-                    className={styles.timestampPill}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <circle cx="12" cy="12" r="10" />
-                      <polyline points="12 6 12 12 16 14" />
-                    </svg>
-                    <span>{timestampDisplay}</span>
-                  </button>
-                )}
-                <span>Last updated {new Date(note.updatedAt).toLocaleString()}</span>
-              </div>
             </div>
           </div>
 
@@ -201,39 +196,28 @@ export function RichNoteEditorView({
           </button>
         </div>
 
+        {/* Section Divider */}
+        <div className={styles.sectionDivider} />
+
         {/* Visual Rich Text Canvas */}
         <VisualRichTextEditor
           initialContent={content}
           onChange={handleEditorChange}
-          placeholder="Write your thoughts, reflections, insights, or key takeaways here..."
-          minHeight={260}
+          placeholder="Write your thoughts, reflections..."
+          minHeight={150}
         />
 
         {/* Tags Section */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Tags</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+        <div className={styles.tagsSection}>
+          <label className={styles.tagsLabel}>Tags</label>
+          <div className={styles.tagsWrap}>
             {tags.map((tag) => (
-              <span
-                key={tag}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '4px 12px',
-                  borderRadius: 999,
-                  background: '#ffedd5',
-                  color: '#9a3412',
-                  border: '1px solid #fed7aa',
-                  fontSize: '0.78rem',
-                  fontWeight: 600,
-                }}
-              >
+              <span key={tag} className={styles.tagPill}>
                 #{tag}
                 <button
                   type="button"
                   onClick={() => handleRemoveTag(tag)}
-                  style={{ background: 'none', border: 'none', color: '#ea580c', cursor: 'pointer', fontSize: '0.95rem', padding: 0 }}
+                  className={styles.tagRemoveBtn}
                 >
                   &times;
                 </button>
@@ -246,19 +230,11 @@ export function RichNoteEditorView({
               onChange={(e) => setNewTagInput(e.target.value)}
               onKeyDown={handleAddTag}
               placeholder="+ Add tag..."
-              style={{
-                borderRadius: 999,
-                border: '1px dashed #cbd5e1',
-                padding: '4px 12px',
-                fontSize: '0.78rem',
-                outline: 'none',
-                width: 120,
-              }}
+              className={styles.tagInput}
             />
           </div>
         </div>
 
-        {/* Sticky Footer Bar */}
         {/* Sticky Footer Bar */}
         <div className={styles.editorPageFooter}>
           <button

@@ -64,16 +64,12 @@ export default function DigitalSignatureSection({
               Digital Signature
             </h2>
             <p className={styles.sectionCardSubtitle}>
-              Manage your reusable digital signature for program agreements. Updating or removing this signature affects future agreements only; all historical signed records remain immutable and unchanged.
+              Your saved signature for program agreements.
             </p>
           </div>
         </div>
 
         <div className={styles.sigHeaderActions}>
-          <div className={styles.sigMetaBadge}>
-            <span className={styles.sigBadgeDot} aria-hidden="true" />
-            <span>PROFILE DIGITAL SIGNATURE</span>
-          </div>
 
           {!isEditingSig && savedSig?.hasSavedSignature && (
             <div className={styles.sigButtonGroup}>
@@ -185,7 +181,7 @@ export default function DigitalSignatureSection({
                   : "Verified on authenticated profile"}
               </p>
               <p className={styles.sigMetaNote}>
-                Secured in private storage. When you enroll in a new program, this signature will be displayed for your explicit review and confirmation.
+                Secured in private storage.
               </p>
             </div>
           </div>

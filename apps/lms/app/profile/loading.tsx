@@ -31,21 +31,45 @@ export default function ProfileLoading() {
               />
             </div>
           </div>
-          <div className={styles.heroActions}>
-            <div
-              className="skeleton"
-              style={{ width: 100, height: 38, borderRadius: 10 }}
-              aria-hidden="true"
-            />
-            <div
-              className="skeleton"
-              style={{ width: 170, height: 38, borderRadius: 10 }}
-              aria-hidden="true"
-            />
-          </div>
+
         </article>
 
-        {/* 2. Three Stats Cards Skeleton */}
+        {/* 2. Account Details Skeleton (Placed directly with Hero at the beginning) */}
+        <section className={styles.sectionCard} aria-hidden="true">
+          <div className={styles.sectionHeaderRow}>
+            <div className={styles.sectionTitleGroup}>
+              <div
+                className="skeleton"
+                style={{ width: 38, height: 38, borderRadius: 10 }}
+              />
+              <div>
+                <div
+                  className="skeleton"
+                  style={{ width: 130, height: 20, borderRadius: 4, marginBottom: 4 }}
+                />
+                <div
+                  className="skeleton"
+                  style={{ width: 180, height: 13, borderRadius: 4 }}
+                />
+              </div>
+            </div>
+            <div
+              className="skeleton"
+              style={{ width: 56, height: 28, borderRadius: 8 }}
+            />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 8 }}>
+            {[1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                className="skeleton"
+                style={{ width: "100%", height: 44, borderRadius: 12 }}
+              />
+            ))}
+          </div>
+        </section>
+
+        {/* 3. Three Stats Cards Skeleton */}
         <section className={styles.statsGrid} aria-hidden="true">
           {[1, 2, 3].map((i) => (
             <div key={i} className={styles.statCard}>
@@ -70,75 +94,6 @@ export default function ProfileLoading() {
             </div>
           ))}
         </section>
-
-        {/* 3. Two-Column Grid Skeleton */}
-        <div className={styles.twoColumnGrid} aria-hidden="true">
-          {/* Account Details Skeleton */}
-          <section className={styles.sectionCard}>
-            <div className={styles.sectionHeaderRow}>
-              <div className={styles.sectionTitleGroup}>
-                <div
-                  className="skeleton"
-                  style={{ width: 38, height: 38, borderRadius: 10 }}
-                />
-                <div>
-                  <div
-                    className="skeleton"
-                    style={{ width: 130, height: 20, borderRadius: 4, marginBottom: 4 }}
-                  />
-                  <div
-                    className="skeleton"
-                    style={{ width: 180, height: 13, borderRadius: 4 }}
-                  />
-                </div>
-              </div>
-              <div
-                className="skeleton"
-                style={{ width: 56, height: 28, borderRadius: 8 }}
-              />
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 8 }}>
-              {[1, 2, 3, 4].map((i) => (
-                <div
-                  key={i}
-                  className="skeleton"
-                  style={{ width: "100%", height: 44, borderRadius: 12 }}
-                />
-              ))}
-            </div>
-          </section>
-
-          {/* My Courses Skeleton */}
-          <section className={styles.sectionCard}>
-            <div className={styles.sectionHeaderRow}>
-              <div className={styles.sectionTitleGroup}>
-                <div
-                  className="skeleton"
-                  style={{ width: 38, height: 38, borderRadius: 10 }}
-                />
-                <div>
-                  <div
-                    className="skeleton"
-                    style={{ width: 110, height: 20, borderRadius: 4, marginBottom: 4 }}
-                  />
-                  <div
-                    className="skeleton"
-                    style={{ width: 160, height: 13, borderRadius: 4 }}
-                  />
-                </div>
-              </div>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
-              {[1, 2, 3, 4].map((i) => (
-                <div
-                  key={i}
-                  className="skeleton"
-                  style={{ width: "100%", height: 58, borderRadius: 14 }}
-                />
-              ))}
-            </div>
-          </section>
-        </div>
 
         {/* 4. Digital Signature Section Skeleton */}
         <section className={styles.sectionCard} aria-hidden="true">
@@ -171,6 +126,14 @@ export default function ProfileLoading() {
           <div
             className="skeleton"
             style={{ width: "100%", height: 90, borderRadius: 16 }}
+          />
+        </section>
+
+        {/* 6. Account Session & Sign Out Skeleton */}
+        <section className={styles.sectionCard} aria-hidden="true">
+          <div
+            className="skeleton"
+            style={{ width: "100%", height: 110, borderRadius: 16 }}
           />
         </section>
       </div>

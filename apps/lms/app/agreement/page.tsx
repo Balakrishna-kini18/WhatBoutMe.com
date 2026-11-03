@@ -283,7 +283,6 @@ function AgreementSignContent() {
       // Already Enrolled Detection: if the user already owns this course (ACTIVE / COMPLETED)
       // and has already signed the agreement, route directly to the learning path with a Welcome Back toast!
       if (
-        alreadySigned &&
         (target.status === "ACTIVE" || target.status === "COMPLETED") &&
         target.programId
       ) {

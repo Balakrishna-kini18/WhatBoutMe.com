@@ -658,18 +658,27 @@ export default function AdminDashboard() {
               </div>
             ) : (
               <>
-                {coachingRequests.slice(0, 3).map((req) => (
+                {coachingRequests.slice(0, 3).map((req) => {
+                  const isPast = Boolean(req.requestedStart) && new Date(req.requestedStart).getTime() < Date.now();
+                  return (
                   <div key={req.id} className={styles.discoveryItem}>
                     <div className={styles.discoveryAttendee}>
                       <span className={styles.attendeeName}>{req.user?.name || req.user?.email || "Learner"}</span>
-                      <span className={styles.attendeeTime}>
-                        {new Date(req.requestedStart).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}
-                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <span className={styles.attendeeTime} style={isPast ? { color: "#dc2626" } : undefined}>
+                          {new Date(req.requestedStart).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                        {isPast && (
+                          <span style={{ fontSize: "0.68rem", fontWeight: 700, color: "#dc2626", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "4px", padding: "1px 5px" }}>
+                            Expired
+                          </span>
+                        )}
+                      </div>
                     </div>
                     {req.enrolment?.program?.title && (
                       <div className={styles.discoveryMeta}>
@@ -682,11 +691,12 @@ export default function AdminDashboard() {
                         className={styles.joinZoomBtn}
                         style={{ background: "#b8860b", color: "#fff", border: "none" }}
                       >
-                        <span>Review &amp; Schedule →</span>
+                        <span>{isPast ? "Review & Reschedule →" : "Review & Schedule →"}</span>
                       </Link>
                     </div>
                   </div>
-                ))}
+                );
+                })}
                 <Link href="/approvals?tab=coaching" className={styles.secondaryActionBtn}>
                   Manage All Coaching Requests ({coachingRequests.length}) →
                 </Link>

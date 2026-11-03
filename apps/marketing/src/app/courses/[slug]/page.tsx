@@ -3,7 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ArrowRight, Check } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import FormattedText, { RichMarkdown, stripFormatting } from "@/components/site/FormattedText";
 import SmoothScroll from "@/components/site/SmoothScroll";
 import Nav from "@/components/site/Nav";
 import Footer from "@/components/site/Footer";
@@ -25,7 +25,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const course = (await getCourses()).find((c) => c.slug === slug);
   return course
-    ? { title: `${course.title} — whatboutme`, description: course.body }
+    ? { title: `${course.title} — whatboutme`, description: stripFormatting(course.shortDescription || course.body) }
     : { title: "Course not found — whatboutme" };
 }
 
@@ -86,34 +86,23 @@ export default async function CoursePage({ params }: Props) {
             <h1 className="mt-8 text-2xl font-bold sm:text-3xl tracking-tight md:text-5xl">
               {course.title}
             </h1>
-            {course.body && (
-              <p className="mt-3 text-lg font-medium leading-relaxed text-ink/80 md:text-xl">
-                {course.body}
-              </p>
-            )}
-
-            {course.fullDescription && course.fullDescription !== course.body && (
-              <div className="mt-6 max-w-none text-ink-soft leading-relaxed">
-                <ReactMarkdown
-                  components={{
-                    h1: ({ children }) => <h2 className="mt-6 mb-3 text-2xl font-bold text-ink">{children}</h2>,
-                    h2: ({ children }) => <h3 className="mt-6 mb-3 text-xl font-bold text-ink">{children}</h3>,
-                    h3: ({ children }) => <h4 className="mt-5 mb-2 text-lg font-semibold text-ink">{children}</h4>,
-                    p: ({ children }) => <p className="mb-4 text-base leading-relaxed text-ink-soft whitespace-pre-line">{children}</p>,
-                    ul: ({ children }) => <ul className="mb-4 list-disc pl-6 space-y-1.5 text-ink-soft">{children}</ul>,
-                    ol: ({ children }) => <ol className="mb-4 list-decimal pl-6 space-y-1.5 text-ink-soft">{children}</ol>,
-                    li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-                    strong: ({ children }) => <strong className="font-semibold text-ink">{children}</strong>,
-                    a: ({ href, children }) => (
-                      <a href={href} target="_blank" rel="noopener noreferrer" className="text-amber-700 underline hover:text-amber-900">
-                        {children}
-                      </a>
-                    ),
-                  }}
-                >
-                  {course.fullDescription}
-                </ReactMarkdown>
-              </div>
+            {course.shortDescription ? (
+              <>
+                <div className="mt-3 text-lg font-medium leading-relaxed text-ink/80 md:text-xl">
+                  <FormattedText text={course.shortDescription} inline />
+                </div>
+                {course.fullDescription && (
+                  <div className="mt-6 max-w-none text-ink-soft leading-relaxed">
+                    <RichMarkdown content={course.fullDescription} />
+                  </div>
+                )}
+              </>
+            ) : (
+              (course.fullDescription || course.body) && (
+                <div className="mt-4 max-w-none text-ink-soft leading-relaxed">
+                  <RichMarkdown content={course.fullDescription || course.body} />
+                </div>
+              )
             )}
 
             {(course.points?.length ?? 0) > 0 && (
@@ -127,7 +116,7 @@ export default async function CoursePage({ params }: Props) {
                       <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cream-deep text-gold-deep">
                         <Check aria-hidden className="h-3.5 w-3.5" strokeWidth={3} />
                       </span>
-                      <span className="leading-relaxed text-ink-soft">{point}</span>
+                      <span className="leading-relaxed text-ink-soft"><FormattedText text={point} inline /></span>
                     </li>
                   ))}
                 </ul>
@@ -139,9 +128,9 @@ export default async function CoursePage({ params }: Props) {
                 <h2 className="text-xl font-bold tracking-tight md:text-2xl">
                   {section.title}
                 </h2>
-                <p className="mt-3 max-w-2xl leading-relaxed text-ink-soft md:text-lg">
-                  {section.text}
-                </p>
+                <div className="mt-3 max-w-2xl leading-relaxed text-ink-soft md:text-lg">
+                  <FormattedText text={section.text} />
+                </div>
               </div>
             ))}
 
@@ -182,7 +171,7 @@ export default async function CoursePage({ params }: Props) {
                         {faq.question}
                       </AccordionTrigger>
                       <AccordionContent className="pb-5 text-base leading-relaxed text-ink-soft whitespace-pre-line">
-                        {faq.answer}
+                        <FormattedText text={faq.answer} />
                       </AccordionContent>
                     </AccordionItem>
                   ))}
@@ -206,6 +195,7 @@ export default async function CoursePage({ params }: Props) {
             {course.programId && (
               <EnrolLink
                 programId={course.programId}
+                slug={course.slug}
                 className="group mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-ink py-3.5 text-sm font-medium text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
               >
                 Enrol Now

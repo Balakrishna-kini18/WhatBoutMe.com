@@ -429,6 +429,108 @@ describe('D2-Lifecycle: SessionLifecycleService', () => {
         }),
       });
     });
+
+    it('does NOT leak 1-hour or 10-minute 1-on-1 coaching reminders to cohort batch peers', async () => {
+      const oneOnOneStartingSoon = {
+        id: 'sess-1on1-10m',
+        title: '1-on-1 Coaching: siddhlinga',
+        sessionType: SessionType.ONE_ON_ONE,
+        learnerId: 'sid-user-id',
+        startTime: new Date('2026-10-20T10:08:00.000Z'), // in 8 minutes
+        endTime: new Date('2026-10-20T10:53:00.000Z'),
+        status: SessionStatus.SCHEDULED,
+        learner: {
+          id: 'sid-user-id',
+          email: 'kamathbro99@gmail.com',
+          name: 'siddhlinga',
+          timezone: 'Asia/Kolkata',
+        },
+        bookings: [
+          { user: { id: 'sid-user-id', email: 'kamathbro99@gmail.com', name: 'siddhlinga', timezone: 'Asia/Kolkata' } },
+        ],
+        batch: {
+          id: 'delta-x-batch-1',
+          name: 'DELTA X BATCH - Cohort 1',
+          enrolments: [
+            { user: { id: 'sahyadri-user-id', email: 'gagan.cs22@sahyadri.edu.in', name: 'sahyadri', timezone: 'Asia/Kolkata' } },
+            { user: { id: 'other-user-id', email: 'other@example.com', name: 'Other Student', timezone: 'Asia/Kolkata' } },
+          ],
+        },
+      };
+
+      // Mock sweeps: Step 1 (activate: 0), Step 2 (complete: 0), Step 3 (24h: 0), Step 4 (1h: 0), Step 5 (10m: 1)
+      prismaMock.session.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([oneOnOneStartingSoon]);
+
+      prismaMock.notification.findFirst.mockResolvedValueOnce(null);
+
+      const stats = await service.processLifecycleTransitions();
+
+      expect(stats.reminders10mSent).toBe(1);
+      // Verify ONLY the dedicated learner received the email, NOT sahyadri or cohort peers!
+      expect(emailMock.sendTemplateEmail).toHaveBeenCalledTimes(1);
+      expect(emailMock.sendTemplateEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'kamathbro99@gmail.com',
+          subject: 'Reminder: 1-on-1 Coaching: siddhlinga starts in 10 minutes',
+        }),
+      );
+      // Gagan / Sahyadri must NOT be notified
+      expect(emailMock.sendTemplateEmail).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'gagan.cs22@sahyadri.edu.in',
+        }),
+      );
+    });
+
+    it('does NOT leak Speaker Discovery Call reminders to cohort batch peers', async () => {
+      const discoveryCall = {
+        id: 'sess-discovery-1h',
+        title: '1-to-1 Discovery Call: Roweena & Prospect',
+        sessionType: SessionType.SPEAKER_DISCOVERY_CALL,
+        userId: 'prospect-user-id',
+        startTime: new Date('2026-10-20T10:45:00.000Z'),
+        endTime: new Date('2026-10-20T11:00:00.000Z'),
+        status: SessionStatus.SCHEDULED,
+        user: {
+          id: 'prospect-user-id',
+          email: 'prospect@example.com',
+          name: 'Prospect User',
+          timezone: 'Asia/Dubai',
+        },
+        bookings: [],
+        batch: {
+          id: 'batch-leak-test',
+          enrolments: [
+            { user: { id: 'unrelated-1', email: 'unrelated@example.com', name: 'Unrelated' } },
+          ],
+        },
+      };
+
+      prismaMock.session.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([discoveryCall]) // Step 4 (1h)
+        .mockResolvedValueOnce([]); // Step 5 (10m)
+
+      prismaMock.notification.findFirst.mockResolvedValueOnce(null);
+
+      const stats = await service.processLifecycleTransitions();
+
+      expect(stats.reminders1hSent).toBe(1);
+      expect(emailMock.sendTemplateEmail).toHaveBeenCalledTimes(1);
+      expect(emailMock.sendTemplateEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'prospect@example.com',
+          subject: 'Reminder: 1-to-1 Discovery Call: Roweena & Prospect starts in 1 hour',
+        }),
+      );
+    });
   });
 
   describe('Idempotency & Failure Tolerance', () => {

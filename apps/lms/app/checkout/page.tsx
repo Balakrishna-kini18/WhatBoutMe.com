@@ -90,8 +90,7 @@ function CheckoutContent() {
             }
             // Already Enrolled Detection: skip duplicate checkout if enrolment is already ACTIVE/COMPLETED
             if (
-              data?.hasSignedAgreement &&
-              (data?.enrolment?.status === "ACTIVE" || data?.enrolment?.status === "COMPLETED")
+              data?.enrolment?.status === "ACTIVE" || data?.enrolment?.status === "COMPLETED"
             ) {
               router.replace(`/programs/${programId}/steps?welcomeBack=1`);
               return;

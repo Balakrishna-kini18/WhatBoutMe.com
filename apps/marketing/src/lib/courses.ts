@@ -13,6 +13,7 @@ export type Course = {
   alt: string;
   flagship: boolean;
   body: string;
+  shortDescription?: string;
   fullDescription?: string;
   inPerson: string;
   online: string;
@@ -105,8 +106,9 @@ function toCourse(program: Program, index: number): Course {
     image,
     alt,
     flagship: brochure?.flagship ?? false,
-    body: info.short || (program as any).shortDescription || info.summary || brochure?.body || "",
-    fullDescription: info.summary || info.short || (program as any).shortDescription || brochure?.body || "",
+    shortDescription: (info.short || (program as any).shortDescription || "").trim() && (info.short || (program as any).shortDescription || "").trim() !== (info.summary || (program as any).description || brochure?.body || "").trim() ? (info.short || (program as any).shortDescription || "").trim() : undefined,
+    body: (info.short || (program as any).shortDescription || info.summary || brochure?.body || "").trim(),
+    fullDescription: (info.summary || (program as any).description || brochure?.body || info.short || (program as any).shortDescription || "").trim(),
     inPerson: info.inPerson || brochure?.inPerson || "",
     online: info.online || brochure?.online || "",
     points: info.points?.length ? info.points : [...(brochure?.points ?? [])],

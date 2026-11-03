@@ -15,6 +15,12 @@ export interface SendEmailOptions {
   text?: string;
   replyTo?: string;
   from?: string;
+  attachments?: Array<{
+    filename: string;
+    content?: any;
+    path?: string;
+    contentType?: string;
+  }>;
 }
 
 export interface SendTemplateEmailOptions {
@@ -184,6 +190,7 @@ export class EmailService {
           html: options.html || '',
           text: options.text,
           replyTo: options.replyTo,
+          attachments: options.attachments,
         });
       } catch (firstErr: any) {
         const errMsg = String(firstErr?.message || '');

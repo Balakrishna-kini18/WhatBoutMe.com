@@ -60,6 +60,10 @@ export class BroadcastNotificationDto {
 
   @IsArray()
   channels: ('IN_APP' | 'PUSH' | 'EMAIL')[];
+
+  @IsOptional()
+  @IsArray()
+  attachments?: Array<{ filename: string; content: string; contentType?: string }>;
 }
 
 export class NotificationPreferencesDto {
@@ -523,9 +527,10 @@ export class NotificationsService {
 
       // 1. IN_APP Channel
       if (dto.channels.includes('IN_APP')) {
-        const inAppBody = dto.channels.includes('EMAIL')
-          ? `${dto.message}\n\nNotice: A full copy has been dispatched to your email inbox.`
-          : dto.message;
+        let inAppBody = dto.message;
+        if (dto.attachments && dto.attachments.length > 0) {
+          inAppBody += `\n\n📎 Attached files: ${dto.attachments.map((a) => a.filename).join(', ')}`;
+        }
 
         await this.createInAppNotification({
           userId: recipient.id,
@@ -555,6 +560,19 @@ export class NotificationsService {
       // 3. EMAIL Channel
       if (dto.channels.includes('EMAIL') && this.emailService) {
         try {
+          const emailAttachments = dto.attachments && dto.attachments.length > 0
+            ? dto.attachments.map((att) => {
+                const base64Data = att.content.includes('base64,')
+                  ? att.content.split('base64,')[1]
+                  : att.content;
+                return {
+                  filename: att.filename,
+                  content: Buffer.from(base64Data, 'base64'),
+                  contentType: att.contentType,
+                };
+              })
+            : undefined;
+
           await this.emailService.sendEmail({
             to: recipient.email,
             subject: dto.title,
@@ -579,6 +597,7 @@ export class NotificationsService {
               </div>
             `,
             text: `${dto.title}\n\n${dto.message}${dto.link ? `\n\nLink: ${dto.link}` : ''}`,
+            attachments: emailAttachments,
           });
           emailCount++;
         } catch (err: any) {

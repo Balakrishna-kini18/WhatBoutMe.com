@@ -31,6 +31,8 @@ import {
   useToast,
   TableSkeleton,
   EmptyState,
+  DatePicker,
+  TimePicker,
 } from "../../../components";
 
 interface Session {
@@ -84,6 +86,25 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
     return getSystemTimezone();
   });
   const timezoneOptions = useMemo(() => getTimezoneOptions(), []);
+
+  // Time format state (12h vs 24h)
+  const [timeFormat, setTimeFormat] = useState<"12h" | "24h">("12h");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedFmt = localStorage.getItem("wbm_time_format");
+      if (savedFmt === "12h" || savedFmt === "24h") {
+        setTimeFormat(savedFmt);
+      }
+    }
+  }, []);
+
+  const handleTimeFormatToggle = (fmt: "12h" | "24h") => {
+    setTimeFormat(fmt);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("wbm_time_format", fmt);
+    }
+  };
 
   // Form field state
   const [sessionType, setSessionType] = useState<"GROUP_COHORT" | "ONE_ON_ONE">("GROUP_COHORT");
@@ -944,33 +965,82 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
                 />
               </div>
 
-              {/* Date, Start Time, End Time */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
+              {/* Session Date */}
+              <div className={styles.formGroup}>
+                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "4px" }}>
+                  Session Date
+                </label>
+                <DatePicker
+                  value={sessionDate}
+                  onChange={setSessionDate}
+                  placeholder="Select session date"
+                />
+              </div>
+
+              {/* Start Time & End Time with 12h / 24h toggle */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.85rem", alignItems: "flex-start" }}>
                 <div className={styles.formGroup}>
-                  <label>Session Date</label>
-                  <input
-                    type="date"
-                    required
-                    value={sessionDate}
-                    onChange={(e) => setSessionDate(e.target.value)}
-                  />
-                </div>
-                <div className={styles.formGroup}>
-                  <label>Start ({displayTimezone.split("/").pop()})</label>
-                  <input
-                    type="time"
-                    required
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                    <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>
+                      Start ({displayTimezone.split("/").pop()?.replace(/_/g, " ")})
+                    </label>
+                    <div style={{ display: "inline-flex", background: "#f5ece1", padding: "1px", borderRadius: "5px", gap: "1px" }}>
+                      <button
+                        type="button"
+                        onClick={() => handleTimeFormatToggle("12h")}
+                        style={{
+                          border: "none",
+                          background: timeFormat === "12h" ? "#ffffff" : "transparent",
+                          color: timeFormat === "12h" ? "#14110f" : "#78716a",
+                          fontWeight: timeFormat === "12h" ? 700 : 500,
+                          fontSize: "0.68rem",
+                          padding: "2px 6px",
+                          borderRadius: "4px",
+                          cursor: "pointer",
+                          boxShadow: timeFormat === "12h" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                        }}
+                        title="12-Hour AM/PM Format"
+                      >
+                        12h
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleTimeFormatToggle("24h")}
+                        style={{
+                          border: "none",
+                          background: timeFormat === "24h" ? "#ffffff" : "transparent",
+                          color: timeFormat === "24h" ? "#14110f" : "#78716a",
+                          fontWeight: timeFormat === "24h" ? 700 : 500,
+                          fontSize: "0.68rem",
+                          padding: "2px 6px",
+                          borderRadius: "4px",
+                          cursor: "pointer",
+                          boxShadow: timeFormat === "24h" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                        }}
+                        title="24-Hour Military Format"
+                      >
+                        24h
+                      </button>
+                    </div>
+                  </div>
+                  <TimePicker
                     value={sessionStartTime}
-                    onChange={(e) => setSessionStartTime(e.target.value)}
+                    onChange={setSessionStartTime}
+                    format={timeFormat}
+                    ariaLabel="Start time"
                   />
                 </div>
                 <div className={styles.formGroup}>
-                  <label>End ({displayTimezone.split("/").pop()})</label>
-                  <input
-                    type="time"
-                    required
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                    <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>
+                      End ({displayTimezone.split("/").pop()?.replace(/_/g, " ")})
+                    </label>
+                  </div>
+                  <TimePicker
                     value={sessionEndTime}
-                    onChange={(e) => setSessionEndTime(e.target.value)}
+                    onChange={setSessionEndTime}
+                    format={timeFormat}
+                    ariaLabel="End time"
                   />
                 </div>
               </div>

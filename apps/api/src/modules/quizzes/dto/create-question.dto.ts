@@ -15,9 +15,9 @@ import { Type } from 'class-transformer';
 import { QuestionType } from '@prisma/client';
 
 export class CreateOptionDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty({ message: 'Option text is required' })
-  text: string;
+  text?: string;
 
   @IsOptional()
   @IsString()
@@ -34,8 +34,7 @@ export class CreateOptionDto {
 
 export class CreateQuestionDto {
   @IsString()
-  @IsNotEmpty({ message: 'Question text is required' })
-  @MinLength(5, { message: 'Question text must be at least 5 characters long' })
+  @MinLength(1, { message: 'Question text is required' })
   text: string;
 
   @IsOptional()

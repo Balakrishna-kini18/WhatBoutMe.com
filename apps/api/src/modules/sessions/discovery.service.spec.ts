@@ -32,6 +32,10 @@ describe('DiscoveryService - 15-Minute Slot Calculation & Booking', () => {
         findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn(),
       },
+      oneOnOneRequest: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
       lead: {
         findUnique: vi.fn().mockResolvedValue({
           id: 'lead-100',
@@ -93,7 +97,7 @@ describe('DiscoveryService - 15-Minute Slot Calculation & Booking', () => {
       expect(firstSlot.timeIst).toContain('IST');
     });
 
-    it('excludes slots overlapping with DB sessions or Outlook busy blocks', async () => {
+    it('marks slots overlapping with DB sessions or Outlook busy blocks as isBooked: true', async () => {
       const futureDate = '2026-11-20';
       // Busy block in DB: 06:00 to 07:00 UTC (10:00 to 11:00 GST)
       prismaMock.session.findMany.mockResolvedValueOnce([
@@ -113,14 +117,37 @@ describe('DiscoveryService - 15-Minute Slot Calculation & Booking', () => {
 
       const result = await service.getAvailableSlots(futureDate, 'Asia/Dubai');
 
-      // Ensure no returned slot starts inside 06:00-07:00 UTC or 08:00-08:30 UTC
+      // Clashed slots MUST have isBooked: true; un-clashed slots have isBooked: false
       for (const slot of result.slots) {
         const start = new Date(slot.slotStartUtc).getTime();
         const clashDb = start >= new Date(`${futureDate}T06:00:00Z`).getTime() && start < new Date(`${futureDate}T07:00:00Z`).getTime();
         const clashOutlook = start >= new Date(`${futureDate}T08:00:00Z`).getTime() && start < new Date(`${futureDate}T08:30:00Z`).getTime();
-        expect(clashDb).toBe(false);
-        expect(clashOutlook).toBe(false);
+        if (clashDb || clashOutlook) {
+          expect(slot.isBooked).toBe(true);
+        } else {
+          expect(slot.isBooked).toBe(false);
+        }
       }
+    });
+
+    it('marks slots overlapping with pending or approved 1-on-1 coaching requests as isBooked: true', async () => {
+      const futureDate = '2026-11-20';
+      // Coaching request: 09:00 to 09:45 UTC
+      prismaMock.oneOnOneRequest.findMany.mockResolvedValueOnce([
+        {
+          requestedStart: new Date(`${futureDate}T09:00:00Z`),
+          requestedEnd: new Date(`${futureDate}T09:45:00Z`),
+        },
+      ]);
+
+      const result = await service.getAvailableSlots(futureDate, 'Asia/Dubai');
+      const bookedSlots = result.slots.filter((s) => {
+        const start = new Date(s.slotStartUtc).getTime();
+        return start >= new Date(`${futureDate}T09:00:00Z`).getTime() && start < new Date(`${futureDate}T09:45:00Z`).getTime();
+      });
+
+      expect(bookedSlots.length).toBe(3); // 09:00, 09:15, 09:30
+      bookedSlots.forEach((s) => expect(s.isBooked).toBe(true));
     });
   });
 

@@ -22,8 +22,8 @@ export default function FeaturedCourse({ course }: { course?: Course }) {
 
   return (
     <div className="grid overflow-hidden rounded-3xl border border-line bg-white lg:grid-cols-[1.1fr_1fr]">
-      <div className="relative aspect-[16/10] bg-sand lg:order-2 lg:aspect-auto lg:min-h-[22rem]">
-        {course.image && (
+      <div className="relative aspect-[16/10] bg-gradient-to-br from-[#fcf9f2] via-[#f7f1e4] to-[#ebe1ce] lg:order-2 lg:aspect-auto lg:min-h-[22rem]">
+        {course.image ? (
           <Image
             src={course.image}
             alt={course.alt || course.title || "Featured course"}
@@ -34,6 +34,15 @@ export default function FeaturedCourse({ course }: { course?: Course }) {
             sizes="(max-width: 1024px) 100vw, 560px"
             className="object-cover"
           />
+        ) : (
+          <div className="flex h-full min-h-[16rem] w-full flex-col items-center justify-center p-8 text-center select-none">
+            <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#c97a1e]/15 text-3xl font-extrabold text-[#c97a1e] ring-1 ring-[#c97a1e]/25">
+              {course.title.trim().charAt(0).toUpperCase()}
+            </span>
+            <span className="mt-3 text-xs font-semibold uppercase tracking-widest text-[#8c6538]">
+              {course.category || "WhatBoutMe"}
+            </span>
+          </div>
         )}
       </div>
 
@@ -48,20 +57,24 @@ export default function FeaturedCourse({ course }: { course?: Course }) {
           <p className="mt-4 line-clamp-2 max-w-xl leading-relaxed text-ink-soft">{stripFormatting(course.body)}</p>
         )}
 
-        <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-3">
+        <div className="mt-6 flex flex-wrap items-center gap-3 sm:gap-4">
           <Link
             href={`/courses/${course.slug}`}
-            className="group inline-flex h-12 items-center gap-2 rounded-full bg-ink px-6 text-sm font-medium text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
+            className="group inline-flex h-12 items-center justify-center gap-2 rounded-full bg-ink px-6 text-sm font-medium text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
           >
-            View Details
-            <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
+            <span>View Details</span>
+            <ArrowRight className="h-4 w-4 shrink-0 transition-transform duration-200 group-hover:translate-x-1" />
           </Link>
           {course.programId && (
             <EnrolLink
               programId={course.programId}
-              className="text-sm font-semibold text-gold-deep underline-offset-4 transition-colors hover:underline"
+              slug={course.slug}
+              showStatusBadge={false}
+              className="group inline-flex h-12 items-center justify-center gap-2 rounded-full border border-ink/20 bg-white px-6 text-sm font-semibold text-ink shadow-xs transition-colors duration-200 hover:border-ink hover:bg-ink hover:text-cream"
+              activeClassName="group inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-gold px-6 text-sm font-bold text-ink shadow-sm transition-all duration-200 hover:bg-ink hover:text-cream active:scale-[0.98]"
             >
-              Enrol Now
+              <span>Enrol Now</span>
+              <ArrowRight className="h-4 w-4 shrink-0 transition-transform duration-200 group-hover:translate-x-1" />
             </EnrolLink>
           )}
         </div>

@@ -131,6 +131,58 @@ export default function FinalExamPanel({
     return created.id;
   };
 
+  const commitCurrentDraftQuestion = async (activeExamId: string): Promise<ExamQuestionItem[] | null> => {
+    const hasPrompt = qText.trim().length > 0 || Boolean(qImageUrl);
+    if (!hasPrompt) return null;
+
+    let validOpts: OptionDraft[] = [];
+
+    if (qType !== "SHORT_ANSWER") {
+      validOpts = qOptions.filter((o) => o.text.trim().length > 0 || Boolean(o.imageUrl));
+      if (validOpts.length < 2) {
+        throw new Error("Choice questions require at least 2 choices with text or image.");
+      }
+      if (!validOpts.some((o) => o.isCorrect)) {
+        throw new Error("Please designate at least one option as the correct answer.");
+      }
+      if (qType === "MULTIPLE_CHOICE") {
+        const correctCount = validOpts.filter((o) => o.isCorrect).length;
+        if (correctCount !== 1) {
+          throw new Error("Single choice questions must have exactly one correct answer.");
+        }
+      }
+    }
+
+    const payload: Partial<ExamQuestionItem> = {
+      text: qText.trim() || (qImageUrl ? "Select the correct option for this illustration:" : "Question"),
+      type: qType,
+      imageUrl: qImageUrl || null,
+      points: Number(qPoints) || 1,
+      explanation: qExplanation.trim() || null,
+      minCharacters: qType === "SHORT_ANSWER" ? Number(qMinCharacters) || 10 : undefined,
+      options: qType === "SHORT_ANSWER" ? [] : validOpts.map((o, idx) => ({
+        text: o.text.trim() || `Option ${String.fromCharCode(65 + idx)}`,
+        imageUrl: o.imageUrl || null,
+        isCorrect: Boolean(o.isCorrect),
+        order: idx + 1,
+      })),
+    };
+
+    if (editingQuestionId) {
+      const updated = await updateExamQuestion(activeExamId, editingQuestionId, payload);
+      const updatedList = questions.map((q) => (q.id === editingQuestionId ? { ...q, ...updated, ...payload } : q));
+      setQuestions(updatedList);
+      handleResetToNewQuestion();
+      return updatedList;
+    } else {
+      const created = await createExamQuestion(activeExamId, payload);
+      const updatedList = [...questions, created];
+      setQuestions(updatedList);
+      handleResetToNewQuestion();
+      return updatedList;
+    }
+  };
+
   const handleSaveFinalExam = async () => {
     if (!title.trim()) {
       error("Exam title is required.");
@@ -139,6 +191,19 @@ export default function FinalExamPanel({
     setSavingAll(true);
     try {
       const activeExamId = await ensureExamEntity();
+
+      // Auto-commit draft question if present
+      if (qText.trim().length > 0 || Boolean(qImageUrl)) {
+        try {
+          await commitCurrentDraftQuestion(activeExamId);
+          success("Current draft question saved into exam.");
+        } catch (draftErr: any) {
+          error(draftErr.message || "Failed to save draft question.");
+          setSavingAll(false);
+          return;
+        }
+      }
+
       const updated = await updateExam(activeExamId, {
         title: title.trim(),
         questionCount: Number(questionCount) || 50,

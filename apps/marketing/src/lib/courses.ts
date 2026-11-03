@@ -13,6 +13,7 @@ export type Course = {
   alt: string;
   flagship: boolean;
   body: string;
+  shortDescription?: string;
   fullDescription?: string;
   inPerson: string;
   online: string;
@@ -53,27 +54,22 @@ function brochureFor(program: Program): Brochure | undefined {
   return COURSES.find((c) => c.slug === slug);
 }
 
-// each course's own photo, by words in its slug or title; the learner portal
-// keeps the same list (apps/lms/app/lib/courseImage.ts) so both show the same picture
-const PHOTOS: [string[], string, string][] = [
-  [["first", "step"], "/site/course-learning.webp", "Learners working on laptops in a bright classroom"],
-  [["sigma"], "/site/course-celebrate.webp", "A team celebrating a win together around a laptop"],
-];
-
-function photoFor(program: Program): { image: string; alt: string } | undefined {
-  const text = `${program.slug} ${program.title}`.toLowerCase();
-  const hit = PHOTOS.find(([words]) => words.every((w) => text.includes(w)));
-  return hit ? { image: hit[1], alt: hit[2] } : undefined;
-}
-
-/** Admin-entered details win; the course's own photo, then the brochure, fill anything left blank. */
+/** Admin-entered details win; only legitimate uploaded course banners are shown. */
 function toCourse(program: Program, index: number): Course {
   const info = parseCourseInfo(program.description);
   const brochure = brochureFor(program);
-  const cover = brochure ?? (COURSES.length > 0 ? COURSES[index % COURSES.length] : undefined);
-  const photo = photoFor(program);
-  const image = info.image || photo?.image || cover?.image || "";
-  const alt = info.image ? (program.title || "Course") : (photo?.alt ?? cover?.alt ?? program.title ?? "Course");
+  // Strictly avoid injecting random mock stock photos:
+  // Check program.thumbnailUrl, program.coverImage, program.bannerUrl, or parsed description Image.
+  // Only fall back to official brochure image if explicitly mapped to a known brochure.
+  const rawImage =
+    (program as any).thumbnailUrl ||
+    (program as any).coverImage ||
+    (program as any).bannerUrl ||
+    info.image ||
+    (brochure ? brochure.image : "") ||
+    "";
+  const image = typeof rawImage === "string" ? rawImage.trim() : "";
+  const alt = program.title || "Course";
 
   let rawFaqs: any[] = [];
   if (Array.isArray((program as any).faqs) && (program as any).faqs.length > 0) {
@@ -105,8 +101,9 @@ function toCourse(program: Program, index: number): Course {
     image,
     alt,
     flagship: brochure?.flagship ?? false,
-    body: info.short || (program as any).shortDescription || info.summary || brochure?.body || "",
-    fullDescription: info.summary || info.short || (program as any).shortDescription || brochure?.body || "",
+    shortDescription: (info.short || (program as any).shortDescription || "").trim() && (info.short || (program as any).shortDescription || "").trim() !== (info.summary || (program as any).description || brochure?.body || "").trim() ? (info.short || (program as any).shortDescription || "").trim() : undefined,
+    body: (info.short || (program as any).shortDescription || info.summary || brochure?.body || "").trim(),
+    fullDescription: (info.summary || (program as any).description || brochure?.body || info.short || (program as any).shortDescription || "").trim(),
     inPerson: info.inPerson || brochure?.inPerson || "",
     online: info.online || brochure?.online || "",
     points: info.points?.length ? info.points : [...(brochure?.points ?? [])],
@@ -154,7 +151,7 @@ async function getActivePrograms(): Promise<Program[]> {
 
 async function fetchActivePrograms(): Promise<Program[]> {
   try {
-    const res = await fetch(`${API_BASE_URL}/programs`, {
+    const res = await fetch(`${API_BASE_URL}/programs/public`, {
       next: { revalidate: isDev ? 1 : 15, tags: ['programs'] },
       signal: AbortSignal.timeout(4000),
     });

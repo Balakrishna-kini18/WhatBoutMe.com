@@ -273,7 +273,7 @@ describe('Phase 5: BatchAttendanceController Integration & Endpoint Tests', () =
 
       expect(result.success).toBe(false);
       expect(result.participantCount).toBe(0);
-      expect(result.message).toContain('No meeting participant records found yet');
+      expect(result.message).toContain('No participant report returned by Zoom API');
       expect(reconciliationServiceMock.reconcileSession).not.toHaveBeenCalled();
     });
 

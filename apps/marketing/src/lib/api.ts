@@ -98,7 +98,8 @@ export function getApiBaseUrl(): string {
   }
 
   if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
+    if (process.env.VERCEL_URL.endsWith("testfox.in")) return "https://whatboutme.testfox.in";
+    return "https://what-bout-me-com.vercel.app";
   }
 
   return "http://localhost:4000";

@@ -12,6 +12,7 @@ import {
   fetchOneOnOneRequests,
   approveOneOnOneRequest,
   rejectOneOnOneRequest,
+  acceptDiscoveryCall,
   type OneOnOneRequestItem,
 } from "../lib/api";
 import {
@@ -372,6 +373,16 @@ export default function MeetingsPage() {
     }
   };
 
+  const handleAcceptDiscovery = async (sessionId: string) => {
+    try {
+      await acceptDiscoveryCall({ sessionId });
+      toastSuccess("Discovery Call accepted! Zoom room generated and confirmed invite sent to prospect.");
+      await load();
+    } catch (err: any) {
+      toastError(err?.message || "Failed to accept discovery call");
+    }
+  };
+
   const handleCompleteAndConvert = async (meeting: Meeting) => {
     setIsCompletingAndConverting(true);
     try {
@@ -587,11 +598,24 @@ export default function MeetingsPage() {
     const isPast = startD.getTime() < Date.now();
 
     if (isPast) {
-      // Slot in past! Default to tomorrow so user cannot approve a past time
-      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      setApprovalDate(tomorrow.toISOString().split("T")[0] || "");
-      setApprovalStartTime("10:00");
-      setApprovalEndTime("10:45");
+      const now = new Date();
+      const currentHour = now.getHours();
+      const currentMin = now.getMinutes();
+      const todayStr = now.toISOString().split("T")[0] || "";
+
+      // If before 19:00, allow scheduling today at upcoming time, else tomorrow
+      if (currentHour < 19) {
+        setApprovalDate(todayStr);
+        const nextHour = currentMin >= 30 ? currentHour + 2 : currentHour + 1;
+        const clampedH = Math.min(Math.max(nextHour, 10), 20);
+        setApprovalStartTime(String(clampedH).padStart(2, '0') + ':00');
+        setApprovalEndTime(String(clampedH).padStart(2, '0') + ':45');
+      } else {
+        const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        setApprovalDate(tomorrow.toISOString().split("T")[0] || "");
+        setApprovalStartTime("10:00");
+        setApprovalEndTime("10:45");
+      }
     } else {
       setApprovalDate(startD.toISOString().split("T")[0] || "");
       setApprovalStartTime(startD.toTimeString().slice(0, 5) || "10:00");
@@ -1515,7 +1539,23 @@ export default function MeetingsPage() {
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <div className={calStyles.actionBtnGroup}>
-                          {isDiscoveryCall(m) && m.status !== "CANCELLED" && (
+                          {isDiscoveryCall(m) && !m.joinUrl && m.status !== "CANCELLED" && (
+                            <button
+                              type="button"
+                              className={calStyles.tableActionBtn}
+                              style={{
+                                color: "#15803d",
+                                borderColor: "#bbf7d0",
+                                background: "#f0fdf4",
+                                fontWeight: 700,
+                              }}
+                              onClick={() => handleAcceptDiscovery(m.id)}
+                              title="Accept discovery call and generate Zoom meeting link"
+                            >
+                              Accept &amp; Generate Zoom
+                            </button>
+                          )}
+                          {isDiscoveryCall(m) && m.joinUrl && m.status !== "CANCELLED" && (
                             <button
                               type="button"
                               className={calStyles.tableActionBtn}
@@ -1653,7 +1693,9 @@ export default function MeetingsPage() {
                     </td>
                   </tr>
                 ) : (
-                  oneOnOneRequests.map((req) => (
+                  oneOnOneRequests.map((req) => {
+                    const isPastSlot = req.status === "PENDING_APPROVAL" && Boolean(req.requestedStart) && new Date(req.requestedStart).getTime() < Date.now();
+                    return (
                     <tr key={req.id}>
                       <td>
                         <div style={{ display: "flex", flexDirection: "column" }}>
@@ -1681,9 +1723,31 @@ export default function MeetingsPage() {
                         </div>
                       </td>
                       <td>
-                        <span style={{ fontSize: "0.82rem", fontWeight: 500 }}>
-                          {formatWhen(req.requestedStart, req.requestedEnd, displayTimezone)}
-                        </span>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                          <span style={{ fontSize: "0.82rem", fontWeight: 500, color: isPastSlot ? "#b91c1c" : "inherit" }}>
+                            {formatWhen(req.requestedStart, req.requestedEnd, displayTimezone)}
+                          </span>
+                          {isPastSlot && (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                                fontSize: "0.7rem",
+                                color: "#b91c1c",
+                                fontWeight: 600,
+                                background: "#fef2f2",
+                                border: "1px solid #fecaca",
+                                borderRadius: "4px",
+                                padding: "1px 6px",
+                                width: "fit-content",
+                                marginTop: "2px",
+                              }}
+                            >
+                              ⚠️ Slot passed
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td>
                         <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
@@ -1696,16 +1760,23 @@ export default function MeetingsPage() {
                         </span>
                       </td>
                       <td>
-                        <StatusBadge
-                          status={req.status}
-                          tone={
-                            req.status === "PENDING_APPROVAL"
-                              ? "pending"
-                              : req.status === "APPROVED"
-                              ? "completed"
-                              : "error"
-                          }
-                        />
+                        {isPastSlot ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "2px", alignItems: "flex-start" }}>
+                            <StatusBadge status="EXPIRED" tone="error" />
+                            <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Past due</span>
+                          </div>
+                        ) : (
+                          <StatusBadge
+                            status={req.status}
+                            tone={
+                              req.status === "PENDING_APPROVAL"
+                                ? "pending"
+                                : req.status === "APPROVED"
+                                ? "completed"
+                                : "error"
+                            }
+                          />
+                        )}
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <div className={calStyles.actionBtnGroup}>
@@ -1715,14 +1786,15 @@ export default function MeetingsPage() {
                                 type="button"
                                 className={calStyles.tableActionBtn}
                                 style={{
-                                  background: "#10b981",
+                                  background: isPastSlot ? "var(--accent-primary, #b8860b)" : "#10b981",
                                   color: "#fff",
-                                  borderColor: "#10b981",
+                                  borderColor: isPastSlot ? "var(--accent-primary, #b8860b)" : "#10b981",
                                   fontWeight: 600,
                                 }}
                                 onClick={() => openApproveModal(req)}
+                                title={isPastSlot ? "Slot has passed - reschedule for today or future" : "Approve and schedule session"}
                               >
-                                Approve &amp; Schedule
+                                {isPastSlot ? "Reschedule" : "Approve & Schedule"}
                               </button>
                               <button
                                 type="button"
@@ -1759,7 +1831,8 @@ export default function MeetingsPage() {
                         </div>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>

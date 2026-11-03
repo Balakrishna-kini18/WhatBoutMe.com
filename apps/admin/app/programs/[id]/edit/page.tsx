@@ -75,6 +75,14 @@ export default function EditProgramPage({
       sortOrder?: number;
     }>;
   }) => {
+    if (!updatedData.title?.trim()) {
+      setErrorMsg("Program Title is required.");
+      return;
+    }
+    if (!updatedData.thumbnailUrl || !updatedData.thumbnailUrl.trim()) {
+      setErrorMsg("Course Cover Banner is required. Please upload a cover banner before saving.");
+      return;
+    }
     setIsSaving(true);
     setErrorMsg(null);
     try {

@@ -49,13 +49,13 @@ export function parseLeadMessage(raw: string | null): ParsedLeadMessage {
 
   // 2. Extract Discovery Call notice (if present)
   let discovery: ParsedLeadMessage["discovery"] | undefined;
-  const discMatch = text.match(/📅\s*Discovery Call Scheduled:\s*([^|\n]+)(?:\|\s*Zoom:\s*(\S*))?/i);
+  const discMatch = text.match(/📅\s*Discovery Call (?:Scheduled|Requested):\s*([^|\n]+)(?:\|\s*Zoom:\s*(\S*))?/i);
   if (discMatch && discMatch[1]) {
     discovery = {
       scheduledAt: discMatch[1].trim(),
       zoomUrl: discMatch[2] ? discMatch[2].trim() : undefined,
     };
-    text = text.replace(/📅\s*Discovery Call Scheduled:[^\n]+(\n|$)/gi, "").trim();
+    text = text.replace(/📅\s*Discovery Call (?:Scheduled|Requested):[^\n]+(\n|$)/gi, "").trim();
   }
 
   // 3. Extract Course Inquiry header (if present)

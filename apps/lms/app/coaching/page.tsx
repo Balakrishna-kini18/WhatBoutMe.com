@@ -117,6 +117,13 @@ export default function CoachingPage() {
     (r) => r.status === "PENDING_APPROVAL" || r.status === "APPROVED"
   );
 
+  const isPastPending = Boolean(
+    activeRequest &&
+      activeRequest.status === "PENDING_APPROVAL" &&
+      activeRequest.requestedStart &&
+      new Date(activeRequest.requestedStart).getTime() < Date.now()
+  );
+
   const handleBookingSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!enrolmentId) return;
@@ -149,7 +156,8 @@ export default function CoachingPage() {
         requestedEnd: end.toISOString(),
         learnerTimezone: userTimezone,
         notes: learnerNotes,
-      });
+        reschedule: isPastPending,
+      } as any);
 
       setFormSuccess(
         "Your 1-on-1 coaching request has been submitted! Roweena and the coaching team will review your slot."
@@ -287,8 +295,34 @@ export default function CoachingPage() {
             </div>
           )}
 
-          {/* Active Request: PENDING_APPROVAL */}
-          {activeRequest && activeRequest.status === "PENDING_APPROVAL" && (
+          {/* Active Request: PENDING_APPROVAL and slot passed (EXPIRED) */}
+          {activeRequest && activeRequest.status === "PENDING_APPROVAL" && isPastPending && (
+            <div className={styles.bannerPending} style={{ borderLeftColor: "#dc2626", background: "#fef2f2" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px" }}>
+                <div>
+                  <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "#991b1b", textTransform: "uppercase" }}>
+                    ⚠️ Requested Slot Expired
+                  </div>
+                  <h3 style={{ margin: "4px 0 0", fontSize: "1.15rem", color: "#7f1d1d", fontWeight: 800 }}>
+                    Slot for {new Date(activeRequest.requestedStart).toLocaleDateString()} at {new Date(activeRequest.requestedStart).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} has passed
+                  </h3>
+                  <p style={{ margin: "6px 0 0", fontSize: "0.85rem", color: "#991b1b" }}>
+                    This requested slot passed without instructor confirmation. Please select a new upcoming date and time below to reschedule your session.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={styles.dangerBtn}
+                  onClick={() => handleCancelRequest(activeRequest.id)}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Active Request: PENDING_APPROVAL and slot is upcoming */}
+          {activeRequest && activeRequest.status === "PENDING_APPROVAL" && !isPastPending && (
             <div className={styles.bannerPending}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px" }}>
                 <div>
@@ -321,8 +355,8 @@ export default function CoachingPage() {
             </div>
           )}
 
-          {/* Booking Form (Only if no active pending or approved request) */}
-          {!activeRequest && !isStage4Completed && (
+          {/* Booking Form (If no active pending/approved request, OR previous pending request has expired) */}
+          {(!activeRequest || isPastPending) && !isStage4Completed && (
             <div className={styles.card}>
               <div className={styles.cardHeader}>
                 <div>

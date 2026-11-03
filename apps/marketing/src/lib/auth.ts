@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { API_BASE_URL, LMS_URL, getLmsUrl, loginUser, signupUser, sendSignupOtp as sendSignupOtpApi } from "./api";
 import {
   buildAuthHref,
@@ -12,13 +12,23 @@ import {
   saveEnrollmentIntent,
 } from "./auth-redirect";
 
-/** Signed-in learner, as returned by POST /auth/login. */
+export type EnrolledProgramItem = {
+  enrolmentId?: string;
+  batchId?: string;
+  batchName?: string;
+  programId: string;
+  programTitle?: string;
+  slug?: string;
+  status?: string;
+};
+
+/** Signed-in learner, as returned by POST /auth/login or GET /auth/me. */
 export type SessionUser = {
   id: string;
   email: string;
   name?: string | null;
   role?: string;
-  enrolledPrograms?: { programId: string; programTitle: string }[];
+  enrolledPrograms?: EnrolledProgramItem[];
 };
 
 const USER_KEY = "wbm_user";
@@ -54,6 +64,84 @@ export function useUser(): SessionUser | null {
   } catch {
     return null;
   }
+}
+
+/** Refreshes current user's profile and active enrollments from /auth/me */
+export async function refreshUserMe(): Promise<SessionUser | null> {
+  const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+  if (!token) return null;
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) {
+      const me = await res.json();
+      const currentRaw = localStorage.getItem(USER_KEY);
+      const prev = currentRaw ? JSON.parse(currentRaw) : {};
+      const updated: SessionUser = { ...prev, ...me };
+      localStorage.setItem(USER_KEY, JSON.stringify(updated));
+      window.dispatchEvent(new Event(CHANGE_EVENT));
+      return updated;
+    }
+  } catch {
+    // offline or network error: use existing cache
+  }
+  return null;
+}
+
+/**
+ * Checks whether the currently logged-in learner is enrolled in a given course/program.
+ * Automatically keeps enrollment state synchronized with /auth/me in the background.
+ */
+export function useEnrolmentStatus(programId?: string, slug?: string) {
+  const user = useUser();
+
+  useEffect(() => {
+    // Refresh enrollments in background on mount so local storage stays fresh
+    if (typeof window !== "undefined" && localStorage.getItem(TOKEN_KEY)) {
+      refreshUserMe();
+    }
+  }, []);
+
+  const enrolledItem = user?.enrolledPrograms?.find((ep) => {
+    if (programId && (ep.programId === programId || (ep as any).batch?.programId === programId)) {
+      return true;
+    }
+    if (slug && ep.slug === slug) {
+      return true;
+    }
+    return false;
+  });
+
+  const isEnrolled = Boolean(
+    enrolledItem &&
+      enrolledItem.status !== "CANCELLED" &&
+      enrolledItem.status !== "REJECTED" &&
+      enrolledItem.status !== "ARCHIVED"
+  );
+
+  const isFullyActive = Boolean(
+    isEnrolled && (enrolledItem?.status === "ACTIVE" || enrolledItem?.status === "COMPLETED")
+  );
+
+  const isPendingAgreement = Boolean(
+    isEnrolled && enrolledItem?.status === "PENDING_AGREEMENT"
+  );
+
+  const isPendingPayment = Boolean(
+    isEnrolled && enrolledItem?.status === "PENDING_PAYMENT"
+  );
+
+  return {
+    user,
+    isLoggedIn: Boolean(user),
+    isEnrolled,
+    isFullyActive,
+    isPendingAgreement,
+    isPendingPayment,
+    enrolment: enrolledItem ?? null,
+    status: enrolledItem?.status ?? null,
+  };
 }
 
 function storeSession(data: {

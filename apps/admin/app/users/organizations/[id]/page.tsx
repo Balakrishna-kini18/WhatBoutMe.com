@@ -403,7 +403,13 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
       const batchList = Array.isArray(data) ? data : data?.batches || [];
       setBatches(batchList);
       if (batchList.length > 0 && !requestForm.batchId) {
-        setRequestForm((prev) => ({ ...prev, batchId: batchList[0].id }));
+        const first = batchList[0];
+        const avail = Math.max(0, Number(first?.availableSeats) || 0);
+        setRequestForm((prev) => ({
+          ...prev,
+          batchId: first.id,
+          totalSeats: avail > 0 ? Math.min(10, avail) : 0,
+        }));
       }
     } catch {
       // Quietly ignore secondary errors if org is inaccessible
@@ -450,6 +456,25 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
 
   const handleAllocatePoolSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!poolForm.batchId) {
+      toast.error("Please select a target cohort batch.", "Batch Required");
+      return;
+    }
+    const targetBatch = batches.find((b) => b.id === poolForm.batchId);
+    if (targetBatch) {
+      const avail = Math.max(0, Number(targetBatch.availableSeats) || 0);
+      if (avail <= 0) {
+        toast.error(`Cannot allocate slots: ${targetBatch.name} is completely sold out.`, "Batch Sold Out");
+        return;
+      }
+      if (Number(poolForm.totalSeats) > avail) {
+        toast.error(
+          `Cannot allocate ${poolForm.totalSeats} seats. Only ${avail} ${avail === 1 ? "seat is" : "seats are"} available in ${targetBatch.name}.`,
+          "Capacity Exceeded"
+        );
+        return;
+      }
+    }
     try {
       setIsSubmittingPool(true);
       await apiPost(`/admin/organizations/${orgId}/seat-pools`, {
@@ -465,6 +490,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
 
       setIsAllocateModalOpen(false);
       fetchOrganizationDetails();
+      fetchAvailableBatches();
       fetchLearners();
     } catch (err: any) {
       toast.error(err.message || "Failed to allocate slot pool", "Allocation Failed");
@@ -479,33 +505,51 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
       toast.error("Please select a target cohort batch.", "Batch Required");
       return;
     }
-    if (!requestForm.totalSeats || requestForm.totalSeats < 1) {
+    const seatsRequested = Number(requestForm.totalSeats);
+    if (!seatsRequested || seatsRequested < 1) {
       toast.error("Please enter a valid seat quantity (minimum 1).", "Invalid Quantity");
       return;
+    }
+    if (selectedBatchForRequest) {
+      const avail = Math.max(0, Number(selectedBatchForRequest.availableSeats) || 0);
+      if (avail <= 0) {
+        toast.error(`Cannot book slots: ${selectedBatchForRequest.name} is completely sold out.`, "Cohort Sold Out");
+        return;
+      }
+      if (seatsRequested > avail) {
+        toast.error(
+          `Cannot request ${seatsRequested} seats. Only ${avail} ${avail === 1 ? "seat is" : "seats are"} available in ${selectedBatchForRequest.name}.`,
+          "Capacity Limit Exceeded"
+        );
+        return;
+      }
     }
     try {
       setIsSubmittingRequest(true);
       await apiPost(`/admin/organizations/${orgId}/seat-pools/request`, {
         batchId: requestForm.batchId,
-        totalSeats: Number(requestForm.totalSeats),
+        totalSeats: seatsRequested,
         currency: requestForm.currency || org?.defaultCurrency || "USD",
         paymentMethod: "ONLINE",
         notes: requestForm.notes?.trim() || undefined,
       });
 
       toast.success(
-        `Slot booking request for ${requestForm.totalSeats} seats submitted! WhatBoutMe Admin has been notified to review and approve.`,
+        `Slot booking request for ${seatsRequested} seats submitted! WhatBoutMe Admin has been notified to review and approve.`,
         "Request Submitted"
       );
       setIsRequestModalOpen(false);
+      const nextBatch = batches.find((b) => b.id === requestForm.batchId) || batches[0];
+      const nextAvail = Math.max(0, Number(nextBatch?.availableSeats) || 0);
       setRequestForm({
-        batchId: batches[0]?.id || "",
-        totalSeats: 10,
+        batchId: nextBatch?.id || "",
+        totalSeats: nextAvail > 0 ? Math.min(10, nextAvail) : 0,
         currency: org?.defaultCurrency || "USD",
         notes: "",
       });
       setActiveTab("pools");
       fetchOrganizationDetails();
+      fetchAvailableBatches();
       fetchLearners();
     } catch (err: any) {
       toast.error(err?.message || "Failed to submit slot booking request", "Request Failed");
@@ -867,8 +911,17 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
 
 
 
-  // Pricing calculations for course slot request modal
+  // Pricing calculations and capacity guards for course slot request modal
   const selectedBatchForRequest = batches.find((b) => b.id === requestForm.batchId);
+  const availableSeatsForRequest = selectedBatchForRequest
+    ? Math.max(0, Number(selectedBatchForRequest.availableSeats) || 0)
+    : 0;
+  const isRequestBatchSoldOut = Boolean(selectedBatchForRequest && availableSeatsForRequest <= 0);
+  const isRequestExceedingCapacity = Boolean(
+    selectedBatchForRequest &&
+    !isRequestBatchSoldOut &&
+    (Number(requestForm.totalSeats) || 0) > availableSeatsForRequest
+  );
   const requestCurrency = requestForm.currency || org?.defaultCurrency || "USD";
   const getBatchPrice = (batch: any, curr: string) => {
     if (!batch) return 1000;
@@ -887,8 +940,9 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
     }
     return 0;
   };
-  const discountPercent = getDiscountPercent(Number(requestForm.totalSeats) || 0);
-  const subtotalAmount = unitPrice * (Number(requestForm.totalSeats) || 0);
+  const effectiveSeatsCount = isRequestBatchSoldOut ? 0 : (Number(requestForm.totalSeats) || 0);
+  const discountPercent = getDiscountPercent(effectiveSeatsCount);
+  const subtotalAmount = unitPrice * effectiveSeatsCount;
   const calculatedDiscount = Math.round((subtotalAmount * discountPercent) / 100);
   const estimatedNetAmount = subtotalAmount - calculatedDiscount;
 
@@ -1065,8 +1119,15 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
           <button
             type="button"
             onClick={() => {
-              if (batches.length > 0 && !requestForm.batchId) {
-                setRequestForm((prev) => ({ ...prev, batchId: batches[0].id }));
+              const currentBatch = batches.find((b) => b.id === requestForm.batchId) || batches[0];
+              if (currentBatch) {
+                const avail = Math.max(0, Number(currentBatch.availableSeats) || 0);
+                const safeSeats = avail > 0 ? Math.min(requestForm.totalSeats > 0 ? requestForm.totalSeats : 10, avail) : 0;
+                setRequestForm((prev) => ({
+                  ...prev,
+                  batchId: currentBatch.id,
+                  totalSeats: safeSeats,
+                }));
               }
               setIsRequestModalOpen(true);
             }}
@@ -1725,8 +1786,15 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                         description="Book cohort batch slots for your organization learners. Once approved and paid, numbered slots are ready for immediate student assignment."
                         actionLabel="+ Purchase / Request Course Slots"
                         onAction={() => {
-                          if (batches.length > 0 && !requestForm.batchId) {
-                            setRequestForm((prev) => ({ ...prev, batchId: batches[0].id }));
+                          const currentBatch = batches.find((b) => b.id === requestForm.batchId) || batches[0];
+                          if (currentBatch) {
+                            const avail = Math.max(0, Number(currentBatch.availableSeats) || 0);
+                            const safeSeats = avail > 0 ? Math.min(requestForm.totalSeats > 0 ? requestForm.totalSeats : 10, avail) : 0;
+                            setRequestForm((prev) => ({
+                              ...prev,
+                              batchId: currentBatch.id,
+                              totalSeats: safeSeats,
+                            }));
                           }
                           setIsRequestModalOpen(true);
                         }}
@@ -2100,22 +2168,34 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
             <select
               required
               value={poolForm.batchId}
-              onChange={(e) => setPoolForm({ ...poolForm, batchId: e.target.value })}
+              onChange={(e) => {
+                const bId = e.target.value;
+                const targetB = batches.find((b) => b.id === bId);
+                const avail = targetB ? Math.max(0, Number(targetB.availableSeats) || 0) : 30;
+                setPoolForm((prev) => ({
+                  ...prev,
+                  batchId: bId,
+                  totalSeats: avail > 0 ? Math.min(prev.totalSeats || 10, avail) : 0,
+                }));
+              }}
               style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff" }}
             >
               <option value="">Select an upcoming batch...</option>
-              {batches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name} ({b.program?.title || "Program"}) — Cap: {b.capacity}
-                </option>
-              ))}
+              {batches.map((b) => {
+                const avail = b.availableSeats !== undefined ? b.availableSeats : b.capacity;
+                return (
+                  <option key={b.id} value={b.id}>
+                    {b.name} ({b.program?.title || "Program"}) — Available: {avail} / {b.capacity} seats
+                  </option>
+                );
+              })}
             </select>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
             <div>
               <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, marginBottom: "4px" }}>
-                Total Number of Slots (e.g. 30) *
+                Total Number of Slots *
               </label>
               <input
                 type="number"
@@ -2721,7 +2801,14 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                     (p.status === "PENDING_APPROVAL" || p.status === "PENDING_PAYMENT")
                 )
               );
-              const isDisabled = isSubmittingRequest || !requestForm.batchId || hasPending || (Number(requestForm.totalSeats) || 0) < 1;
+              const isDisabled =
+                isSubmittingRequest ||
+                !requestForm.batchId ||
+                hasPending ||
+                (Number(requestForm.totalSeats) || 0) < 1 ||
+                isRequestBatchSoldOut ||
+                isRequestExceedingCapacity;
+
               return (
                 <button
                   type="button"
@@ -2740,7 +2827,15 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                     transition: "all 0.15s ease",
                   }}
                 >
-                  {isSubmittingRequest ? "Submitting Booking..." : "Submit Booking Request to WhatBoutMe Admin →"}
+                  {isSubmittingRequest
+                    ? "Submitting Booking..."
+                    : hasPending
+                    ? "Request Already Pending"
+                    : isRequestBatchSoldOut
+                    ? "Cohort Batch Sold Out (0 Seats)"
+                    : isRequestExceedingCapacity
+                    ? `Exceeds Capacity (Max ${availableSeatsForRequest} ${availableSeatsForRequest === 1 ? "seat" : "seats"})`
+                    : "Submit Booking Request to WhatBoutMe Admin →"}
                 </button>
               );
             })()}
@@ -2886,7 +2981,13 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                           key={b.id}
                           onClick={() => {
                             if (hasPending) return;
-                            setRequestForm((prev) => ({ ...prev, batchId: b.id }));
+                            const avail = Math.max(0, Number(b.availableSeats) || 0);
+                            const safeSeats = avail > 0 ? Math.min(requestForm.totalSeats > 0 ? requestForm.totalSeats : 10, avail) : 0;
+                            setRequestForm((prev) => ({
+                              ...prev,
+                              batchId: b.id,
+                              totalSeats: safeSeats,
+                            }));
                             setIsBatchDropdownOpen(false);
                           }}
                           style={{
@@ -2979,40 +3080,76 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                 Number of Student Seats <span style={{ color: "#dc2626" }}>*</span>
               </label>
               <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                Volume discount unlocks at <strong>{pricingConfig.enabled && pricingConfig.tiers?.length > 0 ? `${pricingConfig.tiers[0]?.minSeats || 10}+ seats` : "10+ seats"}</strong>
+                {availableSeatsForRequest > 0 ? (
+                  <span>
+                    Batch Capacity: <strong style={{ color: "#16a34a" }}>{availableSeatsForRequest.toLocaleString()} {availableSeatsForRequest === 1 ? "seat" : "seats"} available</strong>
+                  </span>
+                ) : (
+                  <span style={{ color: "#dc2626", fontWeight: 700 }}>
+                    Batch is Sold Out (0 seats available)
+                  </span>
+                )}
+                {pricingConfig.enabled && pricingConfig.tiers?.length > 0 && availableSeatsForRequest >= (pricingConfig.tiers[0]?.minSeats || 10) && (
+                  <span>
+                    {" "}&bull; Volume discount unlocks at <strong>{pricingConfig.tiers[0]?.minSeats || 10}+ seats</strong>
+                  </span>
+                )}
               </span>
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
               {/* Stepper controls */}
-              <div style={{ display: "inline-flex", alignItems: "center", border: "1px solid #cbd5e1", borderRadius: "8px", overflow: "hidden", background: "#ffffff" }}>
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  border: isRequestExceedingCapacity ? "1.5px solid #ef4444" : "1px solid #cbd5e1",
+                  borderRadius: "8px",
+                  overflow: "hidden",
+                  background: isRequestBatchSoldOut ? "#f8fafc" : "#ffffff",
+                  opacity: isRequestBatchSoldOut ? 0.65 : 1,
+                  boxShadow: isRequestExceedingCapacity ? "0 0 0 3px rgba(239, 68, 68, 0.15)" : "none",
+                }}
+              >
                 <button
                   type="button"
-                  onClick={() => setRequestForm((prev) => ({ ...prev, totalSeats: Math.max(1, (Number(prev.totalSeats) || 1) - 5) }))}
+                  disabled={isRequestBatchSoldOut || Number(requestForm.totalSeats) <= 1}
+                  onClick={() => {
+                    const step = availableSeatsForRequest > 10 ? 5 : 1;
+                    setRequestForm((prev) => ({
+                      ...prev,
+                      totalSeats: Math.max(1, (Number(prev.totalSeats) || 1) - step),
+                    }));
+                  }}
                   style={{
                     width: "36px",
                     height: "38px",
                     border: "none",
                     borderRight: "1px solid #e2e8f0",
                     background: "#f8fafc",
-                    color: "#334155",
+                    color: isRequestBatchSoldOut || Number(requestForm.totalSeats) <= 1 ? "#94a3b8" : "#334155",
                     fontWeight: 700,
                     fontSize: "1.1rem",
-                    cursor: "pointer",
+                    cursor: isRequestBatchSoldOut || Number(requestForm.totalSeats) <= 1 ? "not-allowed" : "pointer",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
                   }}
-                  title="Decrease 5 seats"
+                  title="Decrease seats"
                 >
                   −
                 </button>
                 <input
                   type="number"
-                  min={1}
+                  min={availableSeatsForRequest > 0 ? 1 : 0}
+                  max={availableSeatsForRequest > 0 ? availableSeatsForRequest : 0}
+                  disabled={isRequestBatchSoldOut}
                   required
                   value={requestForm.totalSeats}
-                  onChange={(e) => setRequestForm((prev) => ({ ...prev, totalSeats: Math.max(1, Number(e.target.value)) }))}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    setRequestForm((prev) => ({ ...prev, totalSeats: isNaN(val) ? 0 : val }));
+                  }}
                   style={{
                     width: "70px",
                     textAlign: "center",
@@ -3021,66 +3158,174 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                     padding: "8px 6px",
                     fontSize: "1rem",
                     fontWeight: 700,
-                    color: "#0f172a",
-                    background: "#fff",
+                    color: isRequestExceedingCapacity ? "#dc2626" : "#0f172a",
+                    background: isRequestExceedingCapacity ? "#fef2f2" : "#fff",
                   }}
                 />
                 <button
                   type="button"
-                  onClick={() => setRequestForm((prev) => ({ ...prev, totalSeats: (Number(prev.totalSeats) || 0) + 5 }))}
+                  disabled={
+                    isRequestBatchSoldOut ||
+                    (availableSeatsForRequest > 0 && Number(requestForm.totalSeats) >= availableSeatsForRequest)
+                  }
+                  onClick={() => {
+                    const step = availableSeatsForRequest > 10 ? 5 : 1;
+                    setRequestForm((prev) => {
+                      const cur = Number(prev.totalSeats) || 0;
+                      const nextVal = cur + step;
+                      return {
+                        ...prev,
+                        totalSeats: availableSeatsForRequest > 0 ? Math.min(availableSeatsForRequest, nextVal) : nextVal,
+                      };
+                    });
+                  }}
                   style={{
                     width: "36px",
                     height: "38px",
                     border: "none",
                     borderLeft: "1px solid #e2e8f0",
                     background: "#f8fafc",
-                    color: "#334155",
+                    color:
+                      isRequestBatchSoldOut ||
+                      (availableSeatsForRequest > 0 && Number(requestForm.totalSeats) >= availableSeatsForRequest)
+                        ? "#94a3b8"
+                        : "#334155",
                     fontWeight: 700,
                     fontSize: "1.1rem",
-                    cursor: "pointer",
+                    cursor:
+                      isRequestBatchSoldOut ||
+                      (availableSeatsForRequest > 0 && Number(requestForm.totalSeats) >= availableSeatsForRequest)
+                        ? "not-allowed"
+                        : "pointer",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
                   }}
-                  title="Increase 5 seats"
+                  title="Increase seats"
                 >
                   +
                 </button>
               </div>
 
-              {/* Quick Preset Buttons (Dynamic) */}
-              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                {(pricingConfig.quickPresets || [10, 25, 50, 100]).map((qty: number) => {
-                  const disc = getDiscountPercent(qty);
-                  const isCurrent = Number(requestForm.totalSeats) === qty;
-                  return (
-                    <button
-                      key={qty}
-                      type="button"
-                      onClick={() => setRequestForm((prev) => ({ ...prev, totalSeats: qty }))}
-                      style={{
-                        padding: "7px 12px",
-                        borderRadius: "20px",
-                        border: isCurrent ? "1.5px solid #c97a1e" : "1px solid #e2e8f0",
-                        background: isCurrent ? "#fef3c7" : "#ffffff",
-                        color: isCurrent ? "#92400e" : "#475569",
-                        fontSize: "0.78rem",
-                        fontWeight: isCurrent ? 700 : 500,
-                        cursor: "pointer",
-                        boxShadow: isCurrent ? "0 1px 2px rgba(201, 122, 30, 0.2)" : "none",
-                        transition: "all 0.15s ease",
-                      }}
-                    >
-                      {qty} seats {disc > 0 ? (
-                        <span style={{ color: "#16a34a", fontWeight: 700 }}>({disc}% OFF)</span>
-                      ) : (
-                        <span style={{ color: "#64748b", fontWeight: 600 }}>(Standard)</span>
-                      )}
-                    </button>
-                  );
-                })}
+              {/* Quick Preset Buttons (Smart Dynamic based on available capacity) */}
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                {(() => {
+                  if (isRequestBatchSoldOut) {
+                    return (
+                      <span style={{ fontSize: "0.78rem", color: "#dc2626", fontWeight: 600 }}>
+                        No seats available for allocation in this cohort.
+                      </span>
+                    );
+                  }
+                  // Calculate smart presets based on available seats
+                  let presetsToDisplay: number[] = [];
+                  if (availableSeatsForRequest < 10) {
+                    // Small batch (e.g. 2 seats remaining like DELTA X)
+                    for (let i = 1; i <= availableSeatsForRequest; i++) {
+                      presetsToDisplay.push(i);
+                    }
+                  } else {
+                    const rawPresets = (pricingConfig.quickPresets || [10, 25, 50, 100]).filter(
+                      (q: number) => q <= availableSeatsForRequest
+                    );
+                    presetsToDisplay = [...rawPresets];
+                    if (!presetsToDisplay.includes(availableSeatsForRequest)) {
+                      presetsToDisplay.push(availableSeatsForRequest);
+                      presetsToDisplay.sort((a, b) => a - b);
+                    }
+                  }
+
+                  return presetsToDisplay.map((qty: number) => {
+                    const disc = getDiscountPercent(qty);
+                    const isCurrent = Number(requestForm.totalSeats) === qty;
+                    const isMax = qty === availableSeatsForRequest;
+                    return (
+                      <button
+                        key={qty}
+                        type="button"
+                        onClick={() => setRequestForm((prev) => ({ ...prev, totalSeats: qty }))}
+                        style={{
+                          padding: "7px 12px",
+                          borderRadius: "20px",
+                          border: isCurrent ? "1.5px solid #c97a1e" : "1px solid #e2e8f0",
+                          background: isCurrent ? "#fef3c7" : "#ffffff",
+                          color: isCurrent ? "#92400e" : "#475569",
+                          fontSize: "0.78rem",
+                          fontWeight: isCurrent ? 700 : 500,
+                          cursor: "pointer",
+                          boxShadow: isCurrent ? "0 1px 2px rgba(201, 122, 30, 0.2)" : "none",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        {qty} {qty === 1 ? "seat" : "seats"}{" "}
+                        {isMax ? (
+                          <span style={{ color: "#c97a1e", fontWeight: 700 }}>
+                            (Max Available)
+                          </span>
+                        ) : disc > 0 ? (
+                          <span style={{ color: "#16a34a", fontWeight: 700 }}>
+                            ({disc}% OFF)
+                          </span>
+                        ) : (
+                          <span style={{ color: "#64748b", fontWeight: 600 }}>
+                            (Standard)
+                          </span>
+                        )}
+                      </button>
+                    );
+                  });
+                })()}
               </div>
             </div>
+
+            {/* Capacity Exceeded Real-Time Error Alert */}
+            {isRequestExceedingCapacity && (
+              <div
+                style={{
+                  marginTop: "8px",
+                  background: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  fontSize: "0.82rem",
+                  color: "#b91c1c",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+              >
+                <span style={{ fontSize: "1.1rem" }}>⚠️</span>
+                <span>
+                  <strong>Capacity Limit Exceeded:</strong> <em>{selectedBatchForRequest?.name}</em> only has{" "}
+                  <strong>{availableSeatsForRequest} {availableSeatsForRequest === 1 ? "seat" : "seats"} available</strong>.
+                  You cannot book {requestForm.totalSeats} seats. Please adjust to {availableSeatsForRequest} or fewer.
+                </span>
+              </div>
+            )}
+
+            {/* Batch Sold Out Alert */}
+            {isRequestBatchSoldOut && (
+              <div
+                style={{
+                  marginTop: "8px",
+                  background: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  padding: "10px 14px",
+                  borderRadius: "8px",
+                  fontSize: "0.82rem",
+                  color: "#b91c1c",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+              >
+                <span style={{ fontSize: "1.1rem" }}>🚫</span>
+                <span>
+                  <strong>Cohort Sold Out:</strong> <em>{selectedBatchForRequest?.name}</em> has reached maximum capacity (0 seats available).
+                  Please choose another cohort batch from the dropdown above or contact WhatBoutMe admin to increase the batch capacity.
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Currency Segmented Toggle */}
@@ -3158,8 +3403,8 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
             </div>
 
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.84rem", marginBottom: "6px", color: "#64748b" }}>
-              <span>Gross Subtotal ({requestForm.totalSeats} seats):</span>
-              <span style={{ fontWeight: 600, color: "#0f172a" }}>
+              <span>Gross Subtotal ({effectiveSeatsCount} {effectiveSeatsCount === 1 ? "seat" : "seats"}):</span>
+              <span style={{ fontWeight: 600, color: isRequestExceedingCapacity ? "#dc2626" : "#0f172a" }}>
                 {requestCurrency} {subtotalAmount.toLocaleString()}
               </span>
             </div>

@@ -28,24 +28,7 @@ const nextConfig: NextConfig = {
     ],
   },
   experimental: {
-    optimizePackageImports: [
-      "lucide-react",
-      "date-fns",
-      "framer-motion",
-      "recharts",
-      "@radix-ui/react-accordion",
-      "@radix-ui/react-alert-dialog",
-      "@radix-ui/react-avatar",
-      "@radix-ui/react-checkbox",
-      "@radix-ui/react-dialog",
-      "@radix-ui/react-dropdown-menu",
-      "@radix-ui/react-popover",
-      "@radix-ui/react-select",
-      "@radix-ui/react-tabs",
-      "@radix-ui/react-tooltip",
-      "vaul",
-      "sonner",
-    ],
+    optimizePackageImports: ["lucide-react", "date-fns"],
   },
   async rewrites() {
     const isProd = process.env.NODE_ENV === "production" || Boolean(process.env.VERCEL);

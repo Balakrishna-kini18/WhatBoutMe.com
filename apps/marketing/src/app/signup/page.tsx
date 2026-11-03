@@ -18,6 +18,7 @@ import {
   buildAuthHref,
   extractLmsOriginParam,
   extractRedirectParam,
+  getStoredLmsOrigin,
   peekEnrollmentIntent,
   saveEnrollmentIntent,
   saveLmsOrigin,
@@ -37,6 +38,7 @@ export default function SignupPage() {
   const [resendCountdown, setResendCountdown] = useState(0);
   const [resendMessage, setResendMessage] = useState("");
   const [activeRedirect, setActiveRedirect] = useState<string | null>(null);
+  const [activeLmsOrigin, setActiveLmsOrigin] = useState<string | null>(null);
 
   const timezones = useMemo(() => getTimezones(), []);
   const countryOptions = useMemo(() => getCountryOptions(), []);
@@ -63,9 +65,11 @@ export default function SignupPage() {
     const params = new URLSearchParams(window.location.search);
     const redirectFromUrl = extractRedirectParam(params);
     const lmsOriginFromUrl = extractLmsOriginParam(params);
+    const origin = lmsOriginFromUrl || getStoredLmsOrigin();
 
-    if (lmsOriginFromUrl) {
-      saveLmsOrigin(lmsOriginFromUrl);
+    if (origin) {
+      saveLmsOrigin(origin);
+      setActiveLmsOrigin(origin);
     }
 
     if (redirectFromUrl) {
@@ -522,7 +526,7 @@ export default function SignupPage() {
       <p className="mt-5 text-center text-xs text-ink-soft">
         Already have an account?{" "}
         <Link
-          href={buildAuthHref("/login", activeRedirect)}
+          href={buildAuthHref("/login", activeRedirect, undefined, activeLmsOrigin)}
           className="font-semibold text-gold-deep hover:underline"
         >
           Log in

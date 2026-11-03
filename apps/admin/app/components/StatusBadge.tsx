@@ -74,7 +74,7 @@ function resolveTone(rawStatus: string): StatusTone {
   }
   if (normalized === "WAITLIST") return "info";
   if (normalized === "INACTIVE" || normalized === "ARCHIVED" || normalized === "DISABLED") return "inactive";
-  if (normalized === "SUSPENDED") return "error";
+  if (normalized === "SUSPENDED" || normalized === "EXPIRED" || normalized === "PAST_DUE" || normalized === "MISSED") return "error";
   if (
     normalized === "CANCELLED" ||
     normalized === "REJECTED" ||

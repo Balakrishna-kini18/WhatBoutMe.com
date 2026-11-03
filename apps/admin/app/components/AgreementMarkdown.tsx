@@ -10,35 +10,42 @@ interface AgreementMarkdownProps {
  * Safely parses inline markdown (bold, italic, code, links) into React elements.
  * Never uses dangerouslySetInnerHTML to guarantee complete XSS safety.
  */
-function renderInline(text: string, lineKey: string | number): React.ReactNode[] {
+const TOKEN_PATTERN =
+  "(?:<a\\s+(?:[^>]*?\\s+)?href=[\"']([^\"']*)[\"'][^>]*>(.*?)<\\/a>|\\[([^\\]]+)\\]\\(([^)]+)\\)|<\\s*(?:strong|b)\\s*>(.*?)<\\/\\s*(?:strong|b)\\s*>|\\*\\*([^*]+)\\*\\*|__([^_]+)__|\\*([^*]+)\\*|_([^_]+)_|<\\s*(?:em|i)\\s*>(.*?)<\\/\\s*(?:em|i)\\s*>|<\\s*(?:u|ins)\\s*>(.*?)<\\/\\s*(?:u|ins)\\s*>|~~([^~]+)~~|<\\s*(?:del|s)\\s*>(.*?)<\\/\\s*(?:del|s)\\s*>|`([^`]+)`|<\\s*code\\s*>(.*?)<\\/\\s*code\\s*>|([•⁃‣]))";
+
+function renderInline(text: string, lineKey: string | number, depth = 0): React.ReactNode[] {
   if (!text) return [];
+  if (depth > 5) return [text];
 
-  // Regex to match markdown links: [label](url), bold: **bold** or __bold__,
-  // italic: *italic* or _italic_, inline code: `code`
-  const tokenRegex = /(\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*|__([^_]+)__|`([^`]+)`|\*([^*]+)\*|_([^_]+)_)/g;
-
+  const regex = new RegExp(TOKEN_PATTERN, "gi");
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   let tokenIdx = 0;
 
-  while ((match = tokenRegex.exec(text)) !== null) {
+  while ((match = regex.exec(text)) !== null) {
     const matchStart = match.index;
-    const matchEnd = tokenRegex.lastIndex;
+    const matchEnd = regex.lastIndex;
 
-    // Text preceding the token
     if (matchStart > lastIndex) {
       nodes.push(text.slice(lastIndex, matchStart));
     }
 
-    const fullMatch = match[0];
     const key = `${lineKey}-tok-${tokenIdx++}`;
 
-    if (match[1]?.startsWith("[") && match[2] && match[3]) {
-      // Link: [label](url)
-      const label = match[2];
-      const rawUrl = match[3].trim();
-      // Sanitize URL: only allow http:, https:, mailto:, or relative anchors
+    const htmlLinkUrl = match[1];
+    const htmlLinkLabel = match[2];
+    const mdLinkLabel = match[3];
+    const mdLinkUrl = match[4];
+    const boldText = match[5] ?? match[6] ?? match[7];
+    const italicText = match[8] ?? match[9] ?? match[10];
+    const underlineText = match[11];
+    const strikeText = match[12] ?? match[13];
+    const codeText = match[14] ?? match[15];
+    const bulletSymbol = match[16];
+
+    if (htmlLinkUrl !== undefined && htmlLinkLabel !== undefined) {
+      const rawUrl = htmlLinkUrl.trim();
       const isSafe = /^(https?:\/\/|mailto:|\/|#)/i.test(rawUrl);
       if (isSafe) {
         nodes.push(
@@ -53,21 +60,59 @@ function renderInline(text: string, lineKey: string | number): React.ReactNode[]
               fontWeight: 500,
             }}
           >
-            {label}
+            {renderInline(htmlLinkLabel, `${key}-l`, depth + 1)}
           </a>
         );
       } else {
-        nodes.push(label);
+        nodes.push(renderInline(htmlLinkLabel, `${key}-l`, depth + 1));
       }
-    } else if (match[4] || match[5]) {
-      // Bold: **text** or __text__
+    } else if (mdLinkLabel !== undefined && mdLinkUrl !== undefined) {
+      const rawUrl = mdLinkUrl.trim();
+      const isSafe = /^(https?:\/\/|mailto:|\/|#)/i.test(rawUrl);
+      if (isSafe) {
+        nodes.push(
+          <a
+            key={key}
+            href={rawUrl}
+            target={rawUrl.startsWith("http") ? "_blank" : undefined}
+            rel={rawUrl.startsWith("http") ? "noopener noreferrer" : undefined}
+            style={{
+              color: "var(--accent-primary, #b86b11)",
+              textDecoration: "underline",
+              fontWeight: 500,
+            }}
+          >
+            {renderInline(mdLinkLabel, `${key}-l`, depth + 1)}
+          </a>
+        );
+      } else {
+        nodes.push(renderInline(mdLinkLabel, `${key}-l`, depth + 1));
+      }
+    } else if (boldText !== undefined) {
       nodes.push(
         <strong key={key} style={{ fontWeight: 700, color: "var(--text-primary, #1c1917)" }}>
-          {match[4] || match[5]}
+          {renderInline(boldText, `${key}-b`, depth + 1)}
         </strong>
       );
-    } else if (match[6]) {
-      // Code: `code`
+    } else if (italicText !== undefined) {
+      nodes.push(
+        <em key={key} style={{ fontStyle: "italic" }}>
+          {renderInline(italicText, `${key}-i`, depth + 1)}
+        </em>
+      );
+    } else if (underlineText !== undefined) {
+      nodes.push(
+        <u key={key} style={{ textDecoration: "underline", textUnderlineOffset: "3px" }}>
+          {renderInline(underlineText, `${key}-u`, depth + 1)}
+        </u>
+      );
+    } else if (strikeText !== undefined) {
+      nodes.push(
+        <s key={key} style={{ textDecoration: "line-through", opacity: 0.7 }}>
+          {renderInline(strikeText, `${key}-s`, depth + 1)}
+        </s>
+      );
+    } else if (codeText !== undefined) {
       nodes.push(
         <code
           key={key}
@@ -81,24 +126,35 @@ function renderInline(text: string, lineKey: string | number): React.ReactNode[]
             color: "var(--text-primary, #1c1917)",
           }}
         >
-          {match[6]}
+          {codeText}
         </code>
       );
-    } else if (match[7] || match[8]) {
-      // Italic: *text* or _text_
+    } else if (bulletSymbol !== undefined) {
       nodes.push(
-        <em key={key} style={{ fontStyle: "italic" }}>
-          {match[7] || match[8]}
-        </em>
+        <span
+          key={key}
+          style={{
+            display: "inline-block",
+            margin: "0 6px",
+            width: "6px",
+            height: "6px",
+            borderRadius: "50%",
+            background: "var(--accent-primary, #b86b11)",
+            verticalAlign: "middle",
+          }}
+          aria-hidden="true"
+        />
       );
     } else {
-      nodes.push(fullMatch);
+      nodes.push(match[0]);
     }
 
     lastIndex = matchEnd;
+    if (regex.lastIndex <= matchStart) {
+      regex.lastIndex = matchStart + 1;
+    }
   }
 
-  // Trailing text after the last token
   if (lastIndex < text.length) {
     nodes.push(text.slice(lastIndex));
   }
@@ -284,11 +340,11 @@ export function AgreementMarkdown({ content, className, style }: AgreementMarkdo
           {renderInline(trimmed.replace(/^####\s+/, ""), idx)}
         </h6>
       );
-    } else if (/^[-*+]\s+/.test(trimmed)) {
+    } else if (/^[-*+•⁃‣]\s+/.test(trimmed)) {
       // Bullet list item
       flushNumberedList(idx);
       flushQuote(idx);
-      currentBulletList.push(trimmed.replace(/^[-*+]\s+/, ""));
+      currentBulletList.push(trimmed.replace(/^[-*+•⁃‣]\s+/, ""));
     } else if (/^\d+\.\s+/.test(trimmed)) {
       // Numbered list item
       flushBulletList(idx);
@@ -313,6 +369,7 @@ export function AgreementMarkdown({ content, className, style }: AgreementMarkdo
             lineHeight: 1.7,
             color: "var(--text-primary, #1c1917)",
             fontSize: "0.92rem",
+            whiteSpace: "pre-line",
           }}
         >
           {renderInline(trimmed, idx)}

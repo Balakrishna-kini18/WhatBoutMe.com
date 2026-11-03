@@ -47,6 +47,10 @@ export default function CreateProgramPage() {
       setFormError("Program title is required.");
       return;
     }
+    if (!updatedData.thumbnailUrl || !updatedData.thumbnailUrl.trim()) {
+      setFormError("Course Cover Banner is required. Please upload a cover banner before creating the program.");
+      return;
+    }
 
     setIsSubmitting(true);
     setFormError(null);

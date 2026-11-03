@@ -117,6 +117,7 @@ export class QuizzesService {
               select: {
                 id: true,
                 text: true,
+                imageUrl: true,
                 isCorrect: true,
                 order: true,
               },
@@ -1333,7 +1334,7 @@ export class QuizzesService {
       if (!isTextQuestion && Array.isArray(dto.options) && dto.options.length > 0) {
         const optionsData = dto.options.map((opt, idx) => ({
           questionId: question.id,
-          text: opt.text.trim(),
+          text: (opt.text ?? '').trim() || (opt.imageUrl ? `Option ${String.fromCharCode(65 + idx)}` : ''),
           imageUrl: opt.imageUrl?.trim() || null,
           isCorrect: Boolean(opt.isCorrect),
           order: opt.order ?? idx + 1,
@@ -1407,7 +1408,7 @@ export class QuizzesService {
           await tx.option.createMany({
             data: dto.options.map((opt, idx) => ({
               questionId,
-              text: opt.text.trim(),
+              text: (opt.text ?? '').trim() || (opt.imageUrl ? `Option ${String.fromCharCode(65 + idx)}` : ''),
               imageUrl: opt.imageUrl?.trim() || null,
               isCorrect: Boolean(opt.isCorrect),
               order: opt.order ?? idx + 1,

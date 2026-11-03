@@ -1231,23 +1231,23 @@ export default function CompulsoryVideoPlayer({
         }}
         style={{
           position: "absolute",
-          bottom: "12px",
-          left: "14px",
-          right: "14px",
-          background: "rgba(15, 23, 42, 0.72)",
-          backdropFilter: "blur(24px) saturate(160%)",
-          WebkitBackdropFilter: "blur(24px) saturate(160%)",
-          border: "1px solid rgba(255, 255, 255, 0.15)",
-          borderRadius: "14px",
-          padding: "10px 16px",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          background: "transparent",
+          backdropFilter: "none",
+          WebkitBackdropFilter: "none",
+          border: "none",
+          borderRadius: 0,
+          padding: "0 16px 12px",
           display: "flex",
           flexDirection: "column",
-          gap: "8px",
+          gap: "6px",
           opacity: showControls || !isPlaying ? 1 : 0,
           pointerEvents: showControls || !isPlaying ? "auto" : "none",
-          transform: showControls || !isPlaying ? "translateY(0)" : "translateY(8px)",
+          transform: showControls || !isPlaying ? "translateY(0)" : "translateY(6px)",
           transition: "opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
-          boxShadow: "0 12px 36px rgba(0, 0, 0, 0.45)",
+          boxShadow: "none",
           zIndex: 50,
         }}
       >
@@ -1258,12 +1258,13 @@ export default function CompulsoryVideoPlayer({
             style={{
               position: "relative",
               flex: 1,
-              height: "6px",
-              background: "rgba(255, 255, 255, 0.22)",
+              height: "5px",
+              background: "rgba(255, 255, 255, 0.3)",
               borderRadius: "4px",
               overflow: "hidden",
               cursor: "pointer",
               transition: "height 0.15s ease",
+              boxShadow: "0 1px 3px rgba(0, 0, 0, 0.8)",
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.height = "8px";
@@ -1304,6 +1305,7 @@ export default function CompulsoryVideoPlayer({
                 padding: "4px",
                 display: "flex",
                 alignItems: "center",
+                filter: "drop-shadow(0 2px 4px rgba(0, 0, 0, 0.85))",
               }}
             >
               {isPlaying ? <Pause size={20} fill="#ffffff" /> : <Play size={20} fill="#ffffff" />}
@@ -1327,6 +1329,7 @@ export default function CompulsoryVideoPlayer({
                 fontSize: "0.74rem",
                 fontWeight: 700,
                 transition: "color 0.15s ease",
+                filter: "drop-shadow(0 2px 4px rgba(0, 0, 0, 0.85))",
               }}
             >
               <RotateCcw size={17} />
@@ -1347,6 +1350,7 @@ export default function CompulsoryVideoPlayer({
                   padding: "4px",
                   display: "flex",
                   alignItems: "center",
+                  filter: "drop-shadow(0 2px 4px rgba(0, 0, 0, 0.85))",
                 }}
               >
                 {isMuted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
@@ -1363,12 +1367,13 @@ export default function CompulsoryVideoPlayer({
                   height: "4px",
                   accentColor: "#f59e0b",
                   cursor: "pointer",
+                  filter: "drop-shadow(0 1px 3px rgba(0, 0, 0, 0.85))",
                 }}
               />
             </div>
 
             {/* Timestamp Readout */}
-            <span style={{ fontSize: "0.82rem", color: "#e2e8f0", fontFamily: "monospace", letterSpacing: "0.04em" }}>
+            <span style={{ fontSize: "0.82rem", color: "#ffffff", fontFamily: "monospace", letterSpacing: "0.04em", fontWeight: 600, textShadow: "0 1px 4px rgba(0, 0, 0, 0.95)" }}>
               {formatTime(currentTime)}
             </span>
           </div>
@@ -1454,8 +1459,8 @@ export default function CompulsoryVideoPlayer({
                 aria-label="Playback speed"
                 title="Playback speed"
                 style={{
-                  background: "rgba(255, 255, 255, 0.12)",
-                  border: "1px solid rgba(255, 255, 255, 0.2)",
+                  background: "rgba(0, 0, 0, 0.35)",
+                  border: "1px solid rgba(255, 255, 255, 0.4)",
                   color: "#ffffff",
                   padding: "3px 9px",
                   borderRadius: "5px",
@@ -1467,12 +1472,14 @@ export default function CompulsoryVideoPlayer({
                   gap: "4px",
                   fontFamily: "monospace",
                   transition: "all 0.15s ease",
+                  textShadow: "0 1px 3px rgba(0, 0, 0, 0.9)",
+                  filter: "drop-shadow(0 1px 3px rgba(0, 0, 0, 0.7))",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)";
+                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.25)";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(255, 255, 255, 0.12)";
+                  e.currentTarget.style.background = "rgba(0, 0, 0, 0.35)";
                 }}
               >
                 <span>{playbackSpeed === 1 ? "1x" : `${playbackSpeed}x`}</span>
@@ -1564,8 +1571,8 @@ export default function CompulsoryVideoPlayer({
                 aria-label="Video quality"
                 title="Adjust video quality"
                 style={{
-                  background: selectedQuality !== "Auto" ? "rgba(99, 102, 241, 0.25)" : "rgba(255, 255, 255, 0.12)",
-                  border: selectedQuality !== "Auto" ? "1px solid rgba(129, 140, 248, 0.45)" : "1px solid rgba(255, 255, 255, 0.2)",
+                  background: selectedQuality !== "Auto" ? "rgba(99, 102, 241, 0.35)" : "rgba(0, 0, 0, 0.35)",
+                  border: selectedQuality !== "Auto" ? "1px solid rgba(129, 140, 248, 0.6)" : "1px solid rgba(255, 255, 255, 0.4)",
                   color: selectedQuality !== "Auto" ? "#c7d2fe" : "#ffffff",
                   padding: "3px 9px",
                   borderRadius: "5px",
@@ -1577,12 +1584,14 @@ export default function CompulsoryVideoPlayer({
                   gap: "4px",
                   fontFamily: "monospace",
                   transition: "all 0.15s ease",
+                  textShadow: "0 1px 3px rgba(0, 0, 0, 0.9)",
+                  filter: "drop-shadow(0 1px 3px rgba(0, 0, 0, 0.7))",
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = selectedQuality !== "Auto" ? "rgba(99, 102, 241, 0.35)" : "rgba(255, 255, 255, 0.2)";
+                  e.currentTarget.style.background = selectedQuality !== "Auto" ? "rgba(99, 102, 241, 0.45)" : "rgba(255, 255, 255, 0.25)";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = selectedQuality !== "Auto" ? "rgba(99, 102, 241, 0.25)" : "rgba(255, 255, 255, 0.12)";
+                  e.currentTarget.style.background = selectedQuality !== "Auto" ? "rgba(99, 102, 241, 0.35)" : "rgba(0, 0, 0, 0.35)";
                 }}
               >
                 <span>{selectedQuality}</span>
@@ -1602,6 +1611,7 @@ export default function CompulsoryVideoPlayer({
                 padding: "4px",
                 display: "flex",
                 alignItems: "center",
+                filter: "drop-shadow(0 2px 4px rgba(0, 0, 0, 0.85))",
               }}
             >
               {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}

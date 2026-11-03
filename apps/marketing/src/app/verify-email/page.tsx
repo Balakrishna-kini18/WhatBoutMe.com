@@ -9,6 +9,8 @@ import { verifyEmailUser } from "@/lib/api";
 import {
   buildAuthHref,
   extractRedirectParam,
+  extractLmsOriginParam,
+  getStoredLmsOrigin,
   peekEnrollmentIntent,
   saveEnrollmentIntent,
 } from "@/lib/auth-redirect";
@@ -21,11 +23,19 @@ function VerifyEmailContent() {
   const [loading, setLoading] = useState(true);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
-  const [activeRedirect, setActiveRedirect] = useState<string | null>(redirectFromUrl);
+  const [activeRedirect, setActiveRedirect] = useState<string | null>(null);
+  const [activeLmsOrigin, setActiveLmsOrigin] = useState<string | null>(null);
 
   useEffect(() => {
+    const lmsOriginFromUrl = extractLmsOriginParam(searchParams);
+    const origin = lmsOriginFromUrl || getStoredLmsOrigin();
+
+    if (origin) {
+      setActiveLmsOrigin(origin);
+    }
+
     if (redirectFromUrl) {
-      saveEnrollmentIntent({ returnUrl: redirectFromUrl });
+      saveEnrollmentIntent({ returnUrl: redirectFromUrl, lmsOrigin: origin || undefined });
       setActiveRedirect(redirectFromUrl);
     } else {
       const stored = peekEnrollmentIntent();
@@ -33,7 +43,7 @@ function VerifyEmailContent() {
         setActiveRedirect(stored.returnUrl);
       }
     }
-  }, [redirectFromUrl]);
+  }, [redirectFromUrl, searchParams]);
 
   useEffect(() => {
     if (!token) {
@@ -89,7 +99,7 @@ function VerifyEmailContent() {
           </p>
           <div className="mt-8">
             <Link
-              href={buildAuthHref("/login", activeRedirect)}
+              href={buildAuthHref("/login", activeRedirect, undefined, activeLmsOrigin)}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-ink py-4 font-semibold text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
             >
               Proceed to Sign In
@@ -109,7 +119,7 @@ function VerifyEmailContent() {
           </p>
           <div className="mt-8 space-y-3">
             <Link
-              href={buildAuthHref("/login", activeRedirect)}
+              href={buildAuthHref("/login", activeRedirect, undefined, activeLmsOrigin)}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-ink py-4 font-semibold text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
             >
               Back to Sign In

@@ -1,11 +1,20 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
-import Image from "next/image";
+import { useEffect, useState, useMemo, use } from "react";
 import styles from "../../../../../page.module.css";
 import Link from "next/link";
-import { Modal, StatusBadge, CustomSelect, TableSkeleton, EmptyState } from "../../../../../components";
-
+import {
+  Modal,
+  ConfirmDialog,
+  StatusBadge,
+  CustomSelect,
+  TableSkeleton,
+  EmptyState,
+  Pagination,
+  SortIndicator,
+  useToast,
+  type SortOrder,
+} from "../../../../../components";
 import { API_URL } from "../../../../../lib/api";
 
 interface LearnerAttendanceItem {
@@ -21,8 +30,24 @@ interface LearnerAttendanceItem {
   recordedMinutes?: number | null;
   attendancePercentage: number;
   status: string;
-  source: string;
+  source: string | null;
   overrideReason: string | null;
+}
+
+interface UnmatchedParticipantItem {
+  id: string;
+  participantName: string;
+  participantEmail: string | null;
+  joinTimeUtc: string | null;
+  leaveTimeUtc: string | null;
+  minutesPresent: number;
+}
+
+interface UnlinkedLearnerItem {
+  userId: string;
+  enrolmentId: string;
+  name: string;
+  email: string;
 }
 
 interface AttendanceResponse {
@@ -30,6 +55,7 @@ interface AttendanceResponse {
     id: string;
     title: string;
     type: string;
+    status?: string;
     startTimeUtc: string;
     endTimeUtc: string;
     durationMinutes: number;
@@ -42,7 +68,11 @@ interface AttendanceResponse {
   totalLearners: number;
   presentCount: number;
   learners: LearnerAttendanceItem[];
+  unmatched?: UnmatchedParticipantItem[];
+  unlinkedLearners?: UnlinkedLearnerItem[];
 }
+
+type AttendanceSortField = "name" | "status" | "duration" | "joinTime" | "leaveTime" | "source";
 
 export default function SessionAttendancePage({
   params,
@@ -51,10 +81,17 @@ export default function SessionAttendancePage({
 }) {
   const resolvedParams = use(params);
   const { id: batchId, sessionId } = resolvedParams;
+  const { success: toastSuccess, error: toastError } = useToast();
 
   const [data, setData] = useState<AttendanceResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+
+  // Sorting & Pagination state
+  const [sortField, setSortField] = useState<AttendanceSortField>("name");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Override modal state
   const [overrideModal, setOverrideModal] = useState<{
@@ -75,20 +112,26 @@ export default function SessionAttendancePage({
     error: "",
   });
 
-  // QR Check-in Modal state
-  const [qrModal, setQrModal] = useState<{
+  // Unmatched participant Link & Dismiss state (merged into Attendance page)
+  const [linkModal, setLinkModal] = useState<{
     isOpen: boolean;
+    unmatchedItem: UnmatchedParticipantItem | null;
+    selectedUserId: string;
+    reason: string;
     loading: boolean;
-    token: string;
-    checkInUrl: string;
     error: string;
   }>({
     isOpen: false,
+    unmatchedItem: null,
+    selectedUserId: "",
+    reason: "Participant joined Zoom under an alternate display name or device",
     loading: false,
-    token: "",
-    checkInUrl: "",
     error: "",
   });
+
+  const [itemToDismiss, setItemToDismiss] = useState<UnmatchedParticipantItem | null>(null);
+  const [isDismissing, setIsDismissing] = useState(false);
+  const [dismissError, setDismissError] = useState<string | null>(null);
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncNotice, setSyncNotice] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -98,39 +141,14 @@ export default function SessionAttendancePage({
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
 
-  const handleSyncMeeting = async () => {
-    setIsSyncing(true);
-    setSyncNotice(null);
-    try {
-      const res = await fetch(`${API_URL}/batches/${batchId}/sessions/${sessionId}/sync-attendance`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        throw new Error(err?.message || `Failed to sync meeting attendance (${res.status})`);
-      }
-      const json = await res.json();
-      if (json.success === false) {
-        setSyncNotice({
-          type: "error",
-          message: json.message || "No meeting attendance records were processed.",
-        });
-        return;
-      }
-      setSyncNotice({
-        type: "success",
-        message: `Meeting attendance synchronized successfully (${json.participantCount || 0} participant records processed).`,
-      });
-      await fetchAttendanceData();
-    } catch (err: any) {
-      setSyncNotice({
-        type: "error",
-        message: err.message || "Failed to synchronize meeting attendance report.",
-      });
-    } finally {
-      setIsSyncing(false);
+  const handleSort = (field: AttendanceSortField) => {
+    if (sortField === field) {
+      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortOrder("asc");
     }
+    setCurrentPage(1);
   };
 
   const fetchAttendanceData = async (signal?: AbortSignal) => {
@@ -158,58 +176,128 @@ export default function SessionAttendancePage({
     }
   };
 
+  const handleSyncMeeting = async () => {
+    setIsSyncing(true);
+    setSyncNotice(null);
+    try {
+      const res = await fetch(`${API_URL}/batches/${batchId}/sessions/${sessionId}/sync-attendance`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.message || `Failed to sync meeting attendance (${res.status})`);
+      }
+      const json = await res.json();
+      await fetchAttendanceData();
+      if (json.success === false) {
+        setSyncNotice({
+          type: "error",
+          message: json.message || "No meeting attendance records were processed.",
+        });
+        return;
+      }
+      setSyncNotice({
+        type: "success",
+        message: `Zoom attendance synced (${json.participantCount || 0} participant records processed).`,
+      });
+    } catch (err: any) {
+      setSyncNotice({
+        type: "error",
+        message: err.message || "Failed to synchronize Zoom attendance report.",
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   useEffect(() => {
     const controller = new AbortController();
     fetchAttendanceData(controller.signal);
     return () => controller.abort();
   }, [batchId, sessionId]);
 
+  const isLearnerPresent = (status: string) =>
+    status === "PRESENT" ||
+    status === "PRESENT_AUTO" ||
+    status === "PRESENT_MANUAL" ||
+    status === "CORRECTED" ||
+    status === "PRESENT_LIVE" ||
+    status === "PRESENT_RECORDED";
+
   const handleOpenOverride = (learner: LearnerAttendanceItem) => {
+    const sessionDur = data?.session.durationMinutes || 60;
+    const initialStatus = isLearnerPresent(learner.status)
+      ? "PRESENT"
+      : learner.status === "EXCUSED"
+      ? "EXCUSED"
+      : "PRESENT";
+    const initialMinutes =
+      initialStatus === "PRESENT"
+        ? learner.minutesPresent > 0
+          ? learner.minutesPresent
+          : sessionDur
+        : learner.minutesPresent || 0;
+
     setOverrideModal({
       isOpen: true,
       learner,
-      status: learner.status === "ABSENT" ? "PRESENT" : learner.status,
-      minutesPresent: learner.minutesPresent || data?.session.durationMinutes || 60,
-      reason: "",
+      status: initialStatus,
+      minutesPresent: initialMinutes,
+      reason: learner.overrideReason || "",
       loading: false,
       error: "",
     });
   };
 
+  const handleOverrideStatusChange = (val: string) => {
+    const sessionDur = data?.session.durationMinutes || 60;
+    setOverrideModal((prev) => ({
+      ...prev,
+      status: val,
+      minutesPresent:
+        val === "ABSENT"
+          ? 0
+          : val === "PRESENT" && prev.minutesPresent === 0
+          ? sessionDur
+          : prev.minutesPresent,
+    }));
+  };
+
   const submitOverride = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!overrideModal.learner) return;
+    if (!overrideModal.learner || overrideModal.loading) return;
 
-    if (!overrideModal.reason.trim()) {
-      setOverrideModal((prev) => ({ ...prev, error: "A mandatory non-empty reason is required for audit logs." }));
+    if (!overrideModal.reason.trim() || overrideModal.reason.trim().length < 3) {
+      setOverrideModal((prev) => ({
+        ...prev,
+        error: "Please enter a brief reason (at least 3 characters).",
+      }));
       return;
     }
 
     const targetUserId = overrideModal.learner.userId;
     const newStatus = overrideModal.status;
-    const newMinutes = Number(overrideModal.minutesPresent) || 0;
+    const newMinutes = newStatus === "ABSENT" ? 0 : Math.max(0, Number(overrideModal.minutesPresent) || 0);
     const newReason = overrideModal.reason.trim();
+    const sessionDur = data?.session.durationMinutes || 60;
+    const newPct = sessionDur > 0 ? Math.min(100, (newMinutes / sessionDur) * 100) : 0;
     const previousData = data;
 
-    // Optimistic UI update: immediately reflect modified status and recompute presentCount
     if (data) {
       const updatedLearners = data.learners.map((l) =>
         l.userId === targetUserId
           ? {
               ...l,
               status: newStatus,
+              source: "MANUAL",
               minutesPresent: newMinutes,
+              attendancePercentage: newPct,
               overrideReason: newReason,
             }
           : l
       );
-      const newPresentCount = updatedLearners.filter(
-        (l) =>
-          l.status === "PRESENT" ||
-          l.status === "PRESENT_AUTO" ||
-          l.status === "PRESENT_MANUAL" ||
-          l.status === "CORRECTED"
-      ).length;
+      const newPresentCount = updatedLearners.filter((l) => isLearnerPresent(l.status)).length;
 
       setData({
         ...data,
@@ -218,7 +306,6 @@ export default function SessionAttendancePage({
       });
     }
 
-    // Dismiss modal immediately for instant tactile responsiveness
     setOverrideModal((prev) => ({ ...prev, isOpen: false, loading: false, error: "" }));
 
     try {
@@ -235,18 +322,18 @@ export default function SessionAttendancePage({
             minutesPresent: newMinutes,
             reason: newReason,
           }),
-        },
+        }
       );
 
       if (!res.ok) {
-        // Rollback on server failure
         setData(previousData);
         const err = await res.json().catch(() => null);
-        setErrorMessage(err?.message || "Failed to update attendance on server");
+        const msg = err?.message || "Failed to update attendance on server";
+        setErrorMessage(Array.isArray(msg) ? msg.join(", ") : msg);
         return;
       }
 
-      // Background re-fetch to ensure synchronization
+      toastSuccess("Attendance updated.");
       fetchAttendanceData();
     } catch (err: any) {
       setData(previousData);
@@ -254,258 +341,424 @@ export default function SessionAttendancePage({
     }
   };
 
-  const handleShowQrModal = async () => {
-    setQrModal({ isOpen: true, loading: true, token: "", checkInUrl: "", error: "" });
+  // Unmatched participant linking handlers
+  const handleOpenLinkModal = (item: UnmatchedParticipantItem) => {
+    setLinkModal({
+      isOpen: true,
+      unmatchedItem: item,
+      selectedUserId: data?.unlinkedLearners?.[0]?.userId || data?.learners?.[0]?.userId || "",
+      reason: "Participant joined Zoom under an alternate display name or device",
+      loading: false,
+      error: "",
+    });
+  };
+
+  const submitLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!linkModal.unmatchedItem || !linkModal.selectedUserId) {
+      setLinkModal((prev) => ({ ...prev, error: "Please select a learner to link." }));
+      return;
+    }
+
+    setLinkModal((prev) => ({ ...prev, loading: true, error: "" }));
     try {
-      const res = await fetch(`${API_URL}/sessions/${sessionId}/check-in/token`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-      });
+      const res = await fetch(
+        `${API_URL}/batches/${batchId}/sessions/${sessionId}/reconciliation/${linkModal.unmatchedItem.id}/link`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders(),
+          },
+          body: JSON.stringify({
+            userId: linkModal.selectedUserId,
+            reason: linkModal.reason,
+          }),
+        }
+      );
 
       if (!res.ok) {
         const err = await res.json().catch(() => null);
-        throw new Error(err?.message || "Failed to generate check-in token");
+        const msg = err?.message || "Failed to link participant";
+        setLinkModal((prev) => ({
+          ...prev,
+          loading: false,
+          error: Array.isArray(msg) ? msg.join(", ") : msg,
+        }));
+        return;
       }
 
-      const json = await res.json();
-      const origin = typeof window !== "undefined" ? window.location.origin.replace("3002", "3003") : "";
-      setQrModal({
-        isOpen: true,
-        loading: false,
-        token: json.token,
-        checkInUrl: `${origin}${json.checkInUrl}`,
-        error: "",
-      });
+      setLinkModal((prev) => ({ ...prev, isOpen: false, loading: false }));
+      toastSuccess("Attendee linked to learner.");
+      await fetchAttendanceData();
     } catch (err: any) {
-      setQrModal((prev) => ({ ...prev, loading: false, error: err.message }));
+      setLinkModal((prev) => ({
+        ...prev,
+        loading: false,
+        error: err.message || "Network error",
+      }));
     }
   };
 
-  const handleExportCsv = () => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : "";
-    window.open(`${API_URL}/admin/reports/batches/${batchId}/attendance/export?format=csv&token=${token}`, "_blank");
+  const confirmDismiss = async () => {
+    if (!itemToDismiss) return;
+    setIsDismissing(true);
+    setDismissError(null);
+    try {
+      const res = await fetch(
+        `${API_URL}/sessions/${sessionId}/unmatched-attendance/${itemToDismiss.id}/dismiss`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders(),
+          },
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.message || "Failed to dismiss attendee");
+      }
+      setItemToDismiss(null);
+      toastSuccess("Unmatched attendee dismissed.");
+      await fetchAttendanceData();
+    } catch (err: any) {
+      setDismissError(err.message || "Error dismissing attendee");
+    } finally {
+      setIsDismissing(false);
+    }
+  };
+
+  const getSourceLabel = (learner: LearnerAttendanceItem): string => {
+    if (!learner.source) return "—";
+    if (learner.source === "MANUAL") return "Manual";
+    if (learner.source === "QR_CHECKIN") return "QR Check-In";
+    if (learner.source === "AUTO" || learner.source === "ZOOM_SYNC") {
+      if (!isLearnerPresent(learner.status) && (learner.minutesPresent ?? 0) === 0 && !learner.joinTimeUtc) {
+        return "—";
+      }
+      return "Zoom";
+    }
+    return learner.source;
+  };
+
+  const getCleanStatusDisplay = (learner: LearnerAttendanceItem): { label: string; tone: "active" | "pending" | "inactive" } => {
+    if (isLearnerPresent(learner.status)) {
+      return { label: "PRESENT", tone: "active" };
+    }
+    if (learner.status === "EXCUSED") {
+      return { label: "EXCUSED", tone: "pending" };
+    }
+    if (learner.source !== "MANUAL" && ((learner.minutesPresent ?? 0) > 0 || (learner.attendancePercentage ?? 0) > 0)) {
+      return { label: `PARTIAL (${Math.round(learner.attendancePercentage)}%)`, tone: "pending" };
+    }
+    return { label: "ABSENT", tone: "inactive" };
   };
 
   const formatLocalTime = (isoString: string | null) => {
-    if (!isoString) return "---";
+    if (!isoString) return "—";
     try {
       const date = new Date(isoString);
       return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     } catch {
-      return "---";
+      return "—";
     }
   };
 
+  const handleExportCsv = () => {
+    if (!data || data.learners.length === 0) {
+      toastError("No attendance records to export.");
+      return;
+    }
+
+    const headers = [
+      "Attendee Name",
+      "Attendee Email",
+      "Status",
+      "Time Present (Minutes)",
+      "Attendance (%)",
+      "Join Time (Local)",
+      "Leave Time (Local)",
+      "Source",
+      "Note",
+    ];
+    const rows = data.learners.map((l) => {
+      const statusObj = getCleanStatusDisplay(l);
+      const sourceLabel = getSourceLabel(l);
+      return [
+        `"${(l.name || "").replace(/"/g, '""')}"`,
+        `"${(l.email || "").replace(/"/g, '""')}"`,
+        `"${statusObj.label}"`,
+        `"${l.minutesPresent ?? 0}"`,
+        `"${Math.round(l.attendancePercentage ?? 0)}%"`,
+        `"${formatLocalTime(l.joinTimeUtc)}"`,
+        `"${formatLocalTime(l.leaveTimeUtc)}"`,
+        `"${sourceLabel}"`,
+        `"${(l.overrideReason || "").replace(/"/g, '""')}"`,
+      ].join(",");
+    });
+
+    const csvContent = [headers.join(","), ...rows].join("\r\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const safeTitle = (data.session.title || "session").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `attendance-${safeTitle}-${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toastSuccess(`Exported ${data.learners.length} attendance records to CSV.`);
+  };
+
+  const sortedLearners = useMemo(() => {
+    if (!data?.learners) return [];
+    const copy = [...data.learners];
+    const dir = sortOrder === "asc" ? 1 : -1;
+
+    copy.sort((a, b) => {
+      if (sortField === "name") {
+        return (a.name || "").localeCompare(b.name || "") * dir;
+      }
+      if (sortField === "status") {
+        const sA = getCleanStatusDisplay(a).label;
+        const sB = getCleanStatusDisplay(b).label;
+        return sA.localeCompare(sB) * dir;
+      }
+      if (sortField === "duration") {
+        return ((a.minutesPresent || 0) - (b.minutesPresent || 0)) * dir;
+      }
+      if (sortField === "joinTime") {
+        const tA = a.joinTimeUtc ? new Date(a.joinTimeUtc).getTime() : 0;
+        const tB = b.joinTimeUtc ? new Date(b.joinTimeUtc).getTime() : 0;
+        return (tA - tB) * dir;
+      }
+      if (sortField === "leaveTime") {
+        const tA = a.leaveTimeUtc ? new Date(a.leaveTimeUtc).getTime() : 0;
+        const tB = b.leaveTimeUtc ? new Date(b.leaveTimeUtc).getTime() : 0;
+        return (tA - tB) * dir;
+      }
+      if (sortField === "source") {
+        return getSourceLabel(a).localeCompare(getSourceLabel(b)) * dir;
+      }
+      return 0;
+    });
+
+    return copy;
+  }, [data?.learners, sortField, sortOrder]);
+
+  const paginatedLearners = useMemo(() => {
+    const startIdx = (currentPage - 1) * pageSize;
+    return sortedLearners.slice(startIdx, startIdx + pageSize);
+  }, [sortedLearners, currentPage, pageSize]);
+
   return (
     <div className={styles.dashboardContainer} style={{ gap: "1.25rem" }}>
-      <header className={styles.header} style={{ display: "flex", flexDirection: "column", gap: "0.6rem", marginBottom: 0 }}>
+      {/* Top Back Navigation + Command Bar with Right-Aligned Actions */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", width: "100%" }}>
         <div>
           <Link
             href={`/batches/${batchId}?tab=sessions`}
             style={{
               textDecoration: "none",
-              color: "var(--accent-primary)",
+              color: "var(--text-secondary, #57534e)",
               fontSize: "0.84rem",
               fontWeight: 600,
               display: "inline-flex",
               alignItems: "center",
-              gap: "4px",
-              marginBottom: "0.5rem",
+              gap: "5px",
             }}
           >
-            ← Back to Batch Sessions
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            <span>Back to Live Sessions</span>
           </Link>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" }}>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
-                <h1 className={styles.title} style={{ margin: 0, fontSize: "1.45rem", fontWeight: 700 }}>
-                  Attendance: {data?.session.title || "Live Session"}
-                </h1>
-                <span
-                  style={{
-                    fontSize: "0.74rem",
-                    fontWeight: 700,
-                    textTransform: "uppercase",
-                    padding: "3px 8px",
-                    borderRadius: "4px",
-                    background: "rgba(201, 122, 30, 0.1)",
-                    color: "var(--accent-primary)",
-                    letterSpacing: "0.04em",
-                  }}
-                >
-                  {data?.session.type || "GROUP_COHORT"}
-                </span>
-              </div>
-              <p style={{ margin: "4px 0 0", fontSize: "0.84rem", color: "var(--text-muted)" }}>
-                Compliance threshold: <strong>{data?.thresholdPercentage ?? 75}%</strong> of scheduled duration ({data?.session.durationMinutes ?? 60} mins · min {Math.round(((data?.session.durationMinutes ?? 60) * (data?.thresholdPercentage ?? 75)) / 100)}m).
-              </p>
-            </div>
-
-            <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                className={styles.secondaryBtn}
-                onClick={handleShowQrModal}
-                style={{ fontSize: "0.82rem", padding: "0.45rem 0.85rem", display: "inline-flex", alignItems: "center", gap: "5px" }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="7" height="7" />
-                  <rect x="14" y="3" width="7" height="7" />
-                  <rect x="14" y="14" width="7" height="7" />
-                  <rect x="3" y="14" width="7" height="7" />
-                </svg>
-                <span>QR Check-In</span>
-              </button>
-
-              <button
-                type="button"
-                className={styles.secondaryBtn}
-                onClick={handleSyncMeeting}
-                disabled={isSyncing}
-                title="Pull live attendance participant report from Zoom API"
-                style={{ fontSize: "0.82rem", padding: "0.45rem 0.85rem", display: "inline-flex", alignItems: "center", gap: "6px" }}
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  style={{ animation: isSyncing ? "spin 1s linear infinite" : undefined }}
-                >
-                  <polyline points="23 4 23 10 17 10" />
-                  <polyline points="1 20 1 14 7 14" />
-                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-                </svg>
-                <span>{isSyncing ? "Syncing Zoom..." : "Sync Zoom Report"}</span>
-              </button>
-
-              <button
-                type="button"
-                className={styles.primaryBtn}
-                onClick={handleExportCsv}
-                style={{ fontSize: "0.82rem", padding: "0.45rem 0.95rem" }}
-              >
-                Export CSV
-              </button>
-            </div>
-          </div>
         </div>
-      </header>
+
+        <header className={styles.welcomeBar} style={{ width: "100%" }}>
+          <div className={styles.welcomeInfo}>
+            <h1 className={styles.welcomeHeading}>
+              {data?.session.title ? `${data.session.title} — Attendance` : "Session Attendance"}
+            </h1>
+          </div>
+
+          <div className={styles.welcomeActions}>
+            <button
+              type="button"
+              className={styles.exportBtn}
+              onClick={handleSyncMeeting}
+              disabled={isSyncing}
+              title="Sync participant attendance from Zoom"
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ animation: isSyncing ? "spin 1s linear infinite" : undefined }}
+              >
+                <polyline points="23 4 23 10 17 10" />
+                <polyline points="1 20 1 14 7 14" />
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+              </svg>
+              <span>{isSyncing ? "Syncing..." : "Sync Zoom"}</span>
+            </button>
+
+            <button
+              type="button"
+              className={styles.exportBtn}
+              onClick={handleExportCsv}
+              disabled={!data || data.learners.length === 0}
+              title="Export attendance table to CSV"
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              <span>Export CSV</span>
+            </button>
+          </div>
+        </header>
+      </div>
 
       {syncNotice && (
         <div
           role="status"
           style={{
-            padding: "0.85rem 1.15rem",
+            padding: "0.75rem 1rem",
             borderRadius: "8px",
-            fontSize: "0.86rem",
+            fontSize: "0.84rem",
             fontWeight: 500,
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
             gap: "10px",
-            backgroundColor: syncNotice.type === "success" ? "#f0fdf4" : "#fef2f2",
-            color: syncNotice.type === "success" ? "#166534" : "#991b1b",
-            border: syncNotice.type === "success" ? "1px solid #bbf7d0" : "1px solid #fecaca",
+            backgroundColor: syncNotice.type === "success" ? "#f0fdf4" : "#fdf8f0",
+            color: syncNotice.type === "success" ? "#166534" : "#8a5814",
+            border: syncNotice.type === "success" ? "1px solid #bbf7d0" : "1px solid #ebdccb",
           }}
         >
           <span>{syncNotice.message}</span>
-          <Link
-            href={`/batches/${batchId}/sessions/${sessionId}/reconciliation`}
+          <button
+            type="button"
+            onClick={() => setSyncNotice(null)}
             style={{
-              color: "#0369a1",
-              fontWeight: 600,
-              textDecoration: "underline",
-              fontSize: "0.84rem",
-              whiteSpace: "nowrap",
+              background: "none",
+              border: "none",
+              color: "inherit",
+              cursor: "pointer",
+              fontSize: "1rem",
+              lineHeight: 1,
+              padding: "0 4px",
             }}
+            aria-label="Dismiss notice"
           >
-            Review Reconciliation →
-          </Link>
+            ×
+          </button>
         </div>
       )}
 
-      {/* Metrics Row: Warm Organic Cards */}
-      {data && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "1rem" }}>
-          {/* Card 1: Total Enrolled */}
-          <div style={{ background: "var(--surface)", padding: "1.1rem 1.25rem", borderRadius: "10px", border: "1px solid var(--border-light)", display: "flex", flexDirection: "column", gap: "4px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.04em" }}>
-                Total Enrolled
-              </span>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent-primary)" }}>
+      {/* Dashboard-Themed KPI Cards */}
+      <section className={styles.kpiGrid} aria-label="Attendance Summary Metrics">
+        <div className={styles.kpiCard} style={{ cursor: "default" }}>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Total Enrolled</span>
+            <div className={styles.kpiIconBox}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                 <circle cx="9" cy="7" r="4" />
                 <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
                 <path d="M16 3.13a4 4 0 0 1 0 7.75" />
               </svg>
             </div>
-            <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--text-primary)" }}>{data.totalLearners}</div>
-            <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>Active learners in cohort</span>
           </div>
+          <div className={styles.kpiValueRow}>
+            {isLoading && !data ? (
+              <div className="skeleton" style={{ width: 48, height: 28, borderRadius: 6 }} />
+            ) : (
+              <span className={styles.kpiValue}>{data?.totalLearners ?? 0}</span>
+            )}
+          </div>
+        </div>
 
-          {/* Card 2: Present Learners */}
-          <div style={{ background: "var(--surface)", padding: "1.1rem 1.25rem", borderRadius: "10px", border: "1px solid var(--border-light)", display: "flex", flexDirection: "column", gap: "4px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.04em" }}>
-                Present Learners
-              </span>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#16a34a" }}>
+        <div className={styles.kpiCard} style={{ cursor: "default" }}>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Present</span>
+            <div className={styles.kpiIconBox}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             </div>
-            <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#16a34a" }}>{data.presentCount}</div>
-            <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
-              {data.totalLearners > 0 ? `${Math.round((data.presentCount / data.totalLearners) * 100)}% attendance rate` : "0% attendance"}
-            </span>
           </div>
+          <div className={styles.kpiValueRow}>
+            {isLoading && !data ? (
+              <div className="skeleton" style={{ width: 48, height: 28, borderRadius: 6 }} />
+            ) : (
+              <span className={styles.kpiValue}>{data?.presentCount ?? 0}</span>
+            )}
+          </div>
+        </div>
 
-          {/* Card 3: Absent Rate */}
-          <div style={{ background: "var(--surface)", padding: "1.1rem 1.25rem", borderRadius: "10px", border: "1px solid var(--border-light)", display: "flex", flexDirection: "column", gap: "4px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.04em" }}>
-                Absent Rate
-              </span>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#dc2626" }}>
+        <div className={styles.kpiCard} style={{ cursor: "default" }}>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Absent</span>
+            <div className={styles.kpiIconBox}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="10" />
                 <line x1="15" y1="9" x2="9" y2="15" />
                 <line x1="9" y1="9" x2="15" y2="15" />
               </svg>
             </div>
-            <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#dc2626" }}>
-              {data.totalLearners > 0
-                ? `${Math.round(((data.totalLearners - data.presentCount) / data.totalLearners) * 100)}%`
-                : "0%"}
-            </div>
-            <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
-              {Math.max(0, data.totalLearners - data.presentCount)} absent learners
-            </span>
           </div>
-
-          {/* Card 4: Meeting Provider */}
-          <div style={{ background: "var(--surface)", padding: "1.1rem 1.25rem", borderRadius: "10px", border: "1px solid var(--border-light)", display: "flex", flexDirection: "column", gap: "4px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.04em" }}>
-                Meeting Provider
+          <div className={styles.kpiValueRow}>
+            {isLoading && !data ? (
+              <div className="skeleton" style={{ width: 48, height: 28, borderRadius: 6 }} />
+            ) : (
+              <span className={styles.kpiValue}>
+                {data ? Math.max(0, data.totalLearners - data.presentCount) : 0}
               </span>
-              <span style={{ fontSize: "0.7rem", fontWeight: 700, padding: "2px 7px", borderRadius: "4px", background: "rgba(2, 132, 199, 0.1)", color: "#0284c7" }}>
-                LIVE
-              </span>
-            </div>
-            <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary)", marginTop: "4px" }}>
-              {data.session.meetingProvider || "Zoom Cloud"}
-            </div>
-            <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
-              Threshold: {data.thresholdPercentage}% ({Math.round(((data.session.durationMinutes || 60) * data.thresholdPercentage) / 100)}m)
-            </span>
+            )}
           </div>
         </div>
-      )}
+
+        <div className={styles.kpiCard} style={{ cursor: "default" }}>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Attendance Rate</span>
+            <div className={styles.kpiIconBox}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+              </svg>
+            </div>
+          </div>
+          <div className={styles.kpiValueRow}>
+            {isLoading && !data ? (
+              <div className="skeleton" style={{ width: 58, height: 28, borderRadius: 6 }} />
+            ) : (
+              <span className={styles.kpiValue}>
+                {data && data.totalLearners > 0
+                  ? `${Math.round((data.presentCount / data.totalLearners) * 100)}%`
+                  : "0%"}
+              </span>
+            )}
+          </div>
+        </div>
+      </section>
 
       {errorMessage && (
         <div style={{ padding: "12px 16px", background: "#fef2f2", color: "#991b1b", borderRadius: "8px", border: "1px solid #fecaca", fontSize: "0.85rem" }}>
@@ -519,37 +772,95 @@ export default function SessionAttendancePage({
           <table className={styles.adminTable} style={{ width: "100%" }}>
             <thead>
               <tr>
-                <th style={{ minWidth: "200px" }}>Learner</th>
-                <th style={{ width: "160px" }}>Status</th>
-                <th style={{ width: "120px" }}>Source</th>
-                <th style={{ width: "180px" }}>Time Present</th>
-                <th style={{ width: "130px", textAlign: "right" }}>Action</th>
+                <th
+                  onClick={() => handleSort("name")}
+                  style={{ minWidth: "210px", cursor: "pointer", userSelect: "none" }}
+                  aria-sort={sortField === "name" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <div style={{ display: "inline-flex", alignItems: "center" }}>
+                    <span>Attendee</span>
+                    <SortIndicator active={sortField === "name"} order={sortOrder} />
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("status")}
+                  style={{ width: "145px", cursor: "pointer", userSelect: "none" }}
+                  aria-sort={sortField === "status" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <div style={{ display: "inline-flex", alignItems: "center" }}>
+                    <span>Status</span>
+                    <SortIndicator active={sortField === "status"} order={sortOrder} />
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("duration")}
+                  style={{ width: "145px", cursor: "pointer", userSelect: "none" }}
+                  aria-sort={sortField === "duration" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <div style={{ display: "inline-flex", alignItems: "center" }}>
+                    <span>Time Present</span>
+                    <SortIndicator active={sortField === "duration"} order={sortOrder} />
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("joinTime")}
+                  style={{ width: "140px", cursor: "pointer", userSelect: "none" }}
+                  aria-sort={sortField === "joinTime" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <div style={{ display: "inline-flex", alignItems: "center" }}>
+                    <span>Join Time (Local)</span>
+                    <SortIndicator active={sortField === "joinTime"} order={sortOrder} />
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("leaveTime")}
+                  style={{ width: "145px", cursor: "pointer", userSelect: "none" }}
+                  aria-sort={sortField === "leaveTime" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <div style={{ display: "inline-flex", alignItems: "center" }}>
+                    <span>Leave Time (Local)</span>
+                    <SortIndicator active={sortField === "leaveTime"} order={sortOrder} />
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("source")}
+                  style={{ width: "110px", cursor: "pointer", userSelect: "none" }}
+                  aria-sort={sortField === "source" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+                >
+                  <div style={{ display: "inline-flex", alignItems: "center" }}>
+                    <span>Source</span>
+                    <SortIndicator active={sortField === "source"} order={sortOrder} />
+                  </div>
+                </th>
+                <th style={{ width: "100px", textAlign: "right" }}>Action</th>
               </tr>
             </thead>
             <tbody>
-              {isLoading ? (
-                <TableSkeleton columns={5} rows={6} />
-              ) : !data || data.learners.length === 0 ? (
+              {isLoading || isSyncing ? (
+                <TableSkeleton columns={7} rows={6} />
+              ) : !data || sortedLearners.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ padding: "3rem 1rem" }}>
+                  <td colSpan={7} style={{ padding: "3rem 1rem" }}>
                     <EmptyState
                       icon="users"
                       title="No learners enrolled"
-                      description="No learners are currently assigned to this batch cohort to record attendance for."
+                      description="No learners are currently assigned to this batch cohort."
                     />
                   </td>
                 </tr>
               ) : (
-                data.learners.map((learner) => {
+                paginatedLearners.map((learner) => {
+                  const statusDisplay = getCleanStatusDisplay(learner);
+                  const sourceLabel = getSourceLabel(learner);
+
                   return (
                     <tr key={learner.userId}>
-                      {/* Learner Info with Avatar Squircle & Jump Link */}
                       <td>
                         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                           <div
                             style={{
-                              width: "36px",
-                              height: "36px",
+                              width: "34px",
+                              height: "34px",
                               borderRadius: "8px",
                               background: "rgba(201, 122, 30, 0.12)",
                               color: "var(--accent-primary)",
@@ -557,7 +868,7 @@ export default function SessionAttendancePage({
                               alignItems: "center",
                               justifyContent: "center",
                               fontWeight: 700,
-                              fontSize: "0.85rem",
+                              fontSize: "0.84rem",
                               flexShrink: 0,
                             }}
                           >
@@ -567,51 +878,22 @@ export default function SessionAttendancePage({
                             <Link
                               href={`/users/${learner.userId}?enrolmentId=${learner.enrolmentId}`}
                               style={{ textDecoration: "none", color: "inherit" }}
-                              title="Open student profile and progression overview"
+                              title="Open student profile"
                             >
-                              <span style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--accent-primary)", cursor: "pointer" }}>
+                              <span style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--accent-primary)", cursor: "pointer" }}>
                                 {learner.name}
                               </span>
                             </Link>
-                            <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                            <span style={{ fontSize: "0.76rem", color: "var(--text-muted)" }}>
                               {learner.email}
                             </span>
                           </div>
                         </div>
                       </td>
 
-                      {/* Status & Audit Override Note */}
                       <td>
                         <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "flex-start" }}>
-                          {(() => {
-                            const isPresent =
-                              learner.status === "PRESENT" ||
-                              learner.status === "PRESENT_AUTO" ||
-                              learner.status === "PRESENT_MANUAL" ||
-                              learner.status === "CORRECTED" ||
-                              learner.status === "PRESENT_LIVE" ||
-                              learner.status === "PRESENT_RECORDED";
-                            const isPartial = !isPresent && ((learner.minutesPresent ?? 0) > 0 || (learner.attendancePercentage ?? 0) > 0);
-
-                            return (
-                              <StatusBadge
-                                status={
-                                  isPartial
-                                    ? `Partial (${Math.round(learner.attendancePercentage)}%)`
-                                    : learner.status
-                                }
-                                tone={
-                                  isPresent
-                                    ? "active"
-                                    : learner.status === "EXCUSED"
-                                    ? "pending"
-                                    : isPartial
-                                    ? "pending"
-                                    : "inactive"
-                                }
-                              />
-                            );
-                          })()}
+                          <StatusBadge status={statusDisplay.label} tone={statusDisplay.tone} />
                           {learner.overrideReason && (
                             <span
                               style={{
@@ -623,82 +905,63 @@ export default function SessionAttendancePage({
                                 background: "var(--background-subtle, #f8f6f0)",
                                 padding: "2px 6px",
                                 borderRadius: "4px",
-                                maxWidth: "200px",
+                                maxWidth: "180px",
                                 overflow: "hidden",
                                 textOverflow: "ellipsis",
                                 whiteSpace: "nowrap",
                                 border: "1px solid var(--border-light)",
                               }}
-                              title={`Audit Override Reason: ${learner.overrideReason}`}
+                              title={`Reason: ${learner.overrideReason}`}
                             >
-                              <span>📝</span>
                               <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{learner.overrideReason}</span>
                             </span>
                           )}
                         </div>
                       </td>
 
-                      {/* Attendance Source */}
                       <td>
-                        <span
-                          style={{
-                            fontSize: "0.74rem",
-                            padding: "3px 8px",
-                            borderRadius: "6px",
-                            fontWeight: 600,
-                            background:
-                              learner.source === "AUTO" || learner.source === "ZOOM_SYNC"
-                                ? "#e0f2fe"
-                                : learner.source === "QR_CHECKIN"
-                                  ? "#fef3c7"
-                                  : "#f3e8ff",
-                            color:
-                              learner.source === "AUTO" || learner.source === "ZOOM_SYNC"
-                                ? "#0369a1"
-                                : learner.source === "QR_CHECKIN"
-                                  ? "#b45309"
-                                  : "#7e22ce",
-                            border:
-                              learner.source === "AUTO" || learner.source === "ZOOM_SYNC"
-                                ? "1px solid #bae6fd"
-                                : learner.source === "QR_CHECKIN"
-                                  ? "1px solid #fde68a"
-                                  : "1px solid #e9d5ff",
-                          }}
-                        >
-                          {learner.source === "ZOOM_SYNC" ? "Zoom Sync" : learner.source === "QR_CHECKIN" ? "QR Check-In" : learner.source}
-                        </span>
-                      </td>
-
-                      {/* Time Present */}
-                      <td>
-                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                          <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
-                            <span style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--text-primary)" }}>
-                              {learner.minutesPresent} mins
-                            </span>
-                            <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
-                              ({Math.round(learner.attendancePercentage)}%)
-                            </span>
-                          </div>
-                          {(learner.liveMinutes != null || learner.recordedMinutes != null) && (
-                            <div style={{ display: "flex", gap: "6px", fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                              <span>Live: {Math.round((learner.liveMinutes ?? 0) * 10) / 10}m</span>
-                              <span>•</span>
-                              <span>Rec: {Math.round((learner.recordedMinutes ?? 0) * 10) / 10}m</span>
-                            </div>
-                          )}
-                          {learner.joinTimeUtc && (
-                            <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
-                              {learner.leaveTimeUtc
-                                ? `${formatLocalTime(learner.joinTimeUtc)} – ${formatLocalTime(learner.leaveTimeUtc)}`
-                                : `Joined ${formatLocalTime(learner.joinTimeUtc)}`}
-                            </span>
-                          )}
+                        <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
+                          <span style={{ fontWeight: 600, fontSize: "0.86rem", color: "var(--text-primary)" }}>
+                            {learner.minutesPresent} mins
+                          </span>
+                          <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
+                            ({Math.round(learner.attendancePercentage)}%)
+                          </span>
                         </div>
                       </td>
 
-                      {/* Action */}
+                      <td>
+                        <span style={{ fontSize: "0.84rem", color: learner.joinTimeUtc ? "var(--text-primary)" : "var(--text-muted)" }}>
+                          {formatLocalTime(learner.joinTimeUtc)}
+                        </span>
+                      </td>
+
+                      <td>
+                        <span style={{ fontSize: "0.84rem", color: learner.leaveTimeUtc ? "var(--text-primary)" : "var(--text-muted)" }}>
+                          {formatLocalTime(learner.leaveTimeUtc)}
+                        </span>
+                      </td>
+
+                      <td>
+                        {sourceLabel === "—" ? (
+                          <span style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>—</span>
+                        ) : (
+                          <span
+                            style={{
+                              fontSize: "0.74rem",
+                              padding: "2px 8px",
+                              borderRadius: "6px",
+                              fontWeight: 600,
+                              background: sourceLabel === "Zoom" ? "#f0f9ff" : "#fdf8f0",
+                              color: sourceLabel === "Zoom" ? "#0369a1" : "#9a5b13",
+                              border: sourceLabel === "Zoom" ? "1px solid #bae6fd" : "1px solid #f3e5ce",
+                            }}
+                          >
+                            {sourceLabel}
+                          </span>
+                        )}
+                      </td>
+
                       <td style={{ textAlign: "right" }}>
                         <button
                           type="button"
@@ -706,7 +969,7 @@ export default function SessionAttendancePage({
                           onClick={() => handleOpenOverride(learner)}
                           style={{
                             padding: "4px 10px",
-                            fontSize: "0.78rem",
+                            fontSize: "0.76rem",
                             whiteSpace: "nowrap",
                             display: "inline-flex",
                             alignItems: "center",
@@ -724,69 +987,179 @@ export default function SessionAttendancePage({
             </tbody>
           </table>
         </div>
+
+        {sortedLearners.length > 0 && (
+          <Pagination
+            currentPage={currentPage}
+            totalItems={sortedLearners.length}
+            pageSize={pageSize}
+            onPageChange={(p) => setCurrentPage(p)}
+            onPageSizeChange={(sz) => {
+              setPageSize(sz);
+              setCurrentPage(1);
+            }}
+            pageSizeOptions={[10, 20, 50]}
+            itemLabel="learners"
+          />
+        )}
       </section>
 
-      {/* Manual Override Modal */}
+      {/* Unmatched Zoom Guests Section (Directly Integrated into Attendance Page) */}
+      {data?.unmatched && data.unmatched.length > 0 && (
+        <section className={styles.tableSection}>
+          <div
+            style={{
+              padding: "14px 18px",
+              borderBottom: "1px solid var(--border-light)",
+              background: "#fdf8f0",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "8px",
+            }}
+          >
+            <h2 style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
+              Unmatched Zoom Guests ({data.unmatched.length})
+            </h2>
+            <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+              Link guests who joined with a device or guest name to an enrolled learner
+            </span>
+          </div>
+
+          <div className={styles.tableWrapper} style={{ overflowX: "auto" }}>
+            <table className={styles.adminTable} style={{ width: "100%" }}>
+              <thead>
+                <tr>
+                  <th>Attendee Name</th>
+                  <th>Attendee Email</th>
+                  <th>Time Present</th>
+                  <th>Join Time (Local)</th>
+                  <th>Leave Time (Local)</th>
+                  <th style={{ textAlign: "right" }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.unmatched.map((item) => (
+                  <tr key={item.id}>
+                    <td>
+                      <span style={{ fontWeight: 600, fontSize: "0.86rem", color: "var(--text-primary)" }}>
+                        {item.participantName}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
+                        {item.participantEmail || "(Guest / No email)"}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ fontWeight: 600, fontSize: "0.84rem" }}>{item.minutesPresent} mins</span>
+                    </td>
+                    <td>
+                      <span style={{ fontSize: "0.84rem", color: "var(--text-secondary)" }}>
+                        {formatLocalTime(item.joinTimeUtc)}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ fontSize: "0.84rem", color: "var(--text-secondary)" }}>
+                        {formatLocalTime(item.leaveTimeUtc)}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      <div style={{ display: "inline-flex", gap: "6px", justifyContent: "flex-end" }}>
+                        <button
+                          type="button"
+                          className={styles.primaryBtn}
+                          onClick={() => handleOpenLinkModal(item)}
+                          style={{ padding: "4px 10px", fontSize: "0.76rem" }}
+                        >
+                          Link to Learner
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.secondaryBtn}
+                          onClick={() => {
+                            setItemToDismiss(item);
+                            setDismissError(null);
+                          }}
+                          style={{ padding: "4px 10px", fontSize: "0.76rem" }}
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {/* Clean Edit Attendance Modal */}
       {overrideModal.isOpen && overrideModal.learner && (
         <Modal
           isOpen={overrideModal.isOpen}
-          title={`Override Attendance: ${overrideModal.learner.name}`}
+          title={`Edit Attendance — ${overrideModal.learner.name}`}
           onClose={() => setOverrideModal((prev) => ({ ...prev, isOpen: false }))}
+          maxWidth="440px"
         >
-          <form onSubmit={submitOverride} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+          <form onSubmit={submitOverride} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
             <div className={styles.formGroup}>
-              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "4px" }}>
-                Target Status
+              <label style={{ display: "block", fontSize: "0.84rem", fontWeight: 600, marginBottom: "4px" }}>
+                Status
               </label>
               <CustomSelect
                 value={overrideModal.status}
-                onChange={(val) => setOverrideModal((prev) => ({ ...prev, status: val }))}
+                onChange={handleOverrideStatusChange}
                 options={[
-                  { value: "PRESENT", label: "PRESENT (Full Attendance)" },
-                  { value: "ABSENT", label: "ABSENT" },
-                  { value: "EXCUSED", label: "EXCUSED (Medical / Approved)" },
+                  { value: "PRESENT", label: "Present" },
+                  { value: "ABSENT", label: "Absent" },
+                  { value: "EXCUSED", label: "Excused" },
                 ]}
                 fullWidth
-                ariaLabel="Target Status"
+                ariaLabel="Status"
               />
             </div>
 
             <div className={styles.formGroup}>
-              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "4px" }}>
-                Minutes Present
+              <label style={{ display: "block", fontSize: "0.84rem", fontWeight: 600, marginBottom: "4px" }}>
+                Duration (Minutes)
               </label>
               <input
                 type="number"
                 min={0}
-                max={data?.session.durationMinutes || 300}
+                max={360}
                 value={overrideModal.minutesPresent}
+                disabled={overrideModal.status === "ABSENT"}
                 onChange={(e) => setOverrideModal((prev) => ({ ...prev, minutesPresent: Number(e.target.value) }))}
                 className={styles.formInput}
+                style={{ width: "100%", opacity: overrideModal.status === "ABSENT" ? 0.6 : 1 }}
               />
             </div>
 
             <div className={styles.formGroup}>
-              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "4px" }}>
-                Mandatory Audit Reason <span style={{ color: "#dc2626" }}>*</span>
+              <label style={{ display: "block", fontSize: "0.84rem", fontWeight: 600, marginBottom: "4px" }}>
+                Reason <span style={{ color: "#dc2626" }}>*</span>
               </label>
               <textarea
                 required
-                rows={3}
-                placeholder="Explain why this attendance record is being manually overridden (e.g., student joined on secondary device or verified via recording review)"
+                rows={2}
+                placeholder="Reason for manual update..."
                 value={overrideModal.reason}
-                onChange={(e) => setOverrideModal((prev) => ({ ...prev, reason: e.target.value }))}
+                onChange={(e) => setOverrideModal((prev) => ({ ...prev, reason: e.target.value, error: "" }))}
                 className={styles.formInput}
-                style={{ resize: "vertical" }}
+                style={{ resize: "vertical", width: "100%" }}
               />
             </div>
 
             {overrideModal.error && (
-              <div style={{ color: "#dc2626", background: "#fef2f2", padding: "8px 12px", borderRadius: "6px", fontSize: "0.82rem", border: "1px solid #fecaca" }}>
+              <div style={{ color: "#dc2626", background: "#fef2f2", padding: "8px 12px", borderRadius: "6px", fontSize: "0.8rem", border: "1px solid #fecaca" }}>
                 {overrideModal.error}
               </div>
             )}
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "10px" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "4px" }}>
               <button
                 type="button"
                 className={styles.secondaryBtn}
@@ -795,56 +1168,115 @@ export default function SessionAttendancePage({
                 Cancel
               </button>
               <button type="submit" className={styles.primaryBtn} disabled={overrideModal.loading}>
-                {overrideModal.loading ? "Recording Override..." : "Save Override"}
+                {overrideModal.loading ? "Saving..." : "Save"}
               </button>
             </div>
           </form>
         </Modal>
       )}
 
-      {/* QR Code Check-in Modal */}
-      {qrModal.isOpen && (
+      {/* Link Unmatched Guest to Learner Modal */}
+      {linkModal.isOpen && linkModal.unmatchedItem && (
         <Modal
-          isOpen={qrModal.isOpen}
-          title="In-Person Workshop QR Check-In"
-          onClose={() => setQrModal((prev) => ({ ...prev, isOpen: false }))}
+          isOpen={linkModal.isOpen}
+          title={`Link Attendee — ${linkModal.unmatchedItem.participantName}`}
+          onClose={() => setLinkModal((prev) => ({ ...prev, isOpen: false }))}
+          maxWidth="440px"
         >
-          <div style={{ textAlign: "center", padding: "10px 0" }}>
-            {qrModal.loading ? (
-              <p>Generating secure check-in session...</p>
-            ) : qrModal.error ? (
-              <p style={{ color: "#dc2626" }}>{qrModal.error}</p>
-            ) : (
+          <form onSubmit={submitLink} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <div style={{ background: "#fdf8f0", border: "1px solid #ebdccb", padding: "0.75rem", borderRadius: "8px", fontSize: "0.82rem" }}>
               <div>
-                <p style={{ color: "#475569", marginBottom: "16px", fontSize: "0.95rem" }}>
-                  Learners can scan this QR code or click the check-in URL on their mobile phones to check in.
-                </p>
-                <div style={{ display: "inline-block", padding: "16px", background: "#ffffff", borderRadius: "12px", border: "2px dashed #cbd5e1", marginBottom: "16px" }}>
-                  <Image
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrModal.checkInUrl)}`}
-                    alt="Check-in QR code"
-                    width={200}
-                    height={200}
-                    unoptimized
-                    quality={80}
-                    loading="lazy"
-                    style={{ width: "200px", height: "200px" }}
-                  />
-                </div>
-                <div style={{ background: "#f8fafc", padding: "12px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
-                  <span style={{ fontSize: "0.8rem", color: "#64748b", display: "block", marginBottom: "4px" }}>Direct Check-In URL:</span>
-                  <input
-                    readOnly
-                    value={qrModal.checkInUrl}
-                    style={{ width: "100%", padding: "6px 10px", fontSize: "0.85rem", background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "4px" }}
-                    onClick={(e) => (e.target as HTMLInputElement).select()}
-                  />
-                </div>
+                <strong>Zoom Attendee:</strong> {linkModal.unmatchedItem.participantName} ({linkModal.unmatchedItem.participantEmail || "Guest"})
+              </div>
+              <div style={{ color: "var(--accent-primary)", marginTop: "2px", fontWeight: 600 }}>
+                Time Present: {linkModal.unmatchedItem.minutesPresent} mins
+              </div>
+            </div>
+
+            <div className={styles.formGroup}>
+              <label style={{ display: "block", fontSize: "0.84rem", fontWeight: 600, marginBottom: "4px" }}>
+                Select Enrolled Learner
+              </label>
+              <CustomSelect
+                value={linkModal.selectedUserId}
+                onChange={(val) => setLinkModal((prev) => ({ ...prev, selectedUserId: val }))}
+                options={(data?.unlinkedLearners?.length ? data.unlinkedLearners : data?.learners || []).map((l) => ({
+                  value: l.userId,
+                  label: `${l.name} (${l.email})`,
+                }))}
+                fullWidth
+                ariaLabel="Select Enrolled Learner"
+              />
+            </div>
+
+            <div className={styles.formGroup}>
+              <label style={{ display: "block", fontSize: "0.84rem", fontWeight: 600, marginBottom: "4px" }}>
+                Reason <span style={{ color: "#dc2626" }}>*</span>
+              </label>
+              <textarea
+                required
+                rows={2}
+                value={linkModal.reason}
+                onChange={(e) => setLinkModal((prev) => ({ ...prev, reason: e.target.value }))}
+                className={styles.formInput}
+                style={{ width: "100%", resize: "vertical" }}
+              />
+            </div>
+
+            {linkModal.error && (
+              <div style={{ color: "#dc2626", background: "#fef2f2", padding: "8px 12px", borderRadius: "6px", fontSize: "0.8rem", border: "1px solid #fecaca" }}>
+                {linkModal.error}
               </div>
             )}
-          </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "4px" }}>
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={() => setLinkModal((prev) => ({ ...prev, isOpen: false }))}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className={styles.primaryBtn}
+                disabled={linkModal.loading || !linkModal.selectedUserId}
+              >
+                {linkModal.loading ? "Linking..." : "Link Attendee"}
+              </button>
+            </div>
+          </form>
         </Modal>
       )}
+
+      {/* ConfirmDialog for Unmatched Attendee Dismissal */}
+      <ConfirmDialog
+        isOpen={Boolean(itemToDismiss)}
+        onClose={() => {
+          if (!isDismissing) {
+            setItemToDismiss(null);
+            setDismissError(null);
+          }
+        }}
+        onConfirm={confirmDismiss}
+        title="Dismiss Unmatched Attendee?"
+        subtitle={itemToDismiss?.participantName}
+        description="Are you sure you want to dismiss this unmatched attendee from attendance reconciliation?"
+        tone="danger"
+        confirmText={isDismissing ? "Dismissing..." : "Dismiss"}
+        cancelText="Cancel"
+        isLoading={isDismissing}
+        error={dismissError}
+        itemDetails={
+          itemToDismiss
+            ? [
+                { label: "Attendee Name", value: itemToDismiss.participantName },
+                { label: "Attendee Email", value: itemToDismiss.participantEmail || "(Guest / No email)" },
+                { label: "Time Present", value: `${itemToDismiss.minutesPresent} mins` },
+              ]
+            : []
+        }
+      />
     </div>
   );
 }

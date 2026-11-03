@@ -15,6 +15,7 @@ import {
   cancelEnrolment,
   resendEnrolmentPaymentLink,
   cachedFetch,
+  broadcastNotification,
   apiGet,
   invalidateCache,
   fetchOneOnOneRequests,
@@ -44,6 +45,7 @@ import {
   StatusBadge,
   Pagination,
   DatePicker,
+  TimePicker,
   SortIndicator,
   type CustomSelectOption,
   type SortOrder,
@@ -82,7 +84,9 @@ interface BatchSession {
   status: "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED" | "RESCHEDULED";
   startTime: string;
   endTime: string;
+  timezone?: string | null;
   joinUrl: string | null;
+  hostUrl?: string | null;
   recordingUrl: string | null;
   quizId: string | null;
   hostTrainer?: { id: string; name: string; email: string } | null;
@@ -225,11 +229,9 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
   const handleSyncZoomAttendance = async (sessionId: string) => {
     setSyncingSessionId(sessionId);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/batches/${batchId}/sessions/${sessionId}/sync-attendance`, {
+      const res = await cachedFetch(`${API_URL}/batches/${batchId}/sessions/${sessionId}/sync-attendance`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
       });
@@ -269,24 +271,31 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [settingsError, setSettingsError] = useState("");
   const [settingsName, setSettingsName] = useState("");
+  const [settingsProgramId, setSettingsProgramId] = useState("");
   const [settingsStartDate, setSettingsStartDate] = useState("");
   const [settingsEndDate, setSettingsEndDate] = useState("");
   const [settingsRegistrationDeadline, setSettingsRegistrationDeadline] = useState("");
   const [settingsCapacity, setSettingsCapacity] = useState("");
   const [settingsManagerId, setSettingsManagerId] = useState("");
   const [settingsStatus, setSettingsStatus] = useState("");
+  const [settingsAwardCertificate, setSettingsAwardCertificate] = useState(true);
+  const [programs, setPrograms] = useState<Array<{ id: string; title: string; hasCertificate?: boolean }>>([]);
   const [managers, setManagers] = useState<any[]>([]);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   const openSettingsModal = () => {
     if (batch) {
       setSettingsName(batch.name || "");
+      const progId = batch.programId || batch.program?.id || "";
+      setSettingsProgramId(progId);
       setSettingsStartDate(batch.startDate ? new Date(batch.startDate).toISOString().slice(0, 10) : "");
       setSettingsEndDate(batch.endDate ? new Date(batch.endDate).toISOString().slice(0, 10) : "");
       setSettingsRegistrationDeadline(batch.registrationDeadline ? new Date(batch.registrationDeadline).toISOString().slice(0, 10) : "");
       setSettingsCapacity(String(batch.capacity || 50));
-      setSettingsManagerId(batch.managerId || "");
-      setSettingsStatus(batch.status || "ACTIVE");
+      setSettingsManagerId(batch.managerId || batch.manager?.id || "");
+      setSettingsStatus(batch.status || "");
+      const matchedProg = programs.find((p) => p.id === progId);
+      setSettingsAwardCertificate(matchedProg?.hasCertificate ?? batch.program?.hasCertificate ?? true);
     }
     setSettingsError("");
     setIsSettingsModalOpen(true);
@@ -308,49 +317,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     return `${displayH}:${displayM} ${period}`;
   }, []);
 
-  // Derived 12-hour parts from sessionWallTime for easy 12-hr AM/PM editing
-  const { timeHour12, timeMinute, timeAmPm } = useMemo(() => {
-    if (!sessionWallTime || !sessionWallTime.includes(":")) {
-      return { timeHour12: "07", timeMinute: "00", timeAmPm: "PM" as "AM" | "PM" };
-    }
-    const [hStr, mStr] = sessionWallTime.split(":");
-    let h = parseInt(hStr || "0", 10);
-    const m = parseInt(mStr || "0", 10) || 0;
-    if (isNaN(h)) h = 19;
-    const period: "AM" | "PM" = h >= 12 ? "PM" : "AM";
-    const displayH = h % 12 === 0 ? 12 : h % 12;
-    const h12Str = displayH < 10 ? `0${displayH}` : String(displayH);
-    const minStr = m < 10 ? `0${m}` : String(m);
-    return { timeHour12: h12Str, timeMinute: minStr, timeAmPm: period };
-  }, [sessionWallTime]);
 
-  const setTimeHour = (hStr: string) => {
-    let hNum = parseInt(hStr, 10);
-    if (isNaN(hNum)) hNum = 12;
-    if (timeAmPm === "PM" && hNum < 12) hNum += 12;
-    if (timeAmPm === "AM" && hNum === 12) hNum = 0;
-    const h24 = hNum < 10 ? `0${hNum}` : String(hNum);
-    setSessionWallTime(`${h24}:${timeMinute}`);
-  };
-
-  const setTimeMinute = (mStr: string) => {
-    let hNum = parseInt(timeHour12, 10);
-    if (isNaN(hNum)) hNum = 12;
-    if (timeAmPm === "PM" && hNum < 12) hNum += 12;
-    if (timeAmPm === "AM" && hNum === 12) hNum = 0;
-    const h24 = hNum < 10 ? `0${hNum}` : String(hNum);
-    const normM = mStr.length === 1 ? `0${mStr}` : mStr;
-    setSessionWallTime(`${h24}:${normM}`);
-  };
-
-  const setTimeAmPm = (ampm: "AM" | "PM") => {
-    let hNum = parseInt(timeHour12, 10);
-    if (isNaN(hNum)) hNum = 12;
-    if (ampm === "PM" && hNum < 12) hNum += 12;
-    if (ampm === "AM" && hNum === 12) hNum = 0;
-    const h24 = hNum < 10 ? `0${hNum}` : String(hNum);
-    setSessionWallTime(`${h24}:${timeMinute}`);
-  };
 
   // Calculated session end time based on start time + duration minutes
   const sessionEndTimeFormatted = useMemo(() => {
@@ -382,12 +349,14 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
 
       // Populate Settings Form fields
       setSettingsName(data.name || "");
+      setSettingsProgramId(data.programId || data.program?.id || "");
       setSettingsStartDate(data.startDate ? new Date(data.startDate).toISOString().slice(0, 10) : "");
       setSettingsEndDate(data.endDate ? new Date(data.endDate).toISOString().slice(0, 10) : "");
       setSettingsRegistrationDeadline(data.registrationDeadline ? new Date(data.registrationDeadline).toISOString().slice(0, 10) : "");
       setSettingsCapacity(String(data.capacity || 50));
-      setSettingsManagerId(data.managerId || "");
+      setSettingsManagerId(data.managerId || data.manager?.id || "");
       setSettingsStatus(data.status || "ACTIVE");
+      setSettingsAwardCertificate(data.program?.hasCertificate ?? true);
 
       // Extract Enrolled Learners (waitlist is managed globally at Batches level, not inside individual batch)
       const rawEnrolments: any[] = data.enrolments || [];
@@ -468,12 +437,13 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     }
   }, [batchId]);
 
-  // Load Managers & Users for Dropdowns
+  // Load Managers, Programs & Users for Dropdowns
   const loadSupportingData = useCallback(async () => {
     try {
-      const [usersRes, managersRes] = await Promise.all([
+      const [usersRes, managersRes, programsRes] = await Promise.all([
         cachedFetch(`${API_URL}/users?limit=100`),
         cachedFetch(`${API_URL}/users?role=MANAGER`),
+        cachedFetch(`${API_URL}/programs`),
       ]);
       if (usersRes.ok) {
         const json = await usersRes.json();
@@ -482,6 +452,11 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
       if (managersRes.ok) {
         const json = await managersRes.json();
         setManagers(Array.isArray(json) ? json : json?.data || []);
+      }
+      if (programsRes.ok) {
+        const json = await programsRes.json();
+        const list = Array.isArray(json) ? json : json?.programs || json?.data || [];
+        setPrograms(list.map((p: any) => ({ id: p.id, title: p.title || p.name, hasCertificate: p.hasCertificate })));
       }
     } catch (e) {
       console.error("Failed to load supporting data:", e);
@@ -767,18 +742,16 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
   const handleAssignLearner = async () => {
     setIsAssigning(true);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
       if (!selectedUserToAssign) {
         toastError("Please select an existing user to assign.");
         setIsAssigning(false);
         return;
       }
 
-      const res = await fetch(`${API_URL}/enrollments`, {
+      const res = await cachedFetch(`${API_URL}/enrollments`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           userId: selectedUserToAssign,
@@ -846,12 +819,13 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
   // Schedule Session Handler (Tab 2)
   const handleCreateSession = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingSession) return;
     if (!sessionTitle.trim() || !sessionWallDate || !sessionWallTime) {
       toastError("Please fill out the session title, date, and time.");
       return;
     }
 
-    setIsSubmittingSession(false);
+    setIsSubmittingSession(true);
     try {
       const startUtc = localWallTimeToUtc(sessionWallDate, sessionWallTime, selectedTz).toISOString();
       const durationNum = parseInt(sessionDurationMinutes, 10) || 60;
@@ -880,12 +854,10 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
   // Update Recording URL Handler
   const handleSaveRecordingUrl = async (sessionId: string) => {
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/sessions/${sessionId}`, {
+      const res = await cachedFetch(`${API_URL}/sessions/${sessionId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({ recordingUrl: newRecordingUrl.trim() || null }),
       });
@@ -926,34 +898,23 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
 
     setIsSendingBroadcast(true);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
       const isIndividual = broadcastTarget === "INDIVIDUAL";
       const targetUser = isIndividual ? confirmedLearners.find((l) => l.userId === selectedLearnerUserId) : null;
 
-      const res = await fetch(`${API_URL}/notifications/broadcast`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          target: isIndividual ? "USER" : "BATCH",
-          targetId: isIndividual ? selectedLearnerUserId : batchId,
-          title: broadcastTitle.trim(),
-          message: broadcastMessage.trim(),
-          channels,
-        }),
+      const result = await broadcastNotification({
+        target: isIndividual ? "USER" : "BATCH",
+        targetId: isIndividual ? selectedLearnerUserId : batchId,
+        title: broadcastTitle.trim(),
+        message: broadcastMessage.trim(),
+        channels: channels as ("IN_APP" | "PUSH" | "EMAIL")[],
       });
 
-      if (!res.ok) {
-        throw new Error(await errorMessage(res, "Failed to send broadcast announcement."));
-      }
-
-      const count = isIndividual ? 1 : confirmedLearners.length;
+      const count = isIndividual ? 1 : (result?.recipientsCount ?? confirmedLearners.length);
+      const emailDetail = channels.includes("EMAIL") && result?.emailSent !== undefined ? ` (${result.emailSent} email(s) sent)` : "";
       toastSuccess(
         isIndividual
-          ? `Announcement successfully sent to ${targetUser?.user?.name || "learner"}.`
-          : `Announcement broadcast dispatched to ${count} batch learner(s).`
+          ? `Announcement successfully sent to ${targetUser?.user?.name || "learner"}${emailDetail}.`
+          : `Announcement broadcast dispatched to ${count} batch learner(s)${emailDetail}.`
       );
 
       setBroadcastHistory((prev) => [
@@ -1005,35 +966,53 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     setSettingsError("");
     setIsSavingSettings(true);
     try {
+      const targetProgId = settingsProgramId || batch?.programId;
       const updated = await updateBatch(batchId, {
         name: settingsName.trim(),
+        ...(targetProgId ? { programId: targetProgId } : {}),
         startDate: settingsStartDate ? new Date(settingsStartDate).toISOString() : undefined,
         endDate: settingsEndDate ? new Date(settingsEndDate).toISOString() : null,
         registrationDeadline: settingsRegistrationDeadline ? new Date(settingsRegistrationDeadline).toISOString() : null,
         capacity: parseInt(settingsCapacity, 10) || 50,
         managerId: settingsManagerId ? settingsManagerId : null,
-        status: settingsStatus,
+        ...(settingsStatus ? { status: settingsStatus } : {}),
       });
 
+      if (targetProgId) {
+        await cachedFetch(`${API_URL}/programs/${targetProgId}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ hasCertificate: settingsAwardCertificate }),
+        }).catch(() => null);
+      }
+
       invalidateCache("/batches");
+      invalidateCache("/programs");
 
       // Optimistically update local batch state so header & settings reflect new status immediately
+      const selectedProgObj = programs.find((p) => p.id === targetProgId);
       setBatch((prev: any) => ({
         ...prev,
         ...(updated || {}),
         name: settingsName.trim(),
+        programId: targetProgId || prev?.programId,
+        program: selectedProgObj
+          ? { ...(prev?.program || {}), id: selectedProgObj.id, title: selectedProgObj.title, hasCertificate: settingsAwardCertificate }
+          : prev?.program,
         startDate: settingsStartDate ? new Date(settingsStartDate).toISOString() : prev?.startDate,
         endDate: settingsEndDate ? new Date(settingsEndDate).toISOString() : null,
         registrationDeadline: settingsRegistrationDeadline ? new Date(settingsRegistrationDeadline).toISOString() : null,
         capacity: parseInt(settingsCapacity, 10) || 50,
-        status: settingsStatus,
+        status: settingsStatus || updated?.status || prev?.status,
         managerId: settingsManagerId || null,
         manager: settingsManagerId
           ? managers.find((m) => m.id === settingsManagerId) || prev?.manager
           : null,
       }));
 
-      toastSuccess("Batch settings updated successfully.");
+      toastSuccess("Batch updated successfully.");
       setIsSettingsModalOpen(false);
       await loadBatchData();
     } catch (err: any) {
@@ -2298,9 +2277,6 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
           >
             <div>
               <h2 style={{ fontSize: "1.1rem", margin: 0, fontWeight: 700 }}>Live Batch Sessions</h2>
-              <p style={{ margin: "2px 0 0", fontSize: "0.82rem", color: "var(--text-muted)" }}>
-                Weekly live Zoom meetings and attendance tracking for {batch?.name}
-              </p>
             </div>
             <button
               type="button"
@@ -2423,10 +2399,18 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                           <span className={styles.cellText}>{sess.hostTrainer?.name || batch?.manager?.name || "Host Trainer"}</span>
                         </td>
                         <td>
-                          {sess.joinUrl ? (
+                          {sess.hostUrl || sess.joinUrl ? (
                             <div style={{ display: "flex", gap: "6px" }}>
                               <a
-                                href={sess.joinUrl}
+                                href={(() => {
+                                  const rawUrl = sess.hostUrl || sess.joinUrl || "";
+                                  const hostName = sess.hostTrainer?.name || batch?.manager?.name || "Host";
+                                  if (rawUrl && !rawUrl.includes("zak=") && !rawUrl.includes("uname=") && rawUrl.includes("zoom.us")) {
+                                    const sep = rawUrl.includes("?") ? "&" : "?";
+                                    return `${rawUrl}${sep}uname=${encodeURIComponent(hostName)}`;
+                                  }
+                                  return rawUrl;
+                                })()}
                                 target="_blank"
                                 rel="noreferrer"
                                 className={styles.secondaryBtn}
@@ -2441,6 +2425,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                                   alignItems: "center",
                                   gap: "3px",
                                 }}
+                                title="Start or join Zoom meeting as Host"
                               >
                                 <span>Join Zoom</span>
                                 <span style={{ fontSize: "0.7rem" }}>↗</span>
@@ -2451,44 +2436,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                           )}
                         </td>
                         <td>
-                          {editingRecordingSessionId === sess.id ? (
-                            <div style={{ display: "flex", flexDirection: "column", gap: "4px", minWidth: "160px" }}>
-                              <input
-                                type="url"
-                                placeholder="Paste MP4 / Cloudinary link..."
-                                value={newRecordingUrl}
-                                onChange={(e) => setNewRecordingUrl(e.target.value)}
-                                style={{
-                                  padding: "4px 8px",
-                                  fontSize: "0.75rem",
-                                  borderRadius: "4px",
-                                  border: "1px solid var(--border-light)",
-                                  background: "var(--surface)",
-                                  color: "var(--text-primary)",
-                                  width: "100%",
-                                }}
-                                autoFocus
-                              />
-                              <div style={{ display: "flex", gap: "4px", justifyContent: "flex-end" }}>
-                                <button
-                                  type="button"
-                                  className={styles.secondaryBtn}
-                                  onClick={() => setEditingRecordingSessionId(null)}
-                                  style={{ padding: "2px 6px", fontSize: "0.72rem" }}
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                  type="button"
-                                  className={styles.primaryBtn}
-                                  onClick={() => handleSaveRecordingUrl(sess.id)}
-                                  style={{ padding: "2px 6px", fontSize: "0.72rem" }}
-                                >
-                                  Save
-                                </button>
-                              </div>
-                            </div>
-                          ) : sess.recordingUrl ? (
+                          {sess.recordingUrl ? (
                             <div style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
                               <a
                                 href={sess.recordingUrl}
@@ -2534,6 +2482,56 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                                 ✎
                               </button>
                             </div>
+                          ) : sess.status === "COMPLETED" && sess.meetingProvider === "ZOOM" && endIso && Date.now() - new Date(endIso).getTime() < 30 * 60 * 1000 ? (
+                            <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                              <span
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "5px",
+                                  fontSize: "0.73rem",
+                                  color: "#b45309",
+                                  background: "#fffbeb",
+                                  border: "1px solid #fde68a",
+                                  padding: "2px 7px",
+                                  borderRadius: "4px",
+                                  fontWeight: 600,
+                                  whiteSpace: "nowrap",
+                                }}
+                                title="Zoom is processing the cloud recording. It will appear automatically once ready."
+                              >
+                                <span
+                                  style={{
+                                    display: "inline-block",
+                                    width: "9px",
+                                    height: "9px",
+                                    borderRadius: "50%",
+                                    border: "2px solid #d97706",
+                                    borderTopColor: "transparent",
+                                    animation: "spin 1s linear infinite",
+                                  }}
+                                />
+                                <span>Processing...</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingRecordingSessionId(sess.id);
+                                  setNewRecordingUrl("");
+                                }}
+                                title="Manually add recording link"
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  color: "var(--text-muted)",
+                                  cursor: "pointer",
+                                  padding: "2px 4px",
+                                  fontSize: "0.76rem",
+                                }}
+                              >
+                                ✎
+                              </button>
+                            </div>
                           ) : (
                             <button
                               type="button"
@@ -2565,28 +2563,6 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                         </td>
                         <td style={{ textAlign: "right" }}>
                           <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", justifyContent: "flex-end" }}>
-                            {sess.meetingProvider === "ZOOM" && (
-                              <button
-                                type="button"
-                                disabled={syncingSessionId === sess.id}
-                                onClick={() => handleSyncZoomAttendance(sess.id)}
-                                className={styles.secondaryBtn}
-                                style={{
-                                  fontSize: "0.74rem",
-                                  padding: "3px 8px",
-                                  color: "var(--accent-primary, #0284c7)",
-                                  borderColor: "var(--accent-primary, #0284c7)",
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "4px",
-                                  whiteSpace: "nowrap",
-                                  opacity: syncingSessionId === sess.id ? 0.6 : 1,
-                                }}
-                                title="Sync Zoom attendance report automatically"
-                              >
-                                {syncingSessionId === sess.id ? "Syncing..." : "Sync Zoom"}
-                              </button>
-                            )}
                             <Link
                               href={`/batches/${batchId}/sessions/${sess.id}/attendance`}
                               className={styles.secondaryBtn}
@@ -2601,13 +2577,13 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                                 gap: "4px",
                                 whiteSpace: "nowrap",
                               }}
-                              title="Mark attendance for batch learners"
+                              title="View and manage attendance for this session"
                             >
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M9 11l3 3L22 4" />
                                 <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
                               </svg>
-                              <span>Mark Attendance</span>
+                              <span>View Attendance</span>
                               <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>↗</span>
                             </Link>
                           </div>
@@ -2945,25 +2921,21 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                     />
                   </div>
 
-                  {/* Clean 24-Hour Start Time Picker */}
+                  {/* Clean 12-Hour AM/PM Start Time Picker */}
                   <div className={styles.formGroup}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
                       <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>
-                        Start Time (24h) *
+                        Start Time *
                       </label>
                       <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontWeight: 700 }}>
                         {sessionWallTime ? `${format24To12(sessionWallTime)} (${sessionWallTime})` : ""}
                       </span>
                     </div>
 
-                    <input
-                      type="time"
+                    <TimePicker
                       value={sessionWallTime}
-                      onChange={(e) => setSessionWallTime(e.target.value)}
-                      className={styles.formInput}
-                      style={{ width: "100%", height: "38px", fontSize: "0.88rem", fontWeight: 600 }}
-                      required
-                      aria-label="Start Time in 24-hour format"
+                      onChange={setSessionWallTime}
+                      ariaLabel="Start time"
                     />
                   </div>
                 </div>
@@ -2983,7 +2955,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                       type="number"
                       min={15}
                       max={360}
-                      step={5}
+                      step={1}
                       value={sessionDurationMinutes}
                       onChange={(e) => setSessionDurationMinutes(e.target.value)}
                       className={styles.formInput}
@@ -3047,13 +3019,78 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                   type="submit"
                   className={styles.primaryBtn}
                   disabled={isSubmittingSession}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}
                 >
-                  {isSubmittingSession ? "Scheduling..." : "Schedule Session"}
+                  {isSubmittingSession && (
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{ animation: "spin 0.8s linear infinite" }}
+                    >
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                    </svg>
+                  )}
+                  <span>{isSubmittingSession ? "Scheduling..." : "Schedule Session"}</span>
                 </button>
               </div>
             </form>
           </div>
         </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────────────
+          MODAL: RECORDED VIDEO URL
+          ───────────────────────────────────────────────────────────────────────── */}
+      {editingRecordingSessionId && (
+        <Modal
+          isOpen={true}
+          onClose={() => setEditingRecordingSessionId(null)}
+          title="Session Recording Video"
+          maxWidth="480px"
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <div className={styles.formGroup}>
+              <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "6px" }}>
+                Video Recording URL
+              </label>
+              <input
+                type="url"
+                placeholder="https://zoom.us/rec/share/... or Drive / MP4 link"
+                value={newRecordingUrl}
+                onChange={(e) => setNewRecordingUrl(e.target.value)}
+                className={styles.formInput}
+                style={{ width: "100%" }}
+                autoFocus
+              />
+              <p style={{ margin: "6px 0 0", fontSize: "0.76rem", color: "var(--text-muted)", lineHeight: 1.45 }}>
+                <strong>Zoom Paid Plan:</strong> Copy shareable link from <em>zoom.us/recording → Cloud Recordings → Share</em> (also syncs automatically).<br />
+                <strong>Zoom Free Plan:</strong> Recordings save locally on the host computer in <code>Documents\Zoom\</code> — upload to Google Drive / YouTube (Unlisted) / Cloudinary and paste the link here.
+              </p>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem" }}>
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={() => setEditingRecordingSessionId(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={styles.primaryBtn}
+                onClick={() => handleSaveRecordingUrl(editingRecordingSessionId)}
+              >
+                Save Video
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────
@@ -3365,12 +3402,10 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                     }
                     setActingCoaching(true);
                     try {
-                      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-                      const res = await fetch(`${API_URL}/sessions/${sessionId}`, {
+                      const res = await cachedFetch(`${API_URL}/sessions/${sessionId}`, {
                         method: "PATCH",
                         headers: {
                           "Content-Type": "application/json",
-                          ...(token ? { Authorization: `Bearer ${token}` } : {}),
                         },
                         body: JSON.stringify({ status: "COMPLETED" }),
                       });
@@ -3459,12 +3494,31 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
               </div>
 
               <div className={styles.formGroup}>
-                <label>Program</label>
-                <input
-                  type="text"
-                  value={batch?.program?.title || "—"}
-                  disabled
-                  style={{ background: "#f5ece1", color: "var(--text-secondary)", cursor: "not-allowed" }}
+                <label>
+                  Assign Program <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
+                </label>
+                <CustomSelect
+                  value={settingsProgramId}
+                  onChange={(val) => {
+                    setSettingsProgramId(val);
+                    const sel = programs.find((prog) => prog.id === val);
+                    if (sel) {
+                      setSettingsAwardCertificate(sel.hasCertificate ?? true);
+                    }
+                  }}
+                  fullWidth
+                  ariaLabel="Assign Program"
+                  placeholder="Select a Program..."
+                  options={
+                    programs.length > 0
+                      ? programs.map((p) => ({
+                          value: p.id,
+                          label: p.title,
+                        }))
+                      : batch?.program
+                      ? [{ value: batch.programId || batch.program.id || "", label: batch.program.title || "Program" }]
+                      : []
+                  }
                 />
               </div>
 
@@ -3542,16 +3596,36 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                   </label>
                   <input
                     type="number"
-                    min={confirmedLearners.length}
+                    placeholder="50"
+                    min="1"
                     required
                     value={settingsCapacity}
                     onChange={(e) => setSettingsCapacity(e.target.value)}
                   />
-                  <small style={{ color: "var(--text-muted)", fontSize: "0.72rem", marginTop: "3px" }}>
-                    Currently confirmed: {confirmedLearners.length} students
-                  </small>
                 </div>
 
+                <div className={styles.formGroup}>
+                  <label>
+                    Assign Manager <span className={styles.optionalLabel}>(Optional)</span>
+                  </label>
+                  <CustomSelect
+                    value={settingsManagerId}
+                    onChange={setSettingsManagerId}
+                    fullWidth
+                    ariaLabel="Assign Manager"
+                    placeholder="Select a Manager..."
+                    options={[
+                      { value: "", label: "None / Unassigned" },
+                      ...managers.map((m) => ({
+                        value: m.id,
+                        label: m.name || m.email,
+                      })),
+                    ]}
+                  />
+                </div>
+              </div>
+
+              <div className={styles.formRow}>
                 <div className={styles.formGroup}>
                   <label>Batch Status</label>
                   <CustomSelect
@@ -3559,7 +3633,9 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                     onChange={setSettingsStatus}
                     fullWidth
                     ariaLabel="Batch Status"
+                    placeholder="Auto (Based on Start & End Date)"
                     options={[
+                      { value: "", label: "Auto (Active if started today or earlier)" },
                       { value: "ACTIVE", label: "Active" },
                       { value: "UPCOMING", label: "Upcoming" },
                       { value: "COMPLETED", label: "Completed" },
@@ -3568,24 +3644,64 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                 </div>
               </div>
 
-              <div className={styles.formGroup}>
-                <label>
-                  Assign Manager <span className={styles.optionalLabel}>(Optional)</span>
+              {/* Certificate Award Option */}
+              <div
+                style={{
+                  padding: "0.75rem 1rem",
+                  background: settingsAwardCertificate ? "rgba(201, 122, 30, 0.06)" : "var(--bg-card-muted, #fdfbf7)",
+                  border: `1px solid ${settingsAwardCertificate ? "var(--accent-primary, #c97a1e)" : "var(--border-light)"}`,
+                  borderRadius: "8px",
+                  marginTop: "0.25rem",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.65rem",
+                    cursor: "pointer",
+                    margin: 0,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={settingsAwardCertificate}
+                    onChange={(e) => setSettingsAwardCertificate(e.target.checked)}
+                    style={{
+                      width: "16px",
+                      height: "16px",
+                      accentColor: "var(--accent-primary, #c97a1e)",
+                      cursor: "pointer",
+                    }}
+                  />
+                  <div
+                    style={{
+                      fontWeight: 600,
+                      fontSize: "0.88rem",
+                      color: "var(--text-primary)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}
+                  >
+                    <svg
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="var(--accent-primary, #c97a1e)"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="8" r="6" />
+                      <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
+                    </svg>
+                    <span>Award Certificate of Completion</span>
+                  </div>
                 </label>
-                <CustomSelect
-                  value={settingsManagerId}
-                  onChange={setSettingsManagerId}
-                  fullWidth
-                  ariaLabel="Assign Manager"
-                  placeholder="Select a Manager..."
-                  options={[
-                    { value: "", label: "None / Unassigned" },
-                    ...managers.map((m) => ({
-                      value: m.id,
-                      label: m.name || m.email,
-                    })),
-                  ]}
-                />
               </div>
 
               <div className={styles.modalFooter} style={{ padding: "1rem 0 0", marginTop: "0.5rem", borderTop: "1px solid var(--border-light)" }}>
@@ -3602,7 +3718,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                   className={styles.primaryBtn}
                   disabled={isSavingSettings}
                 >
-                  {isSavingSettings ? "Saving Changes..." : "Save Changes"}
+                  {isSavingSettings ? "Saving..." : "Update Batch"}
                 </button>
               </div>
             </form>

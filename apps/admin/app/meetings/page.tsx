@@ -372,7 +372,7 @@ export default function MeetingsPage() {
         );
       }
 
-      toastSuccess("Discovery Call marked Completed! Opening CRM Conversion...");
+      toastSuccess("Discovery Call marked Completed! Opening Lead Conversion...");
 
       const details = parseDiscoveryCallDetails(meeting);
       const queryParams = new URLSearchParams();
@@ -385,7 +385,7 @@ export default function MeetingsPage() {
       router.push(`/leads?${queryParams.toString()}`);
     } catch (e) {
       console.error(e);
-      toastError("Could not complete call. Redirecting to CRM...");
+      toastError("Could not complete call. Redirecting to Enquiries...");
       router.push("/leads");
     } finally {
       setIsCompletingAndConverting(false);

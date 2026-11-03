@@ -377,7 +377,7 @@ export default function Certificate({
   templateType,
   certificateType,
   cpdHours = 25,
-  showLinkedInShare = true,
+  showLinkedInShare = false,
 }: CertificateDetails) {
   // Safe Fallbacks matching strict validation rules
   const finalRecipient = recipientName || name || "Learner Name";

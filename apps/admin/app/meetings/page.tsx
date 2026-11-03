@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import calStyles from "./calendar.module.css";
+import CalendarShell, { CLEAN_TZ_LABELS } from "./calendar/CalendarShell";
 import {
   API_URL,
   errorMessage,
@@ -31,6 +32,8 @@ import {
   StatusBadge,
   TableSkeleton,
   EmptyState,
+  DatePicker,
+  TimePicker,
 } from "../components";
 
 interface TrainerInfo {
@@ -65,7 +68,7 @@ export type SessionTypeEnum =
 export type CommitmentCategory =
   | "ALL"
   | "DISCOVERY"
-  | "COACHING"
+  | "ONE_ON_ONE"
   | "BATCH";
 
 export interface Meeting {
@@ -89,7 +92,7 @@ export interface Meeting {
 }
 
 const isDiscoveryCall = (m: Meeting) => m.sessionType === "SPEAKER_DISCOVERY_CALL";
-const isCoachingCall = (m: Meeting) =>
+const isOneOnOneCall = (m: Meeting) =>
   m.sessionType === "ONE_ON_ONE" ||
   m.sessionType === "ONE_ON_ONE_WITH_RO" ||
   m.sessionType === "WELCOME_CALL_11_STEPS" ||
@@ -138,13 +141,18 @@ const parseDiscoveryCallDetails = (m: Meeting) => {
 
 const ALL_COHORTS = "all";
 
+const SCHEDULE_SESSION_TYPE_OPTIONS: Array<{ value: SessionTypeEnum; label: string }> = [
+  { value: "GROUP_COHORT", label: "Batch Live Session" },
+  { value: "ONE_ON_ONE", label: "1:1 Call" },
+];
+
 const SESSION_TYPE_OPTIONS: Array<{ value: SessionTypeEnum; label: string }> = [
-  { value: "GROUP_COHORT", label: "Group Cohort Session" },
-  { value: "ONE_ON_ONE", label: "1-on-1 Coaching Session" },
+  { value: "GROUP_COHORT", label: "Batch Live Session" },
+  { value: "ONE_ON_ONE", label: "1:1 Call" },
   { value: "WELCOME_CALL_11_STEPS", label: "11 Steps Welcome Call" },
   { value: "CLOSING_CALL_11_STEPS", label: "11 Steps Closing Call" },
   { value: "ONE_ON_ONE_WITH_RO", label: "1:1 with Ro" },
-  { value: "VISION_BOARD_WORKSHOP", label: "Vision Board Workshop (In-Person / Online)" },
+  { value: "VISION_BOARD_WORKSHOP", label: "Vision Board Workshop" },
   { value: "VISION_BOARD_ONLINE", label: "Vision Board Online" },
   { value: "SPEAKER_DISCOVERY_CALL", label: "Speaker Discovery Call" },
   { value: "BATCH_CLASS", label: "Batch Curriculum Class" },
@@ -232,10 +240,12 @@ export default function MeetingsPage() {
 
   // View state: 'calendar', 'table', or 'requests' (Stage 4 1-on-1 Coaching Queue)
   const [viewMode, setViewMode] = useState<"calendar" | "table" | "requests">("calendar");
-  const [currentCalendarDate, setCurrentCalendarDate] = useState<Date>(new Date());
+  const [, setCurrentCalendarDate] = useState<Date>(new Date());
+  const [urlDate, setUrlDate] = useState<string | undefined>(undefined);
 
-  // 1-on-1 Requests Queue state (Phase 4)
+  // 1:1 Call Requests Queue state (Phase 4)
   const [oneOnOneRequests, setOneOnOneRequests] = useState<OneOnOneRequestItem[]>([]);
+  const [isRequestsModalOpen, setIsRequestsModalOpen] = useState(false);
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [requestsFilter, setRequestsFilter] = useState<string>("ALL");
 
@@ -286,7 +296,7 @@ export default function MeetingsPage() {
   const router = useRouter();
   const [commitmentCategory, setCommitmentCategory] = useState<CommitmentCategory>("ALL");
   const [isCompletingAndConverting, setIsCompletingAndConverting] = useState(false);
-  const [isCompletingCoaching, setIsCompletingCoaching] = useState(false);
+  const [isCompletingOneOnOne, setIsCompletingOneOnOne] = useState(false);
 
   // Sync with ?date=YYYY-MM-DD and ?sessionId=XYZ from Approvals or LMS links
   useEffect(() => {
@@ -297,6 +307,7 @@ export default function MeetingsPage() {
       const parsed = new Date(dateParam);
       if (!isNaN(parsed.getTime())) {
         setCurrentCalendarDate(parsed);
+        if (/^\d{4}-\d{2}-\d{2}/.test(dateParam)) setUrlDate(dateParam.slice(0, 10));
       }
     }
     const sessionIdParam = params.get("sessionId");
@@ -308,8 +319,8 @@ export default function MeetingsPage() {
     }
   }, [meetings]);
 
-  const handleCompleteCoachingSession = async (meeting: Meeting) => {
-    setIsCompletingCoaching(true);
+  const handleCompleteSession = async (meeting: Meeting) => {
+    setIsCompletingOneOnOne(true);
     try {
       await cachedFetch(`${API_URL}/sessions/${meeting.id}`, {
         method: "PATCH",
@@ -322,24 +333,28 @@ export default function MeetingsPage() {
       setSelectedMeeting((prev) =>
         prev && prev.id === meeting.id ? { ...prev, status: "COMPLETED" as const } : prev
       );
-      toastSuccess("1-on-1 Coaching session marked Completed! Stage 5 (Mission Statement) unlocked for learner.");
+      toastSuccess(
+        isOneOnOneCall(meeting)
+          ? "1:1 Call marked Completed! Stage 5 (Mission Statement) unlocked for learner."
+          : "Session marked Completed!"
+      );
     } catch (err: any) {
-      toastError(err?.message || "Failed to mark coaching session completed");
+      toastError(err?.message || "Failed to mark session completed");
     } finally {
-      setIsCompletingCoaching(false);
+      setIsCompletingOneOnOne(false);
     }
   };
 
   const commitmentCounts = useMemo(() => {
     let discovery = 0;
-    let coaching = 0;
+    let oneOnOne = 0;
     let batch = 0;
     for (const m of meetings) {
       if (isDiscoveryCall(m)) discovery++;
-      else if (isCoachingCall(m)) coaching++;
+      else if (isOneOnOneCall(m)) oneOnOne++;
       else batch++;
     }
-    return { all: meetings.length, discovery, coaching, batch };
+    return { all: meetings.length, discovery, oneOnOne, batch };
   }, [meetings]);
 
   const handleSelectCommitmentCategory = (cat: CommitmentCategory) => {
@@ -414,18 +429,39 @@ export default function MeetingsPage() {
   const [learnerId, setLearnerId] = useState<string>("");
   const [joinUrl, setJoinUrl] = useState("");
 
-  const [displayTimezone, setDisplayTimezone] = useState<string>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("wbm_display_tz");
-      if (saved) return saved;
-    }
-    return getSystemTimezone();
-  });
+  // Initialize to UTC to ensure identical SSR and client initial hydration tree
+  const [displayTimezone, setDisplayTimezone] = useState<string>("Asia/Kolkata");
+  const [timeFormat, setTimeFormat] = useState<"12h" | "24h">("12h");
 
   const timezoneOptions = useMemo(() => getTimezoneOptions(), []);
 
-  // Sync profile timezone on mount
+  // Hydrate timezone and time format from localStorage on mount
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedFmt = localStorage.getItem("wbm_time_format");
+      if (savedFmt === "12h" || savedFmt === "24h") {
+        setTimeFormat(savedFmt);
+      }
+    }
+  }, []);
+
+  const handleTimeFormatToggle = (fmt: "12h" | "24h") => {
+    setTimeFormat(fmt);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("wbm_time_format", fmt);
+    }
+  };
+
+  // Hydrate timezone from localStorage / system on client mount
+  useEffect(() => {
+    const saved = localStorage.getItem("wbm_display_tz");
+    if (saved) {
+      setDisplayTimezone(saved);
+    } else {
+      const sys = getSystemTimezone();
+      if (sys) setDisplayTimezone(sys);
+    }
+
     fetch(`${API_URL}/auth/me`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((profile) => {
@@ -530,7 +566,7 @@ export default function MeetingsPage() {
       const data = await fetchOneOnOneRequests(requestsFilter);
       setOneOnOneRequests(data);
     } catch (e) {
-      console.error("Failed to load 1-on-1 coaching requests", e);
+      console.error("Failed to load 1:1 call requests", e);
     } finally {
       setLoadingRequests(false);
     }
@@ -583,7 +619,7 @@ export default function MeetingsPage() {
     }
 
     if (start.getTime() < Date.now() - 60 * 1000) {
-      setApprovalError("Cannot schedule a coaching call in the past. Please select an upcoming date and time.");
+      setApprovalError("Cannot schedule a 1:1 call in the past. Please select an upcoming date and time.");
       return;
     }
 
@@ -595,7 +631,7 @@ export default function MeetingsPage() {
         endTime: end.toISOString(),
         notes: approvalNotes,
       });
-      toastSuccess("1-on-1 coaching call approved and Zoom meeting generated!");
+      toastSuccess("1:1 call approved and Zoom meeting generated!");
       setApprovingRequest(null);
       loadRequests();
       load();
@@ -652,8 +688,8 @@ export default function MeetingsPage() {
       const cat = searchParams.get("category");
       if (cat === "discovery") {
         setCommitmentCategory("DISCOVERY");
-      } else if (cat === "coaching") {
-        setCommitmentCategory("COACHING");
+      } else if (cat === "coaching" || cat === "one_on_one") {
+        setCommitmentCategory("ONE_ON_ONE");
       } else if (cat === "batch") {
         setCommitmentCategory("BATCH");
       } else if (cat === "all") {
@@ -673,10 +709,7 @@ export default function MeetingsPage() {
   useEffect(() => {
     if (
       sessionType === "ONE_ON_ONE" ||
-      sessionType === "ONE_ON_ONE_WITH_RO" ||
-      sessionType === "WELCOME_CALL_11_STEPS" ||
-      sessionType === "CLOSING_CALL_11_STEPS" ||
-      sessionType === "SPEAKER_DISCOVERY_CALL"
+      sessionType === "ONE_ON_ONE_WITH_RO"
     ) {
       setCapacity(1);
     } else if (currentBatch?.capacity) {
@@ -684,7 +717,7 @@ export default function MeetingsPage() {
     }
   }, [sessionType, currentBatch]);
 
-  const openModal = (initialDate?: string) => {
+  const openModal = (initialDate?: string, initialTime?: string) => {
     const defaultCourse = courses[0] || "";
     setSessionType("GROUP_COHORT");
     setCourse(defaultCourse);
@@ -693,8 +726,12 @@ export default function MeetingsPage() {
     setCohort(initialCohortId);
     setTitle("");
     setDate(initialDate || (new Date().toISOString().split("T")[0] ?? ""));
-    setStartTime("10:00");
-    setEndTime("11:00");
+    setStartTime(initialTime || "10:00");
+    setEndTime(
+      initialTime
+        ? `${String((parseInt(initialTime.slice(0, 2), 10) + 1) % 24).padStart(2, "0")}:${initialTime.slice(3, 5)}`
+        : "11:00",
+    );
     setCapacity(initialCohorts[0]?.capacity || 25);
     setHostTrainerId("");
     setLearnerId("");
@@ -839,44 +876,37 @@ export default function MeetingsPage() {
       return;
     }
 
-    const isSingleSeat =
-      sessionType === "ONE_ON_ONE" ||
-      sessionType === "ONE_ON_ONE_WITH_RO" ||
-      sessionType === "WELCOME_CALL_11_STEPS" ||
-      sessionType === "CLOSING_CALL_11_STEPS" ||
-      sessionType === "SPEAKER_DISCOVERY_CALL";
-
-    if (isSingleSeat && capacity !== 1) {
-      setFormError("1-on-1 coaching sessions must have a capacity of 1.");
-      return;
-    }
-
-    if (!isSingleSeat && capacity < 1) {
-      setFormError("Group session capacity must be at least 1.");
-      return;
-    }
+    const isSingleSeat = sessionType === "ONE_ON_ONE" || sessionType === "ONE_ON_ONE_WITH_RO";
 
     if (isSingleSeat && cohort === ALL_COHORTS) {
-      setFormError("1-on-1 coaching sessions must be scheduled for a specific cohort.");
+      setFormError("1:1 call sessions must be scheduled for a specific batch.");
       return;
     }
 
     const targets = cohorts.filter((b) => cohort === ALL_COHORTS || b.id === cohort);
     if (targets.length === 0) {
-      setFormError("No cohorts available for this course. Create an active batch first.");
+      setFormError("No batches available for this program. Create an active batch first.");
       return;
     }
 
+    if (cohort === ALL_COHORTS && hostTrainerId && targets.length > 1) {
+      setFormError("Assigning a specific trainer to multiple batches simultaneously creates a scheduling conflict. Please schedule each batch individually or select a single batch.");
+      return;
+    }
+
+    const finalCapacity = isSingleSeat ? 1 : (currentBatch?.capacity || 25);
+
     setIsSaving(true);
     try {
-      for (const target of targets) {
+      const activeTargets = targets.length > 0 ? targets : [{ id: undefined }];
+      for (const target of activeTargets) {
         const payload: Record<string, any> = {
           batchId: target.id,
           title: title.trim(),
           startTime: start.toISOString(),
           endTime: end.toISOString(),
           sessionType,
-          capacity: isSingleSeat ? 1 : Number(capacity),
+          capacity: finalCapacity,
           meetingProvider: joinUrl.trim() ? undefined : "ZOOM",
         };
 
@@ -899,7 +929,7 @@ export default function MeetingsPage() {
         if (!res.ok) {
           const msg = await errorMessage(
             res,
-            `Could not schedule session for cohort ${target.name}`,
+            `Could not schedule session${'name' in target ? ` for cohort ${target.name}` : ''}`,
           );
           setFormError(msg);
           setIsSaving(false);
@@ -996,7 +1026,7 @@ export default function MeetingsPage() {
   const filteredMeetings = useMemo(() => {
     return meetings.filter((m) => {
       if (commitmentCategory === "DISCOVERY" && !isDiscoveryCall(m)) return false;
-      if (commitmentCategory === "COACHING" && !isCoachingCall(m)) return false;
+      if (commitmentCategory === "ONE_ON_ONE" && !isOneOnOneCall(m)) return false;
       if (commitmentCategory === "BATCH" && !isBatchSession(m)) return false;
 
       if (filterType !== "ALL" && m.sessionType !== filterType) return false;
@@ -1006,118 +1036,8 @@ export default function MeetingsPage() {
     });
   }, [meetings, commitmentCategory, filterType, filterStatus]);
 
-  // ── Month Calendar Grid Calculation ───────────────────────────────────────
-  const calendarDays = useMemo(() => {
-    const year = currentCalendarDate.getFullYear();
-    const month = currentCalendarDate.getMonth();
-
-    const firstDayOfMonth = new Date(year, month, 1);
-    const startDayOfWeek = firstDayOfMonth.getDay(); // 0 is Sunday
-    const daysInCurrentMonth = new Date(year, month + 1, 0).getDate();
-    const daysInPrevMonth = new Date(year, month, 0).getDate();
-
-    const today = new Date();
-    const isCurrentMonthYear =
-      today.getFullYear() === year && today.getMonth() === month;
-
-    const days: Array<{
-      date: Date;
-      dateString: string;
-      dayNumber: number;
-      isCurrentMonth: boolean;
-      isToday: boolean;
-      events: Meeting[];
-    }> = [];
-
-    const formatYmd = (y: number, m: number, day: number) =>
-      `${y}-${String(m + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-
-    // Leading days from previous month
-    for (let i = startDayOfWeek - 1; i >= 0; i--) {
-      const dayNum = daysInPrevMonth - i;
-      const d = new Date(year, month - 1, dayNum);
-      const dateStr = formatYmd(year, month - 1, dayNum);
-      days.push({
-        date: d,
-        dateString: dateStr,
-        dayNumber: dayNum,
-        isCurrentMonth: false,
-        isToday: false,
-        events: filteredMeetings.filter(
-          (m) => getSessionDateInTz(m.startTime, displayTimezone) === dateStr,
-        ),
-      });
-    }
-
-    // Days in current month
-    for (let dayNum = 1; dayNum <= daysInCurrentMonth; dayNum++) {
-      const d = new Date(year, month, dayNum);
-      const dateStr = formatYmd(year, month, dayNum);
-      const isToday = isCurrentMonthYear && today.getDate() === dayNum;
-      days.push({
-        date: d,
-        dateString: dateStr,
-        dayNumber: dayNum,
-        isCurrentMonth: true,
-        isToday,
-        events: filteredMeetings.filter(
-          (m) => getSessionDateInTz(m.startTime, displayTimezone) === dateStr,
-        ),
-      });
-    }
-
-    // Trailing days to fill 35 or 42 cells (7 columns)
-    const totalCells = days.length <= 35 ? 35 : 42;
-    const remainingDays = totalCells - days.length;
-    for (let dayNum = 1; dayNum <= remainingDays; dayNum++) {
-      const d = new Date(year, month + 1, dayNum);
-      const dateStr = formatYmd(year, month + 1, dayNum);
-      days.push({
-        date: d,
-        dateString: dateStr,
-        dayNumber: dayNum,
-        isCurrentMonth: false,
-        isToday: false,
-        events: filteredMeetings.filter(
-          (m) => getSessionDateInTz(m.startTime, displayTimezone) === dateStr,
-        ),
-      });
-    }
-
-    return days;
-  }, [currentCalendarDate, filteredMeetings, displayTimezone]);
-
-  const monthYearLabel = useMemo(() => {
-    return currentCalendarDate.toLocaleDateString(undefined, {
-      month: "long",
-      year: "numeric",
-    });
-  }, [currentCalendarDate]);
-
-  const prevMonth = () => {
-    setCurrentCalendarDate(
-      new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth() - 1, 1),
-    );
-  };
-
-  const nextMonth = () => {
-    setCurrentCalendarDate(
-      new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth() + 1, 1),
-    );
-  };
-
-  const goToToday = () => {
-    setCurrentCalendarDate(new Date());
-  };
-
   const isSingleSeatSession = useMemo(() => {
-    return (
-      sessionType === "ONE_ON_ONE" ||
-      sessionType === "ONE_ON_ONE_WITH_RO" ||
-      sessionType === "WELCOME_CALL_11_STEPS" ||
-      sessionType === "CLOSING_CALL_11_STEPS" ||
-      sessionType === "SPEAKER_DISCOVERY_CALL"
-    );
+    return sessionType === "ONE_ON_ONE" || sessionType === "ONE_ON_ONE_WITH_RO";
   }, [sessionType]);
 
   return (
@@ -1125,12 +1045,9 @@ export default function MeetingsPage() {
       {/* ── 1. Page Header with Title, Description & Orange CTA ── */}
       <div className={calStyles.pageHeader}>
         <div className={calStyles.headerInfo}>
-          <h1 className={calStyles.headerTitle}>Calendar &amp; Session Management</h1>
-          {/* <p className={calStyles.headerSubtitle}>
-            Unified scheduling for cohort classes, 1-on-1 coaching, workshops, and Microsoft Outlook sync.
-          </p> */}
+          <h1 className={calStyles.headerTitle}>Calendar</h1>
         </div>
-        <div className={calStyles.headerActions}>
+        <div className={calStyles.headerActions} style={{ marginLeft: "auto" }}>
           <button
             type="button"
             className={calStyles.primaryOrangeBtn}
@@ -1142,6 +1059,8 @@ export default function MeetingsPage() {
         </div>
       </div>
 
+      {viewMode !== "calendar" && (
+      <>
       {/* ── Roweena's Unified Commitment Switcher ── */}
       <div className={calStyles.commitmentBar}>
         <button
@@ -1168,13 +1087,13 @@ export default function MeetingsPage() {
         <button
           type="button"
           className={`${calStyles.commitmentBtn} ${
-            viewMode !== "requests" && commitmentCategory === "COACHING" ? calStyles.commitmentBtnActiveCoaching : ""
+            viewMode !== "requests" && commitmentCategory === "ONE_ON_ONE" ? calStyles.commitmentBtnActiveCoaching : ""
           }`}
-          onClick={() => handleSelectCommitmentCategory("COACHING")}
+          onClick={() => handleSelectCommitmentCategory("ONE_ON_ONE")}
         >
           <span className={calStyles.commitmentDotCoaching} />
-          <span>1:1 Coaching Calls</span>
-          <span className={calStyles.commitmentBadge}>{commitmentCounts.coaching}</span>
+          <span>1:1 Calls</span>
+          <span className={calStyles.commitmentBadge}>{commitmentCounts.oneOnOne}</span>
         </button>
         <button
           type="button"
@@ -1204,7 +1123,7 @@ export default function MeetingsPage() {
           }}
         >
           <span className={calStyles.commitmentDotRequests} />
-          <span>1-on-1 Requests Queue</span>
+          <span>1:1 Call Requests</span>
           {pendingRequestsCount > 0 && (
             <span
               className={calStyles.commitmentBadge}
@@ -1258,7 +1177,7 @@ export default function MeetingsPage() {
             <button
               type="button"
               className={`${calStyles.viewSwitcherBtn} ${
-                viewMode === "calendar" ? calStyles.viewSwitcherBtnActive : ""
+                (viewMode as string) === "calendar" ? calStyles.viewSwitcherBtnActive : ""
               }`}
               onClick={() => {
                 setViewMode("calendar");
@@ -1306,7 +1225,7 @@ export default function MeetingsPage() {
               }}
             >
               <Icons.Users />
-              1-on-1 Requests
+              1:1 Requests
               {pendingRequestsCount > 0 && (
                 <span
                   style={{
@@ -1344,9 +1263,11 @@ export default function MeetingsPage() {
           </div>
         </div>
       </div>
+      </>
+      )}
 
       {/* High-Visibility Banner for Pending Coaching Requests */}
-      {pendingRequestsCount > 0 && viewMode !== "requests" && (
+      {pendingRequestsCount > 0 && viewMode === "table" && (
         <div style={{
           background: "#fffbeb",
           border: "1px solid #fde68a",
@@ -1364,7 +1285,7 @@ export default function MeetingsPage() {
             <span style={{ fontSize: "1.25rem" }}>⚡</span>
             <div>
               <span style={{ fontWeight: 700, fontSize: "0.95rem" }}>
-                {pendingRequestsCount} 1-on-1 Coaching Booking Request{pendingRequestsCount > 1 ? "s" : ""} Pending Approval
+                {pendingRequestsCount} 1:1 Call Booking Request{pendingRequestsCount > 1 ? "s" : ""} Pending Approval
               </span>
               {pendingRequests[0]?.user && (
                 <div style={{ fontSize: "0.8rem", color: "#b45309", marginTop: 2 }}>
@@ -1427,195 +1348,17 @@ export default function MeetingsPage() {
 
       {/* ── 3. View 1: Calendar View ── */}
       {viewMode === "calendar" && (
-        <div className={calStyles.calendarContainer}>
-          <div className={calStyles.calendarToolbar}>
-            <div className={calStyles.calendarNavGroup}>
-              <button
-                type="button"
-                className={calStyles.navButton}
-                onClick={prevMonth}
-                aria-label="Previous Month"
-              >
-                &larr; Prev
-              </button>
-              <button type="button" className={calStyles.navButton} onClick={goToToday}>
-                Today
-              </button>
-              <button
-                type="button"
-                className={calStyles.navButton}
-                onClick={nextMonth}
-                aria-label="Next Month"
-              >
-                Next &rarr;
-              </button>
-            </div>
-
-            <div className={calStyles.monthHeading}>{monthYearLabel}</div>
-
-            <div className={calStyles.legendGroup}>
-              <span className={calStyles.legendItem}>
-                <span className={calStyles.legendColorBox} style={{ background: "#fde68a" }} />
-                Cohort
-              </span>
-              <span className={calStyles.legendItem}>
-                <span className={calStyles.legendColorBox} style={{ background: "#bae6fd" }} />
-                1-on-1 / Welcome
-              </span>
-              <span className={calStyles.legendItem}>
-                <span className={calStyles.legendColorBox} style={{ background: "#e9d5ff" }} />
-                Workshop
-              </span>
-              <span className={calStyles.legendItem}>
-                <span className={calStyles.legendColorBox} style={{ background: "#fecdd3" }} />
-                Discovery
-              </span>
-            </div>
-          </div>
-
-          {commitmentCategory !== "ALL" && (
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "8px 14px",
-                background: "#faf6f0",
-                borderBottom: "1px solid #ece4d7",
-                fontSize: "0.82rem",
-                color: "#574f45",
-                flexWrap: "wrap",
-                gap: "8px",
-              }}
-            >
-              <div>
-                Filtering calendar by:{" "}
-                <strong style={{ color: "#14110f" }}>
-                  {commitmentCategory === "DISCOVERY"
-                    ? "15-Min Discovery Calls"
-                    : commitmentCategory === "COACHING"
-                    ? "1:1 Coaching Calls"
-                    : "Batch Live Sessions"}
-                </strong>{" "}
-                ({filteredMeetings.length} scheduled)
-              </div>
-              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                <button
-                  type="button"
-                  onClick={() => setViewMode("table")}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "#b8860b",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    textDecoration: "underline",
-                    fontSize: "0.8rem",
-                  }}
-                >
-                  View full list in Table &rarr;
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelectCommitmentCategory("ALL")}
-                  style={{
-                    background: "#ffffff",
-                    border: "1px solid #dcd5cb",
-                    borderRadius: 4,
-                    padding: "2px 8px",
-                    cursor: "pointer",
-                    fontSize: "0.76rem",
-                  }}
-                >
-                  ✕ Clear Filter
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className={calStyles.weekdayGrid}>
-            <div>Sun</div>
-            <div>Mon</div>
-            <div>Tue</div>
-            <div>Wed</div>
-            <div>Thu</div>
-            <div>Fri</div>
-            <div>Sat</div>
-          </div>
-
-          <div className={calStyles.daysGrid}>
-            {calendarDays.map((cell, idx) => {
-              const maxVisible = 3;
-              const visibleEvents = cell.events.slice(0, maxVisible);
-              const remainingCount = cell.events.length - maxVisible;
-
-              return (
-                <div
-                  key={`${cell.dateString}-${idx}`}
-                  className={`${calStyles.dayCell} ${
-                    !cell.isCurrentMonth ? calStyles.dayCellOutside : ""
-                  } ${cell.isToday ? calStyles.dayCellToday : ""}`}
-                >
-                  <div className={calStyles.dayHeader}>
-                    <span
-                      className={`${calStyles.dayNumber} ${
-                        cell.isToday ? calStyles.todayNumber : ""
-                      }`}
-                    >
-                      {cell.dayNumber}
-                    </span>
-                    <button
-                      type="button"
-                      className={calStyles.addSlotBtn}
-                      title={`Schedule session on ${cell.dateString}`}
-                      onClick={() => openModal(cell.dateString)}
-                    >
-                      +
-                    </button>
-                  </div>
-
-                  <div className={calStyles.eventsStack}>
-                    {visibleEvents.map((evt) => (
-                      <div
-                        key={evt.id}
-                        className={`${calStyles.eventPill} ${getPillStyleClass(
-                          evt.sessionType,
-                          evt.status,
-                        )}`}
-                        title={`${evt.title} (${formatShortTime(evt.startTime, displayTimezone)})`}
-                        onClick={() => setSelectedMeeting(evt)}
-                      >
-                        <span className={calStyles.eventTime}>{formatShortTime(evt.startTime, displayTimezone)}</span>
-                        <span className={calStyles.eventTitle}>{evt.title}</span>
-                      </div>
-                    ))}
-
-                    {remainingCount > 0 && (
-                      <button
-                        type="button"
-                        className={calStyles.moreEventsBtn}
-                        onClick={() =>
-                          setViewingDaySessions({
-                            dateString: cell.dateString,
-                            dateFormatted: cell.date.toLocaleDateString(undefined, {
-                              month: "short",
-                              day: "numeric",
-                              year: "numeric",
-                            }),
-                            events: cell.events,
-                          })
-                        }
-                      >
-                        <span>+{remainingCount} more</span>
-                        <span>&rsaquo;</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <CalendarShell
+          meetings={meetings}
+          timeZone={displayTimezone}
+          timezoneOptions={timezoneOptions}
+          onTimezoneChange={handleTimezoneChange}
+          onSelect={setSelectedMeeting}
+          onCreate={(d, t) => openModal(d, t)}
+          initialDate={urlDate}
+          timeFormat={timeFormat}
+          onTimeFormatChange={handleTimeFormatToggle}
+        />
       )}
 
       {/* ── 4. View 2: Table View ── */}
@@ -1835,7 +1578,7 @@ export default function MeetingsPage() {
             }}
           >
             <div style={{ fontSize: "0.84rem", color: "#334155" }}>
-              Viewing <strong>1-on-1 Coaching Approval Requests Queue</strong>. To view or filter scheduled meetings on the calendar, click any commitment pill above or switch to Calendar Grid.
+              Viewing <strong>1:1 Call Approval Requests Queue</strong>. To view or filter scheduled meetings on the calendar, click any commitment pill above or switch to Calendar Grid.
             </div>
             <button
               type="button"
@@ -1904,8 +1647,8 @@ export default function MeetingsPage() {
                   <tr>
                     <td colSpan={7}>
                       <EmptyState
-                        title="No 1-on-1 Coaching Requests"
-                        description="There are currently no 1-on-1 coaching requests matching the selected filter."
+                        title="No 1:1 Call Requests"
+                        description="There are currently no 1:1 call requests matching the selected filter."
                       />
                     </td>
                   </tr>
@@ -2029,7 +1772,6 @@ export default function MeetingsPage() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         title="Schedule Session"
-        subtitle="Create a new class, workshop, or 1-on-1 coaching session with Outlook calendar sync."
         maxWidth="720px"
         footer={
           <div className={calStyles.modalFooterActions}>
@@ -2046,7 +1788,7 @@ export default function MeetingsPage() {
               className={calStyles.modalSubmitBtn}
               disabled={isSaving}
             >
-              {isSaving ? "Scheduling & Syncing..." : "Confirm & Sync Calendar"}
+              {isSaving ? "Scheduling Session..." : "Schedule Session"}
             </button>
           </div>
         }
@@ -2064,26 +1806,26 @@ export default function MeetingsPage() {
           )}
 
           <div className={calStyles.formGrid2}>
-            {/* Session Type */}
+            {/* Session Format / Type */}
             <div className={calStyles.formField}>
               <label className={calStyles.formLabel}>
-                Session Type <span className={calStyles.requiredStar}>*</span>
+                Session Format <span className={calStyles.requiredStar}>*</span>
               </label>
               <CustomSelect
-                ariaLabel="Select session type"
+                ariaLabel="Select session format"
                 value={sessionType}
                 onChange={(val) => setSessionType(val as SessionTypeEnum)}
-                options={SESSION_TYPE_OPTIONS}
+                options={SCHEDULE_SESSION_TYPE_OPTIONS}
               />
             </div>
 
-            {/* Course */}
+            {/* Program */}
             <div className={calStyles.formField}>
               <label className={calStyles.formLabel}>
-                Course Program <span className={calStyles.requiredStar}>*</span>
+                Program <span className={calStyles.requiredStar}>*</span>
               </label>
               <CustomSelect
-                ariaLabel="Select course"
+                ariaLabel="Select program"
                 value={course}
                 onChange={(val) => {
                   setCourse(val);
@@ -2094,43 +1836,34 @@ export default function MeetingsPage() {
               />
             </div>
 
-            {/* Cohort / Batch */}
+            {/* Batch */}
             <div className={calStyles.formField}>
               <label className={calStyles.formLabel}>
-                Cohort / Batch <span className={calStyles.requiredStar}>*</span>
+                Batch <span className={calStyles.requiredStar}>*</span>
               </label>
               <CustomSelect
-                ariaLabel="Select cohort"
+                ariaLabel="Select batch"
                 value={cohort}
                 onChange={(val) => setCohort(val)}
                 options={[
                   ...(sessionType === "GROUP_COHORT"
-                    ? [{ value: ALL_COHORTS, label: "All Cohorts (Batch Schedule)" }]
+                    ? [{ value: ALL_COHORTS, label: "All Batches" }]
                     : []),
                   ...cohorts.map((b) => ({ value: b.id, label: b.name })),
                 ]}
               />
             </div>
 
-            {/* Seat Capacity */}
+            {/* Date */}
             <div className={calStyles.formField}>
               <label className={calStyles.formLabel}>
-                Seat Capacity <span className={calStyles.requiredStar}>*</span>
+                Session Date <span className={calStyles.requiredStar}>*</span>
               </label>
-              <input
-                type="number"
-                min={1}
-                required
-                disabled={isSingleSeatSession}
-                value={capacity}
-                onChange={(e) => setCapacity(Number(e.target.value))}
-                className={calStyles.inputControl}
+              <DatePicker
+                value={date}
+                onChange={setDate}
+                minDate={new Date().toISOString().split("T")[0]}
               />
-              {isSingleSeatSession && (
-                <span className={calStyles.formHelpText}>
-                  Fixed to 1 seat for individual coaching sessions.
-                </span>
-              )}
             </div>
 
             {/* Session Title (Full Width) */}
@@ -2141,67 +1874,134 @@ export default function MeetingsPage() {
               <input
                 type="text"
                 required
-                placeholder="e.g., 11 Steps to U: Welcome Call & Orientation"
+                placeholder="e.g., Week 1: Introduction to Framework or Orientation"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 className={calStyles.inputControl}
               />
             </div>
 
-            {/* Date */}
+            {/* Start Time */}
             <div className={calStyles.formField}>
-              <label className={calStyles.formLabel}>
-                Session Date <span className={calStyles.requiredStar}>*</span>
-              </label>
-              <input
-                type="date"
-                required
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className={calStyles.inputControl}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.2rem" }}>
+                <label className={calStyles.formLabel}>
+                  Start Time ({CLEAN_TZ_LABELS[displayTimezone] || displayTimezone}) <span className={calStyles.requiredStar}>*</span>
+                </label>
+                <div style={{ display: "inline-flex", background: "#f5ece1", padding: "1px", borderRadius: "5px", gap: "1px" }}>
+                  <button
+                    type="button"
+                    onClick={() => handleTimeFormatToggle("12h")}
+                    style={{
+                      border: "none",
+                      background: timeFormat === "12h" ? "#ffffff" : "transparent",
+                      color: timeFormat === "12h" ? "#14110f" : "#78716a",
+                      fontWeight: timeFormat === "12h" ? 700 : 500,
+                      fontSize: "0.68rem",
+                      padding: "2px 6px",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      boxShadow: timeFormat === "12h" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                    }}
+                    title="12-Hour AM/PM Format"
+                  >
+                    12h
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTimeFormatToggle("24h")}
+                    style={{
+                      border: "none",
+                      background: timeFormat === "24h" ? "#ffffff" : "transparent",
+                      color: timeFormat === "24h" ? "#14110f" : "#78716a",
+                      fontWeight: timeFormat === "24h" ? 700 : 500,
+                      fontSize: "0.68rem",
+                      padding: "2px 6px",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      boxShadow: timeFormat === "24h" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                    }}
+                    title="24-Hour Military Format"
+                  >
+                    24h
+                  </button>
+                </div>
+              </div>
+              <TimePicker
+                value={startTime}
+                onChange={setStartTime}
+                format={timeFormat}
+                ariaLabel="Start time"
               />
             </div>
 
-            {/* Timing (Start & End Side-by-Side) */}
+            {/* End Time */}
             <div className={calStyles.formField}>
-              <label className={calStyles.formLabel}>
-                Timing ({localTimezone}) <span className={calStyles.requiredStar}>*</span>
-              </label>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
-                <input
-                  type="time"
-                  required
-                  aria-label="Start time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  className={calStyles.inputControl}
-                />
-                <input
-                  type="time"
-                  required
-                  aria-label="End time"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  className={calStyles.inputControl}
-                />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.2rem" }}>
+                <label className={calStyles.formLabel}>
+                  End Time ({CLEAN_TZ_LABELS[displayTimezone] || displayTimezone}) <span className={calStyles.requiredStar}>*</span>
+                </label>
+                <div style={{ display: "inline-flex", background: "#f5ece1", padding: "1px", borderRadius: "5px", gap: "1px" }}>
+                  <button
+                    type="button"
+                    onClick={() => handleTimeFormatToggle("12h")}
+                    style={{
+                      border: "none",
+                      background: timeFormat === "12h" ? "#ffffff" : "transparent",
+                      color: timeFormat === "12h" ? "#14110f" : "#78716a",
+                      fontWeight: timeFormat === "12h" ? 700 : 500,
+                      fontSize: "0.68rem",
+                      padding: "2px 6px",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      boxShadow: timeFormat === "12h" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                    }}
+                    title="12-Hour AM/PM Format"
+                  >
+                    12h
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTimeFormatToggle("24h")}
+                    style={{
+                      border: "none",
+                      background: timeFormat === "24h" ? "#ffffff" : "transparent",
+                      color: timeFormat === "24h" ? "#14110f" : "#78716a",
+                      fontWeight: timeFormat === "24h" ? 700 : 500,
+                      fontSize: "0.68rem",
+                      padding: "2px 6px",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      boxShadow: timeFormat === "24h" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                    }}
+                    title="24-Hour Military Format"
+                  >
+                    24h
+                  </button>
+                </div>
               </div>
+              <TimePicker
+                value={endTime}
+                onChange={setEndTime}
+                format={timeFormat}
+                ariaLabel="End time"
+              />
             </div>
 
             {/* Host Trainer */}
-            <div className={calStyles.formField}>
+            <div className={isSingleSeatSession ? calStyles.formField : calStyles.formFieldFull}>
               <label className={calStyles.formLabel}>Host Trainer (Optional)</label>
               <CustomSelect
                 ariaLabel="Select host trainer"
                 value={hostTrainerId}
                 onChange={(val) => setHostTrainerId(val)}
                 options={[
-                  { value: "", label: "Default Coach (Roweena Britto)" },
+                  { value: "", label: "Roweena Britto (Lead Trainer)" },
                   ...availableTrainers.map((t) => ({ value: t.id, label: t.label })),
                 ]}
               />
             </div>
 
-            {/* Learner Assignment (Visible for 1-on-1 Sessions) */}
+            {/* Learner Assignment (Visible for 1:1 Call Sessions) */}
             {isSingleSeatSession ? (
               <div className={calStyles.formField}>
                 <label className={calStyles.formLabel}>Assign to Enrolled Learner</label>
@@ -2233,7 +2033,7 @@ export default function MeetingsPage() {
                 className={calStyles.inputControl}
               />
               <span className={calStyles.formHelpText}>
-                Leave blank to automatically provision a Zoom room and sync with Microsoft Outlook.
+                Leave blank to automatically provision a Zoom room.
               </span>
             </div>
           </div>
@@ -2245,7 +2045,6 @@ export default function MeetingsPage() {
         isOpen={Boolean(editingMeeting)}
         onClose={() => setEditingMeeting(null)}
         title="Edit / Reschedule Session"
-        subtitle="Update timing, title, or host trainer. Microsoft Outlook calendar will update automatically."
         maxWidth="640px"
         footer={
           <div className={calStyles.modalFooterActions}>
@@ -2301,49 +2100,11 @@ export default function MeetingsPage() {
 
             <div className={calStyles.formField}>
               <label className={calStyles.formLabel}>
-                Date <span className={calStyles.requiredStar}>*</span>
+                Session Date <span className={calStyles.requiredStar}>*</span>
               </label>
-              <input
-                type="date"
-                required
+              <DatePicker
                 value={editDate}
-                onChange={(e) => setEditDate(e.target.value)}
-                className={calStyles.inputControl}
-              />
-            </div>
-
-            <div className={calStyles.formField}>
-              <label className={calStyles.formLabel}>
-                Timing ({localTimezone}) <span className={calStyles.requiredStar}>*</span>
-              </label>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
-                <input
-                  type="time"
-                  required
-                  aria-label="Start time"
-                  value={editStartTime}
-                  onChange={(e) => setEditStartTime(e.target.value)}
-                  className={calStyles.inputControl}
-                />
-                <input
-                  type="time"
-                  required
-                  aria-label="End time"
-                  value={editEndTime}
-                  onChange={(e) => setEditEndTime(e.target.value)}
-                  className={calStyles.inputControl}
-                />
-              </div>
-            </div>
-
-            <div className={calStyles.formField}>
-              <label className={calStyles.formLabel}>Seat Capacity</label>
-              <input
-                type="number"
-                min={1}
-                value={editCapacity}
-                onChange={(e) => setEditCapacity(Number(e.target.value))}
-                className={calStyles.inputControl}
+                onChange={setEditDate}
               />
             </div>
 
@@ -2354,9 +2115,33 @@ export default function MeetingsPage() {
                 value={editHostTrainerId}
                 onChange={(val) => setEditHostTrainerId(val)}
                 options={[
-                  { value: "", label: "Default Coach (Roweena Britto)" },
+                  { value: "", label: "Roweena Britto (Lead Trainer)" },
                   ...availableTrainers.map((t) => ({ value: t.id, label: t.label })),
                 ]}
+              />
+            </div>
+
+            <div className={calStyles.formField}>
+              <label className={calStyles.formLabel}>
+                Start Time ({CLEAN_TZ_LABELS[displayTimezone] || displayTimezone}) <span className={calStyles.requiredStar}>*</span>
+              </label>
+              <TimePicker
+                value={editStartTime}
+                onChange={setEditStartTime}
+                format={timeFormat}
+                ariaLabel="Start time"
+              />
+            </div>
+
+            <div className={calStyles.formField}>
+              <label className={calStyles.formLabel}>
+                End Time ({CLEAN_TZ_LABELS[displayTimezone] || displayTimezone}) <span className={calStyles.requiredStar}>*</span>
+              </label>
+              <TimePicker
+                value={editEndTime}
+                onChange={setEditEndTime}
+                format={timeFormat}
+                ariaLabel="End time"
               />
             </div>
 
@@ -2374,290 +2159,183 @@ export default function MeetingsPage() {
         </form>
       </Modal>
 
-      {/* ── 7. Event Detail Modal (From Calendar Event Click) ── */}
+      {/* ── 7. Clean Event Detail Modal ── */}
       <Modal
         isOpen={Boolean(selectedMeeting)}
         onClose={() => setSelectedMeeting(null)}
-        title={selectedMeeting?.title || "Session Details"}
-        subtitle={selectedMeeting?.sessionType.replace(/_/g, " ")}
-        maxWidth="580px"
+        title={
+          selectedMeeting
+            ? isDiscoveryCall(selectedMeeting)
+              ? `Enquiry Call · ${parseDiscoveryCallDetails(selectedMeeting).prospectName || "Lead"}`
+              : isOneOnOneCall(selectedMeeting)
+              ? `1:1 Call · ${selectedMeeting.learner?.name || selectedMeeting.title}`
+              : selectedMeeting.title
+            : "Session Details"
+        }
+        subtitle={
+          selectedMeeting
+            ? isDiscoveryCall(selectedMeeting)
+              ? "15-Minute Discovery Session"
+              : isOneOnOneCall(selectedMeeting)
+              ? "1:1 Call · Progression"
+              : selectedMeeting.batch?.name || "Batch Live Session"
+            : ""
+        }
+        maxWidth="560px"
         footer={
-          <div className={calStyles.modalFooterActions}>
-            {selectedMeeting && isCoachingCall(selectedMeeting) && selectedMeeting.status !== "COMPLETED" && selectedMeeting.status !== "CANCELLED" && (
-              <button
-                type="button"
-                className={calStyles.primaryOrangeBtn}
-                style={{
-                  background: "#15803d",
-                  boxShadow: "0 2px 6px rgba(21, 128, 61, 0.3)",
-                }}
-                disabled={isCompletingCoaching}
-                onClick={() => handleCompleteCoachingSession(selectedMeeting)}
-              >
-                {isCompletingCoaching ? "Marking Completed..." : "Mark Coaching Completed (Unlock Stage 5) ✓"}
-              </button>
-            )}
-            {selectedMeeting && isDiscoveryCall(selectedMeeting) && selectedMeeting.status !== "CANCELLED" && (
-              <button
-                type="button"
-                className={calStyles.primaryOrangeBtn}
-                style={{
-                  background: "#be123c",
-                  boxShadow: "0 2px 6px rgba(190, 18, 60, 0.3)",
-                }}
-                disabled={isCompletingAndConverting}
-                onClick={() => handleCompleteAndConvert(selectedMeeting)}
-              >
-                {isCompletingAndConverting ? (
-                  <>
-                    <span className="spinner" /> Converting Lead...
-                  </>
-                ) : (
-                  "Mark Call Completed & Convert Lead →"
-                )}
-              </button>
-            )}
-            {selectedMeeting?.status === "SCHEDULED" && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", gap: "8px", flexWrap: "wrap" }}>
+            <div>
+              {selectedMeeting?.status === "SCHEDULED" && (
+                <button
+                  type="button"
+                  style={{
+                    background: "transparent",
+                    color: "#dc2626",
+                    border: "none",
+                    fontSize: "0.82rem",
+                    cursor: "pointer",
+                    fontWeight: 600,
+                    padding: "6px 4px",
+                  }}
+                  onClick={() => {
+                    if (selectedMeeting) setCancellingSessionId(selectedMeeting.id);
+                  }}
+                >
+                  Cancel Session
+                </button>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
               <button
                 type="button"
                 className={calStyles.modalCancelBtn}
-                style={{ color: "#dc2626", borderColor: "#fecaca" }}
                 onClick={() => {
-                  if (selectedMeeting) setCancellingSessionId(selectedMeeting.id);
+                  if (selectedMeeting) openEditModal(selectedMeeting);
                 }}
               >
-                Cancel Session
+                Reschedule
               </button>
-            )}
-            <button
-              type="button"
-              className={calStyles.modalCancelBtn}
-              onClick={() => {
-                if (selectedMeeting) openEditModal(selectedMeeting);
-              }}
-            >
-              Edit / Reschedule
-            </button>
-            <button
-              type="button"
-              className={calStyles.modalSubmitBtn}
-              onClick={() => setSelectedMeeting(null)}
-            >
-              Done
-            </button>
+              {selectedMeeting && selectedMeeting.status === "SCHEDULED" && (
+                <button
+                  type="button"
+                  className={calStyles.modalSubmitBtn}
+                  style={{ background: "#15803d" }}
+                  disabled={isCompletingOneOnOne}
+                  onClick={() => handleCompleteSession(selectedMeeting)}
+                >
+                  {isCompletingOneOnOne ? "Completing..." : "Mark Completed ✓"}
+                </button>
+              )}
+              <button
+                type="button"
+                className={calStyles.modalCancelBtn}
+                onClick={() => setSelectedMeeting(null)}
+              >
+                Close
+              </button>
+            </div>
           </div>
         }
       >
         {selectedMeeting && (
-          <div className={calStyles.detailSection}>
-            {/* Dedicated Discovery Call Prospect & Conversion Card */}
-            {isDiscoveryCall(selectedMeeting) && (
-              <div
-                style={{
-                  background: "linear-gradient(135deg, #fff1f2 0%, #ffe4e6 100%)",
-                  border: "1px solid #fecdd3",
-                  borderRadius: "10px",
-                  padding: "1rem",
-                  marginBottom: "0.5rem",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "0.6rem",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <span
-                    style={{
-                      fontSize: "0.75rem",
-                      fontWeight: 700,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.05em",
-                      color: "#9f1239",
-                      background: "#ffe4e6",
-                      padding: "0.2rem 0.5rem",
-                      borderRadius: "4px",
-                    }}
-                  >
-                    1-to-1 15-Minute Discovery Call
-                  </span>
-                  <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#be123c" }}>
-                    Roweena Britto Calendar
-                  </span>
-                </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px", padding: "4px 0" }}>
+            {/* Status & Category Banner */}
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "10px 14px",
+              background: isDiscoveryCall(selectedMeeting) ? "#fff1f2" : isOneOnOneCall(selectedMeeting) ? "#f0f9ff" : "#fffbeb",
+              borderRadius: "8px",
+              border: `1px solid ${isDiscoveryCall(selectedMeeting) ? "#fecdd3" : isOneOnOneCall(selectedMeeting) ? "#bae6fd" : "#fde68a"}`
+            }}>
+              <span style={{
+                fontSize: "0.8rem",
+                fontWeight: 700,
+                color: isDiscoveryCall(selectedMeeting) ? "#9f1239" : isOneOnOneCall(selectedMeeting) ? "#0369a1" : "#92400e"
+              }}>
+                {isDiscoveryCall(selectedMeeting) ? "Enquiry Call (15-min)" : isOneOnOneCall(selectedMeeting) ? "1:1 Call" : "Batch Live Session"}
+              </span>
+              <StatusBadge
+                status={selectedMeeting.status}
+                tone={
+                  selectedMeeting.status === "SCHEDULED"
+                    ? "pending"
+                    : selectedMeeting.status === "COMPLETED"
+                    ? "completed"
+                    : "error"
+                }
+              />
+            </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", fontSize: "0.85rem" }}>
-                  <div>
-                    <span style={{ color: "#9f1239", fontSize: "0.75rem", fontWeight: 600, display: "block" }}>
-                      Prospect Name:
-                    </span>
-                    <strong style={{ color: "#881337" }}>
-                      {parseDiscoveryCallDetails(selectedMeeting).prospectName}
-                    </strong>
-                  </div>
-                  <div>
-                    <span style={{ color: "#9f1239", fontSize: "0.75rem", fontWeight: 600, display: "block" }}>
-                      Email:
-                    </span>
-                    <span style={{ color: "#881337" }}>
-                      {parseDiscoveryCallDetails(selectedMeeting).prospectEmail || "—"}
-                    </span>
-                  </div>
-                  <div style={{ gridColumn: "1 / -1" }}>
-                    <span style={{ color: "#9f1239", fontSize: "0.75rem", fontWeight: 600, display: "block" }}>
-                      Inquired Curriculum Program:
-                    </span>
-                    <strong style={{ color: "#881337" }}>
-                      {parseDiscoveryCallDetails(selectedMeeting).courseInquiry}
-                    </strong>
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    paddingTop: "0.5rem",
-                    borderTop: "1px dashed #fca5a5",
-                    marginTop: "0.25rem",
-                    flexWrap: "wrap",
-                    gap: "0.5rem",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                    <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "#9f1239" }}>Zoom Link:</span>
-                    <a
-                      href={parseDiscoveryCallDetails(selectedMeeting).zoomLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ fontSize: "0.8rem", color: "#0284c7", fontWeight: 600, textDecoration: "underline" }}
-                    >
-                      Open Zoom Room &rarr;
-                    </a>
-                  </div>
-
-                  <button
-                    type="button"
-                    disabled={isCompletingAndConverting}
-                    onClick={() => handleCompleteAndConvert(selectedMeeting)}
-                    style={{
-                      background: "#be123c",
-                      color: "#ffffff",
-                      border: "none",
-                      borderRadius: "6px",
-                      padding: "0.45rem 0.9rem",
-                      fontSize: "0.8125rem",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "0.4rem",
-                      boxShadow: "0 2px 4px rgba(190, 18, 60, 0.25)",
-                    }}
-                  >
-                    <span>Mark Completed &amp; Convert &rarr;</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className={calStyles.detailRow}>
-              <span className={calStyles.detailLabel}>When:</span>
-              <span className={calStyles.detailValue}>
+            {/* Structured Session Details Grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "130px 1fr", gap: "10px 14px", fontSize: "0.86rem", alignItems: "baseline" }}>
+              <span style={{ color: "#78716c", fontWeight: 600 }}>Scheduled For:</span>
+              <span style={{ color: "#1c1917", fontWeight: 600 }}>
                 {formatWhen(selectedMeeting.startTime, selectedMeeting.endTime, displayTimezone)} ({displayTimezone})
               </span>
-            </div>
 
-            <div className={calStyles.detailRow}>
-              <span className={calStyles.detailLabel}>Course &amp; Cohort:</span>
-              <span className={calStyles.detailValue}>
-                {selectedMeeting.batch?.program?.title || "Program"} &bull;{" "}
-                {selectedMeeting.batch?.name || "Direct Booking"}
+              {isDiscoveryCall(selectedMeeting) ? (
+                <>
+                  <span style={{ color: "#78716c", fontWeight: 600 }}>Prospect:</span>
+                  <span style={{ color: "#1c1917", fontWeight: 600 }}>
+                    {parseDiscoveryCallDetails(selectedMeeting).prospectName}
+                    {parseDiscoveryCallDetails(selectedMeeting).prospectEmail && (
+                      <span style={{ color: "#78716c", fontWeight: 400, marginLeft: "6px" }}>
+                        ({parseDiscoveryCallDetails(selectedMeeting).prospectEmail})
+                      </span>
+                    )}
+                  </span>
+
+                  <span style={{ color: "#78716c", fontWeight: 600 }}>Course Inquiry:</span>
+                  <span style={{ color: "#1c1917" }}>
+                    {parseDiscoveryCallDetails(selectedMeeting).courseInquiry}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span style={{ color: "#78716c", fontWeight: 600 }}>Program / Batch:</span>
+                  <span style={{ color: "#1c1917" }}>
+                    {selectedMeeting.batch?.program?.title || "Program"} &bull; {selectedMeeting.batch?.name || "Direct Booking"}
+                  </span>
+
+                  {selectedMeeting.learner && (
+                    <>
+                      <span style={{ color: "#78716c", fontWeight: 600 }}>Learner:</span>
+                      <span style={{ color: "#1c1917", fontWeight: 600 }}>
+                        {selectedMeeting.learner.name || selectedMeeting.learner.email}
+                      </span>
+                    </>
+                  )}
+                </>
+              )}
+
+              <span style={{ color: "#78716c", fontWeight: 600 }}>Host Trainer:</span>
+              <span style={{ color: "#1c1917" }}>
+                {selectedMeeting.hostTrainer?.name || selectedMeeting.hostTrainer?.email || "Roweena Britto"}
               </span>
-            </div>
 
-            <div className={calStyles.detailRow}>
-              <span className={calStyles.detailLabel}>Host Trainer:</span>
-              <span className={calStyles.detailValue}>
-                {selectedMeeting.hostTrainer?.name ||
-                  selectedMeeting.hostTrainer?.email ||
-                  "Default Coach (Roweena Britto)"}
-              </span>
-            </div>
-
-            {selectedMeeting.learner && (
-              <div className={calStyles.detailRow}>
-                <span className={calStyles.detailLabel}>Assigned Learner:</span>
-                <span className={calStyles.detailValue}>
-                  {selectedMeeting.learner.name || selectedMeeting.learner.email}
-                </span>
-              </div>
-            )}
-
-            <div className={calStyles.detailRow}>
-              <span className={calStyles.detailLabel}>Capacity:</span>
-              <span className={calStyles.detailValue}>
-                {selectedMeeting.capacity} {selectedMeeting.capacity === 1 ? "seat" : "seats"}{" "}
-                (Booked: {selectedMeeting._count?.bookings || 0})
-              </span>
-            </div>
-
-            <div className={calStyles.detailRow}>
-              <span className={calStyles.detailLabel}>Meeting Join Link:</span>
-              <span className={calStyles.detailValue}>
+              <span style={{ color: "#78716c", fontWeight: 600 }}>Video Link:</span>
+              <span>
                 {selectedMeeting.joinUrl ? (
                   <a
                     href={selectedMeeting.joinUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{
-                      color: "var(--accent-primary)",
+                      color: "#b8860b",
                       textDecoration: "underline",
                       fontWeight: 600,
                       display: "inline-flex",
                       alignItems: "center",
-                      gap: "4px",
+                      gap: "4px"
                     }}
                   >
-                    Open Join Link
-                    <Icons.ExternalLink />
+                    Open Zoom Meeting &rarr;
                   </a>
                 ) : (
-                  <span style={{ color: "var(--text-muted)" }}>Zoom link auto-generated</span>
+                  <span style={{ color: "#78716c", fontStyle: "italic" }}>Zoom link automatically generated on booking</span>
                 )}
-              </span>
-            </div>
-
-            <div className={calStyles.detailRow}>
-              <span className={calStyles.detailLabel}>Status:</span>
-              <span className={calStyles.detailValue}>
-                <StatusBadge
-                  status={selectedMeeting.status}
-                  tone={
-                    selectedMeeting.status === "SCHEDULED"
-                      ? "pending"
-                      : selectedMeeting.status === "COMPLETED"
-                      ? "completed"
-                      : "error"
-                  }
-                />
-              </span>
-            </div>
-
-            <div className={calStyles.detailRow}>
-              <span className={calStyles.detailLabel}>Outlook Sync:</span>
-              <span
-                className={calStyles.detailValue}
-                style={{
-                  color: "#16a34a",
-                  fontWeight: 600,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  justifyContent: "flex-end",
-                }}
-              >
-                <span className={calStyles.syncDot} />
-                Synchronized &amp; clash-protected
               </span>
             </div>
           </div>
@@ -2742,7 +2420,7 @@ export default function MeetingsPage() {
       <InputDialog
         isOpen={Boolean(cancellingSessionId)}
         title="Cancel Session"
-        description="Please provide a cancellation reason. Attendees will be notified and the Outlook calendar invite will be updated."
+        description="Please provide a cancellation reason. Attendees will be notified."
         label="Cancellation Reason"
         placeholder="e.g., Coach emergency reschedule"
         initialValue="Administrative cancellation"
@@ -2775,8 +2453,8 @@ export default function MeetingsPage() {
       <Modal
         isOpen={Boolean(approvingRequest)}
         onClose={() => setApprovingRequest(null)}
-        title="Approve 1-on-1 Coaching Session"
-        subtitle={`Schedule coaching call for ${approvingRequest?.user?.name || approvingRequest?.user?.email || "Learner"}`}
+        title="Approve 1:1 Call Session"
+        subtitle={`Schedule 1:1 call for ${approvingRequest?.user?.name || approvingRequest?.user?.email || "Learner"}`}
         maxWidth="600px"
         footer={
           <div className={calStyles.modalFooterActions}>
@@ -2855,42 +2533,38 @@ export default function MeetingsPage() {
             />
           </div>
 
-          <div className={calStyles.formGrid3}>
+          <div className={calStyles.formField}>
+            <label className={calStyles.formLabel}>
+              Session Date <span className={calStyles.requiredStar}>*</span>
+            </label>
+            <DatePicker
+              value={approvalDate}
+              onChange={setApprovalDate}
+              minDate={new Date().toISOString().split("T")[0]}
+            />
+          </div>
+
+          <div className={calStyles.formGrid2}>
             <div className={calStyles.formField}>
               <label className={calStyles.formLabel}>
-                Session Date <span className={calStyles.requiredStar}>*</span>
+                Start Time ({CLEAN_TZ_LABELS[displayTimezone] || displayTimezone}) <span className={calStyles.requiredStar}>*</span>
               </label>
-              <input
-                type="date"
-                required
-                min={new Date().toISOString().split("T")[0]}
-                value={approvalDate}
-                onChange={(e) => setApprovalDate(e.target.value)}
-                className={calStyles.formInput}
-              />
-            </div>
-            <div className={calStyles.formField}>
-              <label className={calStyles.formLabel}>
-                Start Time <span className={calStyles.requiredStar}>*</span>
-              </label>
-              <input
-                type="time"
-                required
+              <TimePicker
                 value={approvalStartTime}
-                onChange={(e) => setApprovalStartTime(e.target.value)}
-                className={calStyles.formInput}
+                onChange={setApprovalStartTime}
+                format={timeFormat}
+                ariaLabel="Start time"
               />
             </div>
             <div className={calStyles.formField}>
               <label className={calStyles.formLabel}>
-                End Time <span className={calStyles.requiredStar}>*</span>
+                End Time ({CLEAN_TZ_LABELS[displayTimezone] || displayTimezone}) <span className={calStyles.requiredStar}>*</span>
               </label>
-              <input
-                type="time"
-                required
+              <TimePicker
                 value={approvalEndTime}
-                onChange={(e) => setApprovalEndTime(e.target.value)}
-                className={calStyles.formInput}
+                onChange={setApprovalEndTime}
+                format={timeFormat}
+                ariaLabel="End time"
               />
             </div>
           </div>
@@ -2911,10 +2585,10 @@ export default function MeetingsPage() {
       {/* ── 12. Reject 1-on-1 Request Dialog ── */}
       <InputDialog
         isOpen={Boolean(rejectingRequestId)}
-        title="Reject 1-on-1 Coaching Request"
+        title="Reject 1:1 Call Request"
         description="Please provide a reason for declining this request. The learner will be notified to pick another time."
         label="Reason for Declining"
-        placeholder="e.g., Coach unavailable during requested slot, please pick another afternoon slot..."
+        placeholder="e.g., Trainer unavailable during requested slot, please pick another afternoon slot..."
         initialValue=""
         confirmText={isSubmittingReject ? "Declining..." : "Decline Request"}
         tone="danger"

@@ -1,0 +1,998 @@
+/* Calendar Shell – Clean Google Calendar & Outlook Inspired Design */
+.shell {
+  --ink: #14110f;
+  --muted: #78716c;
+  --line: #e7e5e4;
+  --soft: #fafaf9;
+  --accent: #b8860b;
+  --accent-hover: #9a6f08;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  font-family: inherit;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+/* ─── Screen-Reader Only ─── */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+/* ─── Top Header Bar ─── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+}
+.headerLeft,
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.title {
+  margin: 0 0 0 6px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+.todayBtn {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 8px;
+  padding: 6px 16px;
+  font-weight: 600;
+  font-size: 0.84rem;
+  cursor: pointer;
+  color: var(--ink);
+  transition: all 0.15s ease;
+}
+.todayBtn:hover {
+  background: var(--soft);
+  border-color: #d6d3d1;
+}
+.stepper {
+  display: flex;
+  gap: 3px;
+}
+.stepper button,
+.miniNav button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 50%;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+.stepper button:hover,
+.miniNav button:hover {
+  background: var(--soft);
+  border-color: #d6d3d1;
+}
+
+.requestBadge {
+  border: 1px solid #fed7aa;
+  background: #fff7ed;
+  color: #c2410c;
+  font-weight: 700;
+  font-size: 0.78rem;
+  padding: 5px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+.requestBadge:hover {
+  background: #ffedd5;
+  border-color: #fdba74;
+}
+.requestBadge span {
+  background: #ea580c;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+}
+
+.segmented {
+  display: inline-flex;
+  background: #f5f5f4;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+}
+.segmented button {
+  border: none;
+  background: transparent;
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.segmented button:hover {
+  color: var(--ink);
+}
+.segmented .segActive {
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.tzSelectWrapper {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ─── Body Layout ─── */
+.body {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  min-height: 0;
+  background: #fff;
+}
+.sidebar {
+  border-right: 1px solid var(--line);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  background: #fff;
+  overflow-y: auto;
+  max-height: 750px;
+}
+.main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 720px;
+  position: relative;
+}
+
+/* ─── Sidebar Blocks ─── */
+.sideBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sideHeading {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.emptySide {
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-style: italic;
+  padding: 2px 0;
+}
+
+/* ─── Filter Checkboxes ─── */
+.filterRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.86rem;
+  padding: 5px 6px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.12s ease;
+}
+.filterRow:hover {
+  background: var(--soft);
+}
+.filterCheck {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #d6d3d1;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  transition: all 0.12s ease;
+}
+.filterCheckOn {
+  border-width: 2px;
+}
+.filterLabel {
+  flex: 1;
+  font-weight: 500;
+  color: var(--ink);
+}
+.filterCount {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  background: var(--soft);
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+
+
+/* ─── Today Badge ─── */
+.todayBadge {
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+/* ─── Mini Month ─── */
+.mini {
+  display: flex;
+  flex-direction: column;
+}
+.miniHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.miniTitle {
+  font-weight: 700;
+  font-size: 0.86rem;
+  color: var(--ink);
+}
+.miniNav {
+  display: inline-flex;
+  gap: 2px;
+}
+.miniNav button {
+  width: 26px;
+  height: 26px;
+  font-size: 0.95rem;
+  border: none;
+}
+.miniGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+}
+.miniDow {
+  text-align: center;
+  font-size: 0.66rem;
+  color: var(--muted);
+  padding: 2px 0 4px;
+  font-weight: 700;
+}
+.miniDay {
+  position: relative;
+  aspect-ratio: 1;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  font-size: 0.74rem;
+  cursor: pointer;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease;
+}
+.miniDay:hover {
+  background: var(--soft);
+}
+.miniOut {
+  color: #c4b5a3;
+}
+.miniToday {
+  background: var(--accent) !important;
+  color: #fff !important;
+  font-weight: 700;
+}
+.miniSel {
+  background: #fdecc8 !important;
+  font-weight: 700;
+}
+.miniDot {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.miniToday .miniDot {
+  background: #fff;
+}
+
+/* ─── Today List in Sidebar ─── */
+.todayList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.todayItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  background: var(--soft);
+  border-radius: 6px;
+  padding: 7px 9px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.12s ease;
+}
+.todayItem:hover {
+  background: #f5f0e6;
+  border-color: #d6d3d1;
+}
+.todayBar {
+  width: 3px;
+  align-self: stretch;
+  border-radius: 2px;
+  flex: none;
+  min-height: 20px;
+}
+.todayInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.todayTime {
+  font-weight: 700;
+  white-space: nowrap;
+  font-size: 0.76rem;
+  color: var(--ink);
+}
+.todayName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+/* ─── Time Grid View (Week & Day) ─── */
+.grid {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  position: relative;
+  background: #fff;
+}
+.gridHead {
+  display: grid;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+.gridHeadGutterCorner {
+  /* No right border - border-left on adjacent dayHead defines the column boundary */
+  border: none;
+  background: #fff;
+}
+.dayHead {
+  border: none;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 0;
+  cursor: pointer;
+  border-left: 1px solid var(--line);
+  transition: background 0.12s ease;
+}
+.dayHead:hover:not(:disabled) {
+  background: var(--soft);
+}
+.dayHead:disabled {
+  cursor: default;
+}
+.dayHeadName {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+}
+.dayHeadNum {
+  font-size: 1.25rem;
+  font-weight: 600;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--ink);
+}
+.dayHeadToday .dayHeadName {
+  color: var(--accent);
+}
+.dayHeadToday .dayHeadNum {
+  background: var(--accent);
+  color: #fff;
+}
+
+.gridScroll {
+  overflow-y: auto;
+  flex: 1;
+  position: relative;
+}
+.gridBody {
+  display: grid;
+  position: relative;
+}
+.gutter {
+  position: relative;
+  /* No right border - border-left on adjacent col defines the column boundary */
+  border: none;
+}
+.gutterHour {
+  position: relative;
+  box-sizing: border-box;
+  border-bottom: 1px solid transparent;
+}
+.gutterHour span {
+  position: absolute;
+  top: -8px;
+  right: 8px;
+  font-size: 0.68rem;
+  color: var(--muted);
+  white-space: nowrap;
+  font-weight: 500;
+}
+.col {
+  position: relative;
+  border-left: 1px solid var(--line);
+  cursor: cell;
+}
+.colToday {
+  background: #fffdfa;
+}
+.hourLine {
+  border-bottom: 1px solid #f1ece4;
+  box-sizing: border-box;
+  box-sizing: border-box;
+}
+
+/* ─── Event Blocks in Grid ─── */
+.event {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  overflow: hidden;
+  text-align: left;
+  border: 1px solid #e2e8f0;
+  border-left-width: 4px;
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 0.76rem;
+  line-height: 1.25;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: all 0.12s ease;
+}
+.event:hover {
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+  filter: brightness(0.98);
+}
+.evRowInline {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.evTimeInline {
+  font-weight: 700;
+  font-size: 0.72rem;
+  flex: none;
+}
+.evNameInline {
+  font-weight: 600;
+  font-size: 0.74rem;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.evTime {
+  font-weight: 700;
+  font-size: 0.7rem;
+  line-height: 1;
+}
+.evName {
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.evSub {
+  color: var(--muted);
+  font-size: 0.68rem;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.evStatusTag {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 1px;
+}
+.evCancelled {
+  opacity: 0.55;
+}
+.evCancelled .evName {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.evPast {
+  opacity: 0.75;
+}
+
+/* ─── Month Grid View ─── */
+.month {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: #fff;
+}
+.monthDow {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border-bottom: 1px solid var(--line);
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  padding: 8px 0;
+  background: #fff;
+}
+.monthRows {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.monthRow {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  min-height: 0;
+}
+.cell {
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+  min-height: 95px;
+}
+.cell:last-child {
+  border-right: none;
+}
+.cellOut {
+  background: #fdfcf9;
+}
+.cellOut .cellNum {
+  color: #c4b5a3;
+}
+.cellTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.cellNum {
+  border: none;
+  background: transparent;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: var(--ink);
+  transition: background 0.12s ease;
+}
+.cellNum:hover {
+  background: var(--soft);
+}
+.cellNumToday {
+  background: var(--accent) !important;
+  color: #fff !important;
+  font-weight: 700;
+}
+.cellAdd {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.95rem;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.cell:hover .cellAdd {
+  opacity: 1;
+}
+.cellAdd:hover {
+  background: var(--soft);
+}
+.cellEventsStack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+/* ─── Month Chips ─── */
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #e5e7eb;
+  border-left-width: 3px;
+  border-radius: 4px;
+  padding: 2px 5px;
+  font-size: 0.71rem;
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+  overflow: hidden;
+  transition: all 0.12s ease;
+}
+.chip:hover {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  filter: brightness(0.97);
+}
+.chipCancelled {
+  opacity: 0.5;
+}
+.chipCancelled .chipName {
+  text-decoration: line-through;
+}
+.chipDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+}
+.chipTime {
+  font-weight: 700;
+  white-space: nowrap;
+  font-size: 0.68rem;
+}
+.chipName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-weight: 500;
+}
+.more {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-align: left;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.12s ease;
+}
+.more:hover {
+  background: var(--soft);
+}
+
+/* ─── Agenda View ─── */
+.agendaContainer {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: #fff;
+}
+.agendaSubBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--soft);
+}
+.agendaTabs {
+  display: flex;
+  gap: 8px;
+}
+.agendaTabBtn {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 6px;
+  padding: 5px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.agendaTabBtn:hover {
+  color: var(--accent);
+  border-color: #d6d3d1;
+}
+.agendaTabActive {
+  background: var(--accent);
+  color: #fff !important;
+  border-color: var(--accent);
+  box-shadow: 0 1px 2px rgba(184, 134, 11, 0.2);
+}
+.agendaFilterHint {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.agendaScroll {
+  overflow-y: auto;
+  flex: 1;
+  padding: 14px 24px 28px;
+}
+.agendaDay {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.agendaDay:last-child {
+  border-bottom: none;
+}
+.agendaDate {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-top: 4px;
+}
+.agendaNum {
+  font-size: 1.45rem;
+  font-weight: 700;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  flex: none;
+  color: var(--ink);
+}
+.agendaToday .agendaNum {
+  background: var(--accent);
+  color: #fff;
+}
+.agendaLabel {
+  font-size: 0.86rem;
+  font-weight: 600;
+  padding-top: 8px;
+  color: var(--muted);
+}
+.agendaToday .agendaLabel {
+  color: var(--accent);
+  font-weight: 700;
+}
+.agendaList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.agendaRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--soft);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.agendaRow:hover {
+  background: #f7f2ea;
+  border-color: #d6d3d1;
+}
+.agendaRowPast {
+  opacity: 0.75;
+}
+.agendaBar {
+  width: 4px;
+  align-self: stretch;
+  border-radius: 2px;
+  flex: none;
+  min-height: 36px;
+}
+.agendaTime {
+  width: 82px;
+  flex: none;
+  font-weight: 700;
+  font-size: 0.86rem;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+}
+.agendaTime small {
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+.agendaMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.agendaName {
+  font-weight: 600;
+  font-size: 0.92rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.agendaMeta {
+  font-size: 0.76rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.agendaKind {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+.statusPill {
+  flex: none;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.joinBtn {
+  flex: none;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 0.12s ease;
+}
+.joinBtn:hover {
+  background: var(--accent-hover);
+}
+
+.agendaEmpty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--muted);
+  padding: 40px;
+}
+.agendaEmptyIcon {
+  font-size: 2.2rem;
+}
+.agendaEmpty strong {
+  color: var(--ink);
+  font-size: 1.05rem;
+}
+.agendaEmptyText {
+  font-size: 0.84rem;
+}
+.resetFilterBtn {
+  margin-top: 6px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 16px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.resetFilterBtn:hover {
+  background: var(--accent-hover);
+}
+
+/* ─── Responsive Media Queries ─── */
+@media (max-width: 960px) {
+  .body {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    max-height: none;
+  }
+  .agendaDay {
+    grid-template-columns: 1fr;
+  }
+  .header {
+    padding: 10px 14px;
+  }
+}

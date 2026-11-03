@@ -54,7 +54,7 @@ export class BatchAttendanceController {
     @Param('batchId') batchId: string,
     @Param('sessionId') sessionId: string,
   ) {
-    const [session, attendanceRecords] = await Promise.all([
+    const [session, attendanceRecords, unmatchedRecords] = await Promise.all([
       this.prisma.session.findUnique({
         where: { id: sessionId },
         include: {
@@ -71,6 +71,13 @@ export class BatchAttendanceController {
       }),
       this.prisma.attendance.findMany({
         where: { sessionId },
+      }),
+      this.prisma.unmatchedAttendance.findMany({
+        where: {
+          sessionId,
+          status: 'UNMATCHED',
+        },
+        orderBy: { joinTime: 'asc' },
       }),
     ]);
 
@@ -108,16 +115,42 @@ export class BatchAttendanceController {
             ? (att.minutesPresent / session.durationMinutes) * 100
             : 0),
         status: att?.status ?? AttendanceStatus.ABSENT,
-        source: att?.source ?? AttendanceSource.AUTO,
+        source: att?.source ?? null,
         overrideReason: att?.overrideReason ?? att?.correctionReason ?? null,
       };
     });
+
+    const presentCount = learners.filter(
+      (l) =>
+        l.status === AttendanceStatus.PRESENT ||
+        l.status === AttendanceStatus.PRESENT_AUTO ||
+        l.status === AttendanceStatus.PRESENT_MANUAL ||
+        l.status === AttendanceStatus.CORRECTED ||
+        l.status === (AttendanceStatus as any).PRESENT_LIVE ||
+        l.status === (AttendanceStatus as any).PRESENT_RECORDED,
+    ).length;
+
+    const unlinkedLearners = learners
+      .filter(
+        (l) =>
+          l.status !== AttendanceStatus.PRESENT &&
+          l.status !== AttendanceStatus.PRESENT_AUTO &&
+          l.status !== AttendanceStatus.PRESENT_MANUAL &&
+          l.status !== AttendanceStatus.CORRECTED,
+      )
+      .map((l) => ({
+        userId: l.userId,
+        enrolmentId: l.enrolmentId,
+        name: l.name,
+        email: l.email,
+      }));
 
     return {
       session: {
         id: session.id,
         title: session.title,
         type: session.sessionType,
+        status: session.status,
         startTimeUtc: session.startTime.toISOString(),
         endTimeUtc: session.endTime.toISOString(),
         durationMinutes: session.durationMinutes || 60,
@@ -128,16 +161,18 @@ export class BatchAttendanceController {
       },
       thresholdPercentage: minAttendancePercentage,
       totalLearners: learners.length,
-      presentCount: learners.filter(
-        (l) =>
-          l.status === AttendanceStatus.PRESENT ||
-          l.status === AttendanceStatus.PRESENT_AUTO ||
-          l.status === AttendanceStatus.PRESENT_MANUAL ||
-          l.status === AttendanceStatus.CORRECTED ||
-          l.status === (AttendanceStatus as any).PRESENT_LIVE ||
-          l.status === (AttendanceStatus as any).PRESENT_RECORDED,
-      ).length,
+      presentCount,
       learners,
+      unmatched: (unmatchedRecords || []).map((u) => ({
+        id: u.id,
+        participantName: u.participantName,
+        participantEmail: u.participantEmail,
+        joinTimeUtc: u.joinTime ? u.joinTime.toISOString() : null,
+        leaveTimeUtc: u.leaveTime ? u.leaveTime.toISOString() : null,
+        minutesPresent: u.minutesPresent || u.durationMin || 0,
+        rawPayload: u.rawPayload,
+      })),
+      unlinkedLearners,
     };
   }
 
@@ -333,30 +368,63 @@ export class BatchAttendanceController {
     }
 
     let rawParticipants: any[] = [];
+    let liveStatus: string | null = null;
+    let syncedRecordingUrl: string | null = session.recordingUrl || session.recordingLink || null;
 
-    if (
-      this.meetingProvider &&
-      typeof this.meetingProvider.getParticipantReport === 'function'
-    ) {
-      try {
-        const report = await this.meetingProvider.getParticipantReport(meetingId);
-        if (Array.isArray(report)) {
-          rawParticipants = report.map((p) => ({
-            provider: session.meetingProvider || 'ZOOM',
-            providerId: p.providerId || meetingId,
-            participantEmail: p.participantEmail || p.userEmail,
-            participantName: p.participantName || p.name,
-            joinTime: new Date(p.joinTimeUtc || p.joinTime || session.startTime),
-            leaveTime: new Date(p.leaveTimeUtc || p.leaveTime || session.endTime),
-            rawPayload: p.rawPayload || p,
-          }));
-        }
-      } catch (err: any) {
-        // Log warning without failing reconciliation
-        console.warn(
-          `[BatchAttendanceController] Could not fetch external participant report: ${err.message}`,
-        );
+    if (this.meetingProvider) {
+      if (typeof this.meetingProvider.getMeetingStatus === 'function') {
+        try {
+          liveStatus = await this.meetingProvider.getMeetingStatus(meetingId);
+        } catch {}
       }
+
+      if (!syncedRecordingUrl && typeof this.meetingProvider.getRecordingUrl === 'function') {
+        try {
+          const recUrl = await this.meetingProvider.getRecordingUrl(meetingId);
+          if (recUrl) {
+            syncedRecordingUrl = recUrl;
+          }
+        } catch {}
+      }
+
+      if (typeof this.meetingProvider.getParticipantReport === 'function') {
+        try {
+          const report = await this.meetingProvider.getParticipantReport(meetingId);
+          if (Array.isArray(report)) {
+            rawParticipants = report.map((p) => ({
+              provider: session.meetingProvider || 'ZOOM',
+              providerId: p.providerId || meetingId,
+              participantEmail: p.participantEmail || p.userEmail,
+              participantName: p.participantName || p.name,
+              joinTime: new Date(p.joinTimeUtc || p.joinTime || session.startTime),
+              leaveTime: new Date(p.leaveTimeUtc || p.leaveTime || session.endTime),
+              rawPayload: p.rawPayload || p,
+            }));
+          }
+        } catch (err: any) {
+          // Log warning without failing reconciliation
+          console.warn(
+            `[BatchAttendanceController] Could not fetch external participant report: ${err.message}`,
+          );
+        }
+      }
+    }
+
+    // If the Zoom call has finished or past startTime and not 'started', mark COMPLETED & attach recordingUrl
+    const now = new Date();
+    const shouldComplete =
+      (session.status === 'ACTIVE' || session.status === 'SCHEDULED') &&
+      now >= new Date(session.startTime) &&
+      (rawParticipants.length > 0 || liveStatus === 'finished' || (liveStatus === 'waiting' && now >= new Date(session.endTime)));
+
+    if (shouldComplete || (syncedRecordingUrl && syncedRecordingUrl !== session.recordingUrl)) {
+      await this.prisma.session.update({
+        where: { id: sessionId },
+        data: {
+          ...(shouldComplete ? { status: 'COMPLETED' as any } : {}),
+          ...(syncedRecordingUrl && syncedRecordingUrl !== session.recordingUrl ? { recordingUrl: syncedRecordingUrl } : {}),
+        },
+      });
     }
 
     if (rawParticipants.length === 0) {
@@ -364,7 +432,10 @@ export class BatchAttendanceController {
         success: false,
         sessionId,
         participantCount: 0,
-        message: 'No meeting participant records found yet from provider. If the session just concluded, cloud processing may take 1-2 minutes.',
+        statusCompleted: shouldComplete,
+        recordingUrl: syncedRecordingUrl,
+        message:
+          'No participant report returned by Zoom API (Note: Zoom participant reports & cloud recordings require a Paid Zoom Pro/Business account; if the session just ended, cloud processing may take 1–2 minutes).',
       };
     }
 

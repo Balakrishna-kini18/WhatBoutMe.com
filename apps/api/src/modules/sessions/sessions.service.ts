@@ -153,6 +153,7 @@ export class SessionsService {
 
     // 4. Host Trainer Assignment & Role Verification
     let hostTrainerId = data.hostTrainerId;
+    let hostTrainerEmail: string | undefined = actorUser?.email;
     if (hostTrainerId) {
       const trainer = await this.prisma.user.findUnique({
         where: { id: hostTrainerId },
@@ -164,12 +165,22 @@ export class SessionsService {
       if (trainer.role === Role.USER) {
         throw new BadRequestException('Host trainer must have an administrative or trainer role (SUPER_ADMIN, ADMIN, MANAGER, or TEACHER).');
       }
+      hostTrainerEmail = trainer.email;
     } else {
       // Default host trainer to actor if actor is a trainer/manager/admin
       if ([Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.TEACHER].includes(actorUser.role)) {
         hostTrainerId = actorUser.sub;
       } else if (batch.managerId) {
         hostTrainerId = batch.managerId;
+      }
+      if (hostTrainerId) {
+        const resolvedTrainer = await this.prisma.user.findUnique({
+          where: { id: hostTrainerId },
+          select: { email: true },
+        });
+        if (resolvedTrainer?.email) {
+          hostTrainerEmail = resolvedTrainer.email;
+        }
       }
     }
 
@@ -251,6 +262,7 @@ export class SessionsService {
             startTime: start,
             durationMinutes: durationMin,
             timezone: data.timezone || 'UTC',
+            hostEmail: hostTrainerEmail,
           });
           if (zoomMeeting?.joinUrl) {
             finalJoinUrl = zoomMeeting.joinUrl;
@@ -640,6 +652,72 @@ export class SessionsService {
           },
         },
       });
+
+      // When a session is marked COMPLETED, update bookings and learner progression
+      if (data.status === SessionStatus.COMPLETED || data.status === ('COMPLETED' as any)) {
+        await tx.sessionBooking.updateMany({
+          where: { sessionId },
+          data: { status: BookingStatus.ATTENDED },
+        });
+
+        const isOneOnOne =
+          session.sessionType === SessionType.ONE_ON_ONE ||
+          session.sessionType === SessionType.ONE_ON_ONE_WITH_RO ||
+          Boolean(session.learnerId);
+
+        if (isOneOnOne) {
+          const oneOnOneReq = await tx.oneOnOneRequest.findFirst({
+            where: { sessionId },
+            select: { id: true, enrolmentId: true, userId: true },
+          });
+
+          const targetLearnerId = session.learnerId || oneOnOneReq?.userId;
+          const targetEnrolmentId = oneOnOneReq?.enrolmentId;
+
+          if (targetEnrolmentId) {
+            await tx.enrolment.update({
+              where: { id: targetEnrolmentId },
+              data: {
+                oneOnOneCompletedAt: new Date(),
+                oneOnOneStatus: 'COMPLETED' as any,
+              },
+            });
+          } else if (targetLearnerId) {
+            const matchingEnrolment = await tx.enrolment.findFirst({
+              where: {
+                userId: targetLearnerId,
+                ...(session.batchId ? { batchId: session.batchId } : {}),
+              },
+              orderBy: { createdAt: 'desc' },
+              select: { id: true },
+            });
+            if (matchingEnrolment) {
+              await tx.enrolment.update({
+                where: { id: matchingEnrolment.id },
+                data: {
+                  oneOnOneCompletedAt: new Date(),
+                  oneOnOneStatus: 'COMPLETED' as any,
+                },
+              });
+            }
+          }
+
+          if (targetLearnerId && tx.notification?.create) {
+            try {
+              await tx.notification.create({
+                data: {
+                  userId: targetLearnerId,
+                  type: 'ONE_ON_ONE_COMPLETED',
+                  template: 'Your 1-on-1 Coaching Session has been marked completed! Stage 5 (Mission Statement) is now unlocked.',
+                  channel: 'IN_APP',
+                },
+              });
+            } catch (notifErr: any) {
+              // non-blocking
+            }
+          }
+        }
+      }
 
       // External meeting update if time changed
       if ((data.startTime || data.endTime || data.title) && session.providerMeetingId && this.meetingSyncQueue) {
@@ -1061,7 +1139,14 @@ export class SessionsService {
       // we assume the system or a generic admin ID for now, or use `userId` as fallback.
       return this.attendanceService.recordPresentManual(sessionId, enrolment.id, 'SYSTEM_ADMIN_OVERRIDE');
     } else {
-      return this.attendanceService.recordPresentAuto(sessionId, enrolment.id, { joinTime: new Date() });
+      const scheduledMin =
+        session.durationMinutes ||
+        Math.max(15, Math.round((new Date(session.endTime).getTime() - new Date(session.startTime).getTime()) / 60000));
+      return this.attendanceService.recordPresentAuto(sessionId, enrolment.id, {
+        joinTime: new Date(),
+        durationMin: scheduledMin,
+        attendancePercentage: 100,
+      });
     }
   }
 

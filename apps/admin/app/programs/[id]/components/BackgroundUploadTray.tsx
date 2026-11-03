@@ -30,6 +30,12 @@ export default function BackgroundUploadTray({
 
   const activeCount = tasks.filter((t) => t.status === "UPLOADING" || t.status === "SAVING").length;
   const completedCount = tasks.filter((t) => t.status === "COMPLETED").length;
+  const errorCount = tasks.filter((t) => t.status === "ERROR").length;
+
+  const handleDismissAll = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    tasks.forEach((t) => onDismissTask(t.id));
+  };
 
   return (
     <div
@@ -56,7 +62,11 @@ export default function BackgroundUploadTray({
           justifyContent: "space-between",
           alignItems: "center",
           padding: "12px 16px",
-          background: activeCount > 0 ? "linear-gradient(135deg, #1e293b, #0f172a)" : "#0f172a",
+          background: activeCount > 0
+            ? "linear-gradient(135deg, #1e293b, #0f172a)"
+            : errorCount > 0
+            ? "linear-gradient(135deg, #7f1d1d, #450a0a)"
+            : "#0f172a",
           color: "#ffffff",
           cursor: "pointer",
         }}
@@ -71,41 +81,56 @@ export default function BackgroundUploadTray({
                 borderRadius: "50%",
                 background: "#38bdf8",
                 boxShadow: "0 0 8px #38bdf8",
-                animation: "pulse 1.5s infinite",
+              }}
+            />
+          ) : errorCount > 0 && activeCount === 0 ? (
+            <div
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: "50%",
+                background: "#f87171",
               }}
             />
           ) : (
-            <span style={{ color: "#4ade80", fontWeight: 700 }}>✓</span>
+            <div
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: "50%",
+                background: "#4ade80",
+              }}
+            />
           )}
-          <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>
+
+          <span style={{ fontWeight: 700, fontSize: "0.88rem" }}>
             {activeCount > 0
-              ? `Uploading ${activeCount} video${activeCount > 1 ? "s" : ""} in background...`
-              : `All ${completedCount} upload${completedCount > 1 ? "s" : ""} finished`}
+              ? `Uploading ${activeCount} video${activeCount > 1 ? "s" : ""}...`
+              : errorCount > 0 && completedCount === 0
+              ? `Upload failed (${errorCount})`
+              : `Upload completed (${completedCount})`}
           </span>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          {completedCount > 0 && activeCount === 0 && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onClearCompleted();
-              }}
-              style={{
-                background: "transparent",
-                border: "none",
-                color: "#94a3b8",
-                fontSize: "0.75rem",
-                cursor: "pointer",
-                padding: "2px 6px",
-                borderRadius: 4,
-              }}
-              title="Clear completed"
-            >
-              Clear
-            </button>
-          )}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            type="button"
+            onClick={handleDismissAll}
+            style={{
+              background: "rgba(255, 255, 255, 0.15)",
+              border: "none",
+              color: "#ffffff",
+              fontSize: "0.75rem",
+              fontWeight: 600,
+              cursor: "pointer",
+              padding: "2px 8px",
+              borderRadius: 4,
+            }}
+            title="Dismiss all notifications"
+          >
+            Clear All
+          </button>
+
           <button
             type="button"
             style={{
@@ -163,14 +188,18 @@ export default function BackgroundUploadTray({
 
                   <button
                     type="button"
-                    onClick={() => onDismissTask(task.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDismissTask(task.id);
+                    }}
                     style={{
-                      background: "none",
+                      background: "#f1f5f9",
                       border: "none",
-                      color: "#94a3b8",
+                      color: "#64748b",
                       fontSize: "0.85rem",
                       cursor: "pointer",
-                      padding: "0 2px",
+                      padding: "2px 6px",
+                      borderRadius: 4,
                       lineHeight: 1,
                     }}
                     title="Dismiss"

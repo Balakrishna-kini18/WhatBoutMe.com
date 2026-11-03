@@ -18,7 +18,7 @@ export default function Step3PricingAccess({
   onSaveAndContinue,
   isSaving,
 }: Step3PricingAccessProps) {
-  // USD Tuition & Price
+  // USD Price
   const [price, setPrice] = useState<string>(
     programData?.price !== undefined && programData?.price !== null
       ? String(programData.price)
@@ -86,7 +86,7 @@ export default function Step3PricingAccess({
     e.preventDefault();
     const activePrice = Number(price) || 0;
     if (activePrice < 0) {
-      setErrorMsg("Tuition price must be a non-negative number.");
+      setErrorMsg("Course price must be a non-negative number.");
       return;
     }
 
@@ -141,17 +141,19 @@ export default function Step3PricingAccess({
       <form onSubmit={handleSubmit}>
         <div className={styles.pricingTwoColGrid} style={{ gap: "2rem" }}>
           {/* =========================================================
-              Left Column: Tuition & Early Bird
+              Left Column: Course Pricing & Early Bird
               ========================================================= */}
           <div className={styles.pricingCard}>
             <h3 className={styles.pricingCardTitle} style={{ marginBottom: "1rem", fontSize: "1.1rem" }}>
-              Tuition (USD)
+              Course Pricing
             </h3>
 
-            {/* Base Tuition / Price */}
+            {/* Base Price */}
             <div className={styles.formGroup} style={{ marginBottom: "1.25rem" }}>
               <label className={styles.formLabel} style={{ marginBottom: "0.4rem" }}>
-                <span>Course Tuition ($ USD) *</span>
+                <span>
+                  Course Price ($ USD) <span style={{ color: "#dc2626" }}>*</span>
+                </span>
               </label>
               <div style={{ position: "relative" }}>
                 <span
@@ -184,7 +186,10 @@ export default function Step3PricingAccess({
             {/* Early Bird Discount Toggle */}
             <div className={styles.settingRow} style={{ marginTop: "1rem", paddingTop: "0.75rem", borderTop: "1px solid var(--border-light, #ece6dd)" }}>
               <div className={styles.settingLabelGroup}>
-                <span className={styles.settingLabelTitle}>Early Bird Pricing</span>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                  <span className={styles.settingLabelTitle}>Early Bird Pricing</span>
+                  <HelpTooltip text="Optionally offer a discounted registration price before a specific calendar date." />
+                </div>
               </div>
               <label className={styles.toggleSwitch}>
                 <input
@@ -238,27 +243,6 @@ export default function Step3PricingAccess({
                 </div>
               </div>
             )}
-
-            {/* Digital Workshop Consent Policy Notice */}
-            <div
-              style={{
-                marginTop: "1.5rem",
-                padding: "0.85rem 1rem",
-                background: "#f0fdf4",
-                border: "1px solid #bbf7d0",
-                borderRadius: 10,
-                display: "flex",
-                gap: "0.65rem",
-                alignItems: "flex-start",
-              }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}>
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-              </svg>
-              <div style={{ fontSize: "0.8rem", color: "#166534", lineHeight: 1.45 }}>
-                <strong>Digital Consent Gate:</strong> Step 1 remains strictly locked post-payment until the learner signs the agreement.
-              </div>
-            </div>
           </div>
 
           {/* =========================================================
@@ -271,9 +255,11 @@ export default function Step3PricingAccess({
 
             {/* Sequential Step Progression */}
             <div className={styles.settingRow}>
-              <div className={styles.settingLabelGroup} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span className={styles.settingLabelTitle}>Sequential Step Progression</span>
-                <HelpTooltip text="When enabled, learners must complete Step N before Step N+1 unlocks (enforcing the 11 Steps to U pedagogy)." />
+              <div className={styles.settingLabelGroup}>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                  <span className={styles.settingLabelTitle}>Sequential Step Progression</span>
+                  <HelpTooltip text="When enabled, learners must complete Step N before Step N+1 unlocks (enforcing the 11 Steps to U pedagogy)." />
+                </div>
               </div>
               <label className={styles.toggleSwitch}>
                 <input
@@ -287,9 +273,11 @@ export default function Step3PricingAccess({
 
             {/* Attendance Enforcement */}
             <div className={styles.settingRow} style={{ marginTop: "1rem", paddingTop: "0.75rem", borderTop: "1px solid var(--border-light, #ece6dd)" }}>
-              <div className={styles.settingLabelGroup} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span className={styles.settingLabelTitle}>Live Session Attendance</span>
-                <HelpTooltip text="Requires learners to meet a minimum attendance percentage across scheduled live cohort sessions." />
+              <div className={styles.settingLabelGroup}>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                  <span className={styles.settingLabelTitle}>Live Session Attendance: {attendanceThreshold}%</span>
+                  <HelpTooltip text="Enforces minimum live attendance across cohort workshop sessions for graduation. Default is 80%." />
+                </div>
               </div>
               <label className={styles.toggleSwitch}>
                 <input
@@ -314,11 +302,29 @@ export default function Step3PricingAccess({
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
                   <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-primary, #14110f)" }}>
-                    Minimum Threshold
+                    Minimum Attendance Threshold
                   </span>
-                  <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#d97706" }}>
-                    {attendanceThreshold}%
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={attendanceThreshold}
+                      onChange={(e) => setAttendanceThreshold(Math.min(100, Math.max(1, Number(e.target.value) || 80)))}
+                      style={{
+                        width: "55px",
+                        padding: "3px 6px",
+                        fontSize: "0.85rem",
+                        fontWeight: 700,
+                        color: "#d97706",
+                        textAlign: "center",
+                        borderRadius: 6,
+                        border: "1px solid #d4a373",
+                        background: "#ffffff",
+                      }}
+                    />
+                    <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#d97706" }}>%</span>
+                  </div>
                 </div>
                 <input
                   type="range"
@@ -332,7 +338,7 @@ export default function Step3PricingAccess({
               </div>
             )}
 
-            {/* Milestone Requirements Section */}
+            {/* Certification Gates Section */}
             <div style={{ marginTop: "1.25rem", paddingTop: "0.75rem", borderTop: "1px solid var(--border-light, #ece6dd)" }}>
               <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--text-muted, #78716a)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem" }}>
                 Certification Gates

@@ -167,7 +167,7 @@ export default function Step5AddLessonChooser({
                 marginTop: "0.25rem",
               }}
             >
-              <span>Add {c.title}</span>
+              <span>Select</span>
               <span aria-hidden="true">&rarr;</span>
             </span>
           </div>

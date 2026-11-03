@@ -1717,6 +1717,57 @@ export async function generateLeadCheckoutPaymentLink(
 }
 
 /**
+ * Accepts a pending 1-on-1 discovery call consultation request and generates
+ * the official Zoom meeting room. Dispatches confirmed invite to prospect.
+ */
+export async function acceptDiscoveryCall(
+  payload: { sessionId?: string; leadId?: string }
+): Promise<{ success: boolean; sessionId: string; zoomJoinUrl: string }> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await cachedFetch(`${API_URL}/meetings/discovery/accept`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+    timeoutMs: 30_000,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.message || "Failed to accept discovery call and generate Zoom link.");
+  }
+  return res.json();
+}
+
+/**
+ * Declines a pending 1-on-1 discovery call request with an optional reason.
+ */
+export async function declineDiscoveryCall(
+  payload: { sessionId?: string; leadId?: string; reason?: string }
+): Promise<{ success: boolean; sessionId: string }> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await cachedFetch(`${API_URL}/meetings/discovery/decline`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+    timeoutMs: 20_000,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.message || "Failed to decline discovery call.");
+  }
+  return res.json();
+}
+
+/**
  * Issues sequential WhatBoutMe FZE automated PDF invoice in the standard
  * WBM-FZE-YYYY-XXXX format with UAE VAT (5%) / India GST (18%) / USD Export (0%).
  */

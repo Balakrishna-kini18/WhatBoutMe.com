@@ -32,12 +32,13 @@ export function stripFormatting(text?: string | null): string {
  * - Code: `code`, <code>code</code>
  * - Bullet symbol: •, ⁃, ‣
  */
-const TOKEN_REGEX =
-  /(?:<a\s+(?:[^>]*?\s+)?href=["']([^"']*)["'][^>]*>(.*?)<\/a>|\[([^\]]+)\]\(([^)]+)\)|<\s*(?:strong|b)\s*>(.*?)<\s*\/\s*(?:strong|b)\s*>|\*\*([^*]+)\*\*|__([^_]+)__|<\s*(?:em|i)\s*>(.*?)<\s*\/\s*(?:em|i)\s*>|\*([^*]+)\*|_([^_]+)_|<\s*(?:u|ins)\s*>(.*?)<\s*\/\s*(?:u|ins)\s*>|~~([^~]+)~~|<\s*(?:del|s)\s*>(.*?)<\s*\/\s*(?:del|s)\s*>|`([^`]+)`|<\s*code\s*>(.*?)<\s*\/\s*code\s*>|([•⁃‣]))/gi;
+const TOKEN_PATTERN =
+  "(?:<a\\s+(?:[^>]*?\\s+)?href=[\"']([^\"']*)[\"'][^>]*>(.*?)<\\/a>|\\[([^\\]]+)\\]\\(([^)]+)\\)|<\\s*(?:strong|b)\\s*>(.*?)<\\/\\s*(?:strong|b)\\s*>|\\*\\*([^*]+)\\*\\*|__([^_]+)__|<\\s*(?:em|i)\\s*>(.*?)<\\/\\s*(?:em|i)\\s*>|\\*([^*]+)\\*|_([^_]+)_|<\\s*(?:u|ins)\\s*>(.*?)<\\/\\s*(?:u|ins)\\s*>|~~([^~]+)~~|<\\s*(?:del|s)\\s*>(.*?)<\\/\\s*(?:del|s)\\s*>|`([^`]+)`|<\\s*code\\s*>(.*?)<\\/\\s*code\\s*>|([•⁃‣]))";
 
 /**
  * Safely parses inline markdown and rich tags into React nodes without dangerouslySetInnerHTML.
  * Supports recursion for nested styles (e.g. <u>**bold underlined**</u>).
+ * Uses local regex instance per frame to prevent infinite loops during recursion.
  */
 export function renderInline(
   text: string,
@@ -47,16 +48,15 @@ export function renderInline(
   if (!text) return [];
   if (depth > 5) return [text];
 
+  const regex = new RegExp(TOKEN_PATTERN, "gi");
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   let tokenIdx = 0;
 
-  TOKEN_REGEX.lastIndex = 0;
-
-  while ((match = TOKEN_REGEX.exec(text)) !== null) {
+  while ((match = regex.exec(text)) !== null) {
     const matchStart = match.index;
-    const matchEnd = TOKEN_REGEX.lastIndex;
+    const matchEnd = regex.lastIndex;
 
     // Push any text preceding the token
     if (matchStart > lastIndex) {
@@ -161,6 +161,9 @@ export function renderInline(
     }
 
     lastIndex = matchEnd;
+    if (regex.lastIndex <= matchStart) {
+      regex.lastIndex = matchStart + 1;
+    }
   }
 
   // Trailing text after the last token

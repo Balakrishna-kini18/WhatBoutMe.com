@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  NotFoundException,
   Inject,
   Injectable,
   Logger,
@@ -270,35 +271,11 @@ export class DiscoveryService {
       if (prog?.title) courseTitle = prog.title;
     }
 
-    // 1. Zoom Link Generation (Executed BEFORE DB transaction so external network lag never causes transaction timeout)
-    let zoomJoinUrl = '';
-    let zoomHostUrl = '';
-    let zoomMeetingId = '';
-
-    if (this.meetingProvider) {
-      try {
-        const zoomMeeting = await this.meetingProvider.createMeeting({
-          topic: `15-Min Discovery Call: Roweena & ${prospectName} (${courseTitle})`,
-          startTime: slotStart,
-          durationMinutes: 15,
-          timezone: tz,
-        });
-        if (zoomMeeting?.joinUrl) {
-          zoomJoinUrl = zoomMeeting.joinUrl;
-          zoomHostUrl = zoomMeeting.startUrl || zoomMeeting.joinUrl;
-          zoomMeetingId = zoomMeeting.id;
-        }
-      } catch (err: any) {
-        this.logger.warn(`Meeting provider error: ${err?.message}`);
-      }
-    }
-
-    if (!zoomJoinUrl) {
-      const mockId = `staging-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-      zoomJoinUrl = `https://zoom.us/j/${mockId}?pwd=wbm123`;
-      zoomHostUrl = `https://zoom.us/s/${mockId}?pwd=wbm123`;
-      zoomMeetingId = mockId;
-    }
+    // 1. Zoom Link is NOT generated at initial booking time.
+    // It is generated only after admin/coach acceptance to avoid generating unused Zoom rooms if rejected.
+    const zoomJoinUrl = '';
+    const zoomHostUrl = '';
+    const zoomMeetingId = '';
 
     // 2. Transactional Slot Locking & Session Creation (Lightning-fast DB-only transaction)
     const result = await this.prisma.$transaction(
@@ -374,11 +351,11 @@ export class DiscoveryService {
             capacity: 1,
             hostTrainerId,
             learnerId: user.id,
-            joinUrl: zoomJoinUrl,
-            meetingLink: zoomJoinUrl,
-            hostUrl: zoomHostUrl,
-            providerMeetingId: zoomMeetingId,
-            zoomMeetingId,
+            joinUrl: null,
+            meetingLink: null,
+            hostUrl: null,
+            providerMeetingId: null,
+            zoomMeetingId: null,
             agenda: `LeadId: ${dto.leadId || 'N/A'} | CourseId: ${dto.courseId || 'N/A'} | Phone: ${dto.phone}`,
           },
         });
@@ -393,7 +370,7 @@ export class DiscoveryService {
                 status: LeadStatus.CONTACTED,
                 message: [
                   existingLead.message,
-                  `📅 Discovery Call Scheduled: ${slotStart.toISOString()} | Zoom: ${zoomJoinUrl}`,
+                  `📅 Discovery Call Requested: ${slotStart.toISOString()}`,
                 ]
                   .filter(Boolean)
                   .join('\n\n'),
@@ -409,7 +386,7 @@ export class DiscoveryService {
               status: LeadStatus.CONTACTED,
               message: [
                 `Course Inquiry: ${courseTitle} (ID: ${dto.courseId || 'N/A'})`,
-                `📅 Discovery Call Scheduled: ${slotStart.toISOString()} | Zoom: ${zoomJoinUrl}`,
+                `📅 Discovery Call Requested: ${slotStart.toISOString()}`,
                 dto.notes ? dto.notes.trim() : null,
               ]
                 .filter(Boolean)
@@ -429,34 +406,6 @@ export class DiscoveryService {
       }, {
       maxWait: 15000,
       timeout: 30000,
-    });
-
-    // 5. Post-Transaction Calendar Sync & Email Dispatch
-    if (this.calendarProvider && hostEmail) {
-      this.calendarProvider
-        .createEvent({
-          organizerEmail: hostEmail,
-          subject: result.session.title,
-          body: `15-Minute Discovery Call with ${prospectName} (${prospectEmail}, ${dto.phone}). Zoom: ${result.zoomJoinUrl}`,
-          startTime: slotStart,
-          endTime: slotEnd,
-          attendees: [prospectEmail],
-          location: result.zoomJoinUrl,
-          sessionId: result.session.id,
-        })
-        .catch((e: any) => this.logger.warn(`Outlook event sync warning: ${e?.message}`));
-    }
-
-    const icsContent = generateIcsInvite({
-      sessionId: result.session.id,
-      title: result.session.title,
-      description: `15-Minute 1-on-1 Discovery Call with Roweena Kini.\\n\\nJoin Zoom Meeting:\\n${result.zoomJoinUrl}`,
-      location: result.zoomJoinUrl,
-      startTime: slotStart,
-      endTime: slotEnd,
-      attendeeName: prospectName,
-      attendeeEmail: prospectEmail,
-      organizerEmail: hostEmail,
     });
 
     // Formatted timezone representations
@@ -491,49 +440,51 @@ export class DiscoveryService {
       year: 'numeric',
     }).format(slotStart);
 
-    // Send confirmation emails
+    // Send request acknowledgement emails (NO Zoom link before coach acceptance)
     if (this.emailService) {
       await Promise.allSettled([
-        // Prospect confirmation email
+        // Prospect acknowledgement email
         this.emailService
           .sendTemplateEmail({
             to: prospectEmail,
-            subject: `Confirmed: 15-Minute Discovery Call with Roweena Kini`,
+            subject: `Request Received: 15-Minute Discovery Call with Roweena Kini`,
             template: 'LeadEnquiryNotificationEmail',
             props: {
               name: prospectName,
               email: prospectEmail,
               phone: dto.phone,
               message:
-                `Your 1-to-1 Discovery Call with Roweena has been confirmed!\n\n` +
-                `📅 Date: ${dateFormatted}\n` +
+                `Your request for a 1-to-1 Discovery Call with Roweena has been received!\n\n` +
+                `📅 Requested Date: ${dateFormatted}\n` +
                 `⏰ Your Local Time: ${timeLocal} (${tz})\n` +
                 `🇦🇪 Dubai Time: ${timeGst}\n` +
                 `🇮🇳 India Time: ${timeIst}\n\n` +
-                `🔗 Zoom Join Link: ${result.zoomJoinUrl}\n\n` +
-                `Please join 2 minutes before your scheduled start time. We look forward to speaking with you!`,
+                `⏳ Status: Pending Coach Confirmation\n\n` +
+                `Roweena and our admissions team will review your requested time slot. Once accepted, your official Zoom meeting link and calendar invite will be emailed to you. We look forward to speaking with you!`,
             },
           })
           .catch((e: any) => this.logger.warn(`Prospect email dispatch warning: ${e?.message}`)),
 
-        // Roweena notification email
+        // Host / Admin notification email
         this.emailService
           .sendTemplateEmail({
             to: hostEmail,
-            subject: `New 15-Min Discovery Call: ${prospectName} (${result.courseTitle})`,
+            subject: `Action Required: New 15-Min Discovery Call Request from ${prospectName}`,
             template: 'LeadEnquiryNotificationEmail',
             props: {
               name: prospectName,
               email: prospectEmail,
               phone: dto.phone,
               message:
-                `A prospect has booked a 15-minute discovery consultation:\n\n` +
-                `Lead ID: ${dto.leadId || 'N/A'}\n` +
+                `A prospective learner has requested a 15-minute discovery consultation:\n\n` +
+                `Name: ${prospectName}\n` +
+                `Email: ${prospectEmail}\n` +
+                `Phone: ${dto.phone}\n` +
                 `Course: ${result.courseTitle}\n` +
                 `Date: ${dateFormatted}\n` +
                 `GST: ${timeGst}\n` +
-                `IST: ${timeIst}\n` +
-                `Zoom: ${result.zoomJoinUrl}`,
+                `IST: ${timeIst}\n\n` +
+                `Please review and accept this request in the Admin Portal. The Zoom meeting link will be generated automatically upon your acceptance.`,
             },
           })
           .catch((e: any) => this.logger.warn(`Host email dispatch warning: ${e?.message}`)),
@@ -551,10 +502,321 @@ export class DiscoveryService {
       timeGst,
       timeIst,
       timezone: tz,
-      zoomJoinUrl: result.zoomJoinUrl,
-      icsContent,
+      zoomJoinUrl: '',
+      isPendingApproval: true,
       message:
-        'Your 1-to-1 discovery call with Roweena has been confirmed. A calendar invitation and Zoom link have been sent to your email.',
+        'Your 1-to-1 discovery call request has been received. Our team will review the slot and send you the confirmed Zoom link once accepted.',
+    };
+  }
+
+  /**
+   * Admin / Manager accepts a pending 1-on-1 discovery call:
+   * 1. Generates Zoom meeting link
+   * 2. Updates session with joinUrl, meetingLink, hostUrl
+   * 3. Updates Lead message and status to CONTACTED
+   * 4. Dispatches calendar sync and confirmed email with Zoom link and .ics to prospect
+   * 5. Creates immutable AuditLog
+   */
+  async acceptDiscoveryCall(identifier: { sessionId?: string; leadId?: string }, actorUser?: any) {
+    let session: any = null;
+    let lead: any = null;
+
+    if (identifier.sessionId) {
+      session = await this.prisma.session.findUnique({
+        where: { id: identifier.sessionId },
+        include: { learner: true },
+      });
+    }
+
+    if (!session && identifier.leadId) {
+      lead = await this.prisma.lead.findUnique({
+        where: { id: identifier.leadId },
+      });
+      if (lead) {
+        session = await this.prisma.session.findFirst({
+          where: {
+            sessionType: SessionType.SPEAKER_DISCOVERY_CALL,
+            learner: { email: lead.email.toLowerCase().trim() },
+            status: { notIn: [SessionStatus.CANCELLED] },
+          },
+          orderBy: { createdAt: 'desc' },
+          include: { learner: true },
+        });
+      }
+    }
+
+    if (!session) {
+      throw new NotFoundException('Discovery call session not found.');
+    }
+
+    if (!lead && session.learner?.email) {
+      lead = await this.prisma.lead.findFirst({
+        where: { email: session.learner.email.toLowerCase().trim() },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    const prospectName = session.learner?.name || lead?.name || 'Prospective Learner';
+    const prospectEmail = session.learner?.email || lead?.email;
+    if (!prospectEmail) {
+      throw new BadRequestException('Learner email is missing for this discovery call.');
+    }
+
+    // If Zoom already generated, return existing
+    if (session.joinUrl) {
+      return {
+        success: true,
+        sessionId: session.id,
+        zoomJoinUrl: session.joinUrl,
+        alreadyAccepted: true,
+      };
+    }
+
+    // 1. Generate Zoom link upon acceptance
+    let zoomJoinUrl = '';
+    let zoomHostUrl = '';
+    let zoomMeetingId = '';
+
+    if (this.meetingProvider) {
+      try {
+        const zoomMeeting = await this.meetingProvider.createMeeting({
+          topic: session.title,
+          startTime: session.startTime,
+          durationMinutes: session.durationMinutes || 15,
+          timezone: session.timezone || 'Asia/Dubai',
+        });
+        if (zoomMeeting?.joinUrl) {
+          zoomJoinUrl = zoomMeeting.joinUrl;
+          zoomHostUrl = zoomMeeting.startUrl || zoomMeeting.joinUrl;
+          zoomMeetingId = zoomMeeting.id;
+        }
+      } catch (err: any) {
+        this.logger.warn(`Meeting provider error: ${err?.message}`);
+      }
+    }
+
+    if (!zoomJoinUrl) {
+      const mockId = `zoom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      zoomJoinUrl = `https://zoom.us/j/${mockId}?pwd=wbm123`;
+      zoomHostUrl = `https://zoom.us/s/${mockId}?pwd=wbm123`;
+      zoomMeetingId = mockId;
+    }
+
+    // 2. Update session in database
+    const updatedSession = await this.prisma.session.update({
+      where: { id: session.id },
+      data: {
+        joinUrl: zoomJoinUrl,
+        meetingLink: zoomJoinUrl,
+        hostUrl: zoomHostUrl,
+        zoomMeetingId,
+        providerMeetingId: zoomMeetingId,
+        status: SessionStatus.SCHEDULED,
+      },
+      include: { learner: true },
+    });
+
+    // 3. Update Lead message to reflect confirmed discovery call with Zoom link
+    if (lead) {
+      let updatedMessage = lead.message || '';
+      if (/📅\s*Discovery Call (?:Requested|Scheduled):/i.test(updatedMessage)) {
+        updatedMessage = updatedMessage.replace(
+          /📅\s*Discovery Call (?:Requested|Scheduled):\s*([^\n|]+)(?:\|\s*Zoom:[^\n]+)?/i,
+          `📅 Discovery Call Scheduled: $1 | Zoom: ${zoomJoinUrl}`
+        );
+      } else {
+        updatedMessage = `${updatedMessage}\n\n📅 Discovery Call Scheduled: ${session.startTime.toISOString()} | Zoom: ${zoomJoinUrl}`.trim();
+      }
+
+      await this.prisma.lead.update({
+        where: { id: lead.id },
+        data: {
+          status: LeadStatus.CONTACTED,
+          message: updatedMessage,
+        },
+      });
+    }
+
+    // 4. Send Confirmation Email with Zoom link & ICS to prospect
+    const roweena = await this.prisma.user.findFirst({
+      where: { role: { in: [Role.SUPER_ADMIN, Role.ADMIN] } },
+      orderBy: { createdAt: 'asc' },
+    });
+    const hostEmail = roweena?.email || 'share@whatboutme.com';
+
+    const icsContent = generateIcsInvite({
+      sessionId: session.id,
+      title: session.title,
+      description: `15-Minute 1-on-1 Discovery Call with Roweena Kini.\\n\\nJoin Zoom Meeting:\\n${zoomJoinUrl}`,
+      location: zoomJoinUrl,
+      startTime: session.startTime,
+      endTime: session.endTime,
+      attendeeName: prospectName,
+      attendeeEmail: prospectEmail,
+      organizerEmail: hostEmail,
+    });
+
+    const dateFormatted = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Kolkata',
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(session.startTime);
+
+    const timeIst =
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Kolkata',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).format(session.startTime) + ' IST (India)';
+
+    const timeGst =
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Dubai',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).format(session.startTime) + ' GST (Dubai)';
+
+    if (this.emailService) {
+      await this.emailService
+        .sendTemplateEmail({
+          to: prospectEmail,
+          subject: `Confirmed: 15-Minute Discovery Call with Roweena Kini`,
+          template: 'LeadEnquiryNotificationEmail',
+          props: {
+            name: prospectName,
+            email: prospectEmail,
+            phone: lead?.phone || session.learner?.phone || '',
+            message:
+              `Your 1-to-1 Discovery Call with Roweena has been accepted and confirmed!\n\n` +
+              `📅 Date: ${dateFormatted}\n` +
+              `🇮🇳 India Time: ${timeIst}\n` +
+              `🇦🇪 Dubai Time: ${timeGst}\n\n` +
+              `🔗 Zoom Join Link: ${zoomJoinUrl}\n\n` +
+              `Please join 2 minutes before the scheduled start time. We look forward to meeting with you!`,
+          },
+        })
+        .catch((e: any) => this.logger.warn(`Failed to send confirmed email: ${e?.message}`));
+    }
+
+    // 5. Audit Log
+    const actorId = actorUser?.id || actorUser?.sub || 'system';
+    this.prisma.auditLog
+      .create({
+        data: {
+          actorId,
+          action: 'DISCOVERY_CALL_ACCEPTED',
+          entity: 'Session',
+          entityId: session.id,
+          meta: {
+            prospectEmail,
+            zoomJoinUrl,
+            scheduledAt: session.startTime.toISOString(),
+          },
+        },
+      })
+      .catch(() => null);
+
+    return {
+      success: true,
+      sessionId: session.id,
+      zoomJoinUrl,
+      session: updatedSession,
+    };
+  }
+
+  /**
+   * Admin / Manager declines a pending discovery call request:
+   */
+  async declineDiscoveryCall(identifier: { sessionId?: string; leadId?: string; reason?: string }, actorUser?: any) {
+    let session: any = null;
+    let lead: any = null;
+
+    if (identifier.sessionId) {
+      session = await this.prisma.session.findUnique({
+        where: { id: identifier.sessionId },
+        include: { learner: true },
+      });
+    }
+
+    if (!session && identifier.leadId) {
+      lead = await this.prisma.lead.findUnique({
+        where: { id: identifier.leadId },
+      });
+      if (lead) {
+        session = await this.prisma.session.findFirst({
+          where: {
+            sessionType: SessionType.SPEAKER_DISCOVERY_CALL,
+            learner: { email: lead.email.toLowerCase().trim() },
+            status: { notIn: [SessionStatus.CANCELLED] },
+          },
+          orderBy: { createdAt: 'desc' },
+          include: { learner: true },
+        });
+      }
+    }
+
+    if (!session) {
+      throw new NotFoundException('Discovery call session not found.');
+    }
+
+    if (!lead && session.learner?.email) {
+      lead = await this.prisma.lead.findFirst({
+        where: { email: session.learner.email.toLowerCase().trim() },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    const reason = identifier.reason || 'Instructor is unavailable at the requested time.';
+
+    await this.prisma.session.update({
+      where: { id: session.id },
+      data: {
+        status: SessionStatus.CANCELLED,
+        cancelReason: reason,
+        cancelledAt: new Date(),
+      },
+    });
+
+    if (lead) {
+      await this.prisma.lead.update({
+        where: { id: lead.id },
+        data: {
+          message: `${lead.message}\n\n❌ Discovery Call Declined: ${reason}`.trim(),
+        },
+      });
+    }
+
+    const prospectEmail = session.learner?.email || lead?.email;
+    const prospectName = session.learner?.name || lead?.name || 'there';
+
+    if (this.emailService && prospectEmail) {
+      await this.emailService
+        .sendTemplateEmail({
+          to: prospectEmail,
+          subject: `Update on your 15-Minute Discovery Call Request`,
+          template: 'LeadEnquiryNotificationEmail',
+          props: {
+            name: prospectName,
+            email: prospectEmail,
+            phone: lead?.phone || '',
+            message:
+              `Thank you for your interest in WhatBoutMe.\n\n` +
+              `Unfortunately, Roweena is unavailable for the requested slot (${session.startTime.toLocaleString()}).\n\n` +
+              `Reason: ${reason}\n\n` +
+              `Please visit https://whatboutme.com/contact to pick an alternative date and time that works for you.`,
+          },
+        })
+        .catch(() => null);
+    }
+
+    return {
+      success: true,
+      sessionId: session.id,
+      status: 'CANCELLED',
     };
   }
 }

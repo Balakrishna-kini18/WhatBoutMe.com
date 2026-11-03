@@ -443,6 +443,55 @@ export default function CoachingApprovalsTab({
 
   return (
     <section className={styles.tableSection}>
+      {/* Scope Clarification Banner */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: "8px",
+          padding: "8px 14px",
+          marginBottom: "12px",
+          background: "#fdf8ee",
+          border: "1px solid #f2e3c6",
+          borderRadius: "8px",
+          fontSize: "0.82rem",
+          color: "var(--text-secondary, #6b5844)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ fontSize: "0.95rem" }}>💡</span>
+          <span>
+            This tab is for <strong>Stage 4 Curriculum 1-on-1 Coaching Calls</strong> (enrolled students).
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
+          <span>Looking for website 15-min discovery calls?</span>
+          <Link
+            href="/leads"
+            style={{
+              color: "var(--accent-primary, #b8860b)",
+              fontWeight: 600,
+              textDecoration: "underline",
+            }}
+          >
+            Enquiries (Leads) &rarr;
+          </Link>
+          <span style={{ color: "#d6c2a8" }}>•</span>
+          <Link
+            href="/meetings"
+            style={{
+              color: "var(--accent-primary, #b8860b)",
+              fontWeight: 600,
+              textDecoration: "underline",
+            }}
+          >
+            Calendar &amp; Sessions &rarr;
+          </Link>
+        </div>
+      </div>
+
       {/* Search & Filters Header */}
       <div
         className={styles.sectionHeader}

@@ -532,108 +532,193 @@ function ConsultationHeaderGraphic() {
 
       return (
         <div className="rounded-3xl bg-[#fffbf2] border border-[#f0eae1] p-6 sm:p-10 animate-fadeIn text-ink">
-          <div className="flex items-center gap-3.5 mb-5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 shrink-0">
-              <CheckCircle2 className="h-6 w-6" />
-            </div>
-            <div>
-              <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight text-ink">
-                1-to-1 Discovery Call Confirmed
-              </h2>
-              <p className="text-xs sm:text-sm text-ink-soft mt-0.5">
-                Synced to Roweena&apos;s unified calendar
+          {bookingResult.zoomJoinUrl ? (
+            <>
+              <div className="flex items-center gap-3.5 mb-5">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 shrink-0">
+                  <CheckCircle2 className="h-6 w-6" />
+                </div>
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight text-ink">
+                    1-to-1 Discovery Call Confirmed
+                  </h2>
+                  <p className="text-xs sm:text-sm text-ink-soft mt-0.5">
+                    Synced to Roweena&apos;s unified calendar
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-sm text-ink-soft mb-6 leading-relaxed">
+                Thank you, <strong className="text-ink">{name}</strong>! Your 15-minute discovery consultation has been confirmed.
               </p>
-            </div>
-          </div>
 
-          <p className="text-sm text-ink-soft mb-6 leading-relaxed">
-            Thank you, <strong className="text-ink">{name}</strong>! Your 15-minute discovery consultation has been confirmed.
-          </p>
+              {/* Multi-Timezone Schedule Card */}
+              <div className="rounded-2xl border border-line bg-white p-4 sm:p-5 mb-5 space-y-3.5 shadow-xs">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-soft">
+                  <Clock className="h-4 w-4 text-gold-deep" />
+                  <span>Scheduled Meeting Time</span>
+                </div>
 
-          {/* Multi-Timezone Schedule Card */}
-          <div className="rounded-2xl border border-line bg-white p-4 sm:p-5 mb-5 space-y-3.5 shadow-xs">
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-soft">
-              <Clock className="h-4 w-4 text-gold-deep" />
-              <span>Scheduled Meeting Time</span>
-            </div>
+                <div className="text-base sm:text-lg font-extrabold text-ink">
+                  {timeSummary.fullDate}
+                </div>
 
-            <div className="text-base sm:text-lg font-extrabold text-ink">
-              {timeSummary.fullDate}
-            </div>
-
-            <div className="grid gap-2.5 sm:grid-cols-3 pt-1 text-xs">
-              <div className="p-3 rounded-xl bg-cream border border-sand">
-                <span className="text-[11px] font-semibold text-ink-soft block">Your Timezone</span>
-                <span className="font-bold text-ink text-sm block mt-0.5">{timeSummary.local}</span>
+                <div className="grid gap-2.5 sm:grid-cols-3 pt-1 text-xs">
+                  <div className="p-3 rounded-xl bg-cream border border-sand">
+                    <span className="text-[11px] font-semibold text-ink-soft block">Your Timezone</span>
+                    <span className="font-bold text-ink text-sm block mt-0.5">{timeSummary.local}</span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-cream border border-sand">
+                    <span className="text-[11px] font-semibold text-ink-soft block">Dubai Time</span>
+                    <span className="font-bold text-ink text-sm block mt-0.5">{timeSummary.gst}</span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-cream border border-sand">
+                    <span className="text-[11px] font-semibold text-ink-soft block">India Time</span>
+                    <span className="font-bold text-ink text-sm block mt-0.5">{timeSummary.ist}</span>
+                  </div>
+                </div>
               </div>
-              <div className="p-3 rounded-xl bg-cream border border-sand">
-                <span className="text-[11px] font-semibold text-ink-soft block">Dubai Time</span>
-                <span className="font-bold text-ink text-sm block mt-0.5">{timeSummary.gst}</span>
+
+              {/* Zoom Link Container */}
+              <div className="rounded-2xl border border-gold/40 bg-gold/10 p-4 sm:p-5 mb-5 space-y-3 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-gold-deep flex items-center gap-1.5">
+                    <Video className="h-4 w-4" />
+                    <span>Zoom Meeting Link</span>
+                  </span>
+                  <span className="text-[11px] font-semibold text-ink-soft bg-white/80 px-2.5 py-0.5 rounded-full border border-gold/30">
+                    Duration: 15 Mins
+                  </span>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <input
+                    readOnly
+                    value={bookingResult.zoomJoinUrl}
+                    className="w-full rounded-xl border border-line bg-white px-3.5 py-2.5 text-xs font-mono text-ink outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCopyZoomLink}
+                    className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-line bg-white px-4 py-2.5 text-xs font-bold text-ink hover:border-gold-deep transition"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    <span>{copiedZoom ? "Copied!" : "Copy Link"}</span>
+                  </button>
+                  <a
+                    href={bookingResult.zoomJoinUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-ink px-4 py-2.5 text-xs font-bold text-cream hover:bg-gold hover:text-ink transition"
+                  >
+                    <span>Join Zoom</span>
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                </div>
               </div>
-              <div className="p-3 rounded-xl bg-cream border border-sand">
-                <span className="text-[11px] font-semibold text-ink-soft block">India Time</span>
-                <span className="font-bold text-ink text-sm block mt-0.5">{timeSummary.ist}</span>
+
+              {/* Calendar Add & ICS Download */}
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={handleDownloadIcs}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-line bg-white px-5 py-3 text-xs font-bold text-ink hover:border-gold-deep transition shadow-xs"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Download .ics Calendar Invite</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className="text-xs text-ink-soft hover:text-ink ml-auto underline"
+                >
+                  Submit another enquiry
+                </button>
               </div>
-            </div>
-          </div>
+            </>
+          ) : (
+            <>
+              {/* PENDING COACH ACCEPTANCE (Zoom link generated only after coach accepts) */}
+              <div className="flex items-center gap-3.5 mb-5">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-amber-700 shrink-0">
+                  <Clock className="h-6 w-6" />
+                </div>
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight text-ink">
+                    1-to-1 Discovery Call Requested
+                  </h2>
+                  <p className="text-xs sm:text-sm text-ink-soft mt-0.5">
+                    Request submitted &amp; pending coach confirmation
+                  </p>
+                </div>
+              </div>
 
-          {/* Zoom Link Container */}
-          <div className="rounded-2xl border border-gold/40 bg-gold/10 p-4 sm:p-5 mb-5 space-y-3 shadow-xs">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-gold-deep flex items-center gap-1.5">
-                <Video className="h-4 w-4" />
-                <span>Zoom Meeting Link</span>
-              </span>
-              <span className="text-[11px] font-semibold text-ink-soft bg-white/80 px-2.5 py-0.5 rounded-full border border-gold/30">
-                Duration: 15 Mins
-              </span>
-            </div>
+              {/* Pending Notice Banner */}
+              <div className="rounded-2xl border border-amber-300/80 bg-amber-50/70 p-4 mb-5 text-xs text-amber-950 leading-relaxed shadow-xs flex items-start gap-3">
+                <Clock className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-amber-950 text-sm">Status: Pending Coach Confirmation</p>
+                  <p className="mt-1 text-amber-900">
+                    Thank you, <strong>{name}</strong>! We have received your consultation request. Roweena and our team will review the slot and confirm your request. Once accepted, your official Zoom meeting link and calendar invite will be emailed to <strong>{email}</strong>.
+                  </p>
+                </div>
+              </div>
 
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              <input
-                readOnly
-                value={bookingResult.zoomJoinUrl}
-                className="w-full rounded-xl border border-line bg-white px-3.5 py-2.5 text-xs font-mono text-ink outline-none"
-              />
-              <button
-                type="button"
-                onClick={handleCopyZoomLink}
-                className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-line bg-white px-4 py-2.5 text-xs font-bold text-ink hover:border-gold-deep transition"
-              >
-                <Copy className="h-3.5 w-3.5" />
-                <span>{copiedZoom ? "Copied!" : "Copy Link"}</span>
-              </button>
-              <a
-                href={bookingResult.zoomJoinUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-ink px-4 py-2.5 text-xs font-bold text-cream hover:bg-gold hover:text-ink transition"
-              >
-                <span>Join Zoom</span>
-                <ExternalLink className="h-3.5 w-3.5" />
-              </a>
-            </div>
-          </div>
+              {/* Multi-Timezone Schedule Card */}
+              <div className="rounded-2xl border border-line bg-white p-4 sm:p-5 mb-5 space-y-3.5 shadow-xs">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-soft">
+                  <Clock className="h-4 w-4 text-gold-deep" />
+                  <span>Requested Meeting Time</span>
+                </div>
 
-          {/* Calendar Add & ICS Download */}
-          <div className="flex flex-wrap items-center gap-3 pt-1">
-            <button
-              type="button"
-              onClick={handleDownloadIcs}
-              className="inline-flex items-center gap-2 rounded-2xl border border-line bg-white px-5 py-3 text-xs font-bold text-ink hover:border-gold-deep transition shadow-xs"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span>Download .ics Calendar Invite</span>
-            </button>
+                <div className="text-base sm:text-lg font-extrabold text-ink">
+                  {timeSummary.fullDate}
+                </div>
 
-            <button
-              type="button"
-              onClick={handleReset}
-              className="text-xs text-ink-soft hover:text-ink ml-auto underline"
-            >
-              Submit another enquiry
-            </button>
-          </div>
+                <div className="grid gap-2.5 sm:grid-cols-3 pt-1 text-xs">
+                  <div className="p-3 rounded-xl bg-cream border border-sand">
+                    <span className="text-[11px] font-semibold text-ink-soft block">Your Timezone</span>
+                    <span className="font-bold text-ink text-sm block mt-0.5">{timeSummary.local}</span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-cream border border-sand">
+                    <span className="text-[11px] font-semibold text-ink-soft block">Dubai Time</span>
+                    <span className="font-bold text-ink text-sm block mt-0.5">{timeSummary.gst}</span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-cream border border-sand">
+                    <span className="text-[11px] font-semibold text-ink-soft block">India Time</span>
+                    <span className="font-bold text-ink text-sm block mt-0.5">{timeSummary.ist}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Zoom Link Info (Before Acceptance) */}
+              <div className="rounded-2xl border border-line bg-white/90 p-4 sm:p-5 mb-5 space-y-2 text-xs shadow-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-ink flex items-center gap-1.5">
+                    <Video className="h-4 w-4 text-gold-deep" />
+                    <span>Zoom Meeting Link</span>
+                  </span>
+                  <span className="text-[11px] font-semibold text-amber-700 bg-amber-100/80 px-2.5 py-0.5 rounded-full border border-amber-300/60">
+                    Generated Upon Coach Acceptance
+                  </span>
+                </div>
+                <p className="text-xs text-ink-soft leading-relaxed pt-1">
+                  To ensure coach availability, private Zoom meeting rooms are generated directly upon coach acceptance. You will receive an email confirmation with the join link as soon as your slot is confirmed.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className="text-xs text-ink-soft hover:text-ink ml-auto underline"
+                >
+                  Submit another enquiry
+                </button>
+              </div>
+            </>
+          )}
         </div>
       );
     }

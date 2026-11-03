@@ -7,6 +7,8 @@ import {
   API_URL,
   cachedFetch,
   generateLeadCheckoutPaymentLink,
+  acceptDiscoveryCall,
+  declineDiscoveryCall,
   type SupportedCurrency,
 } from "../lib/api";
 import {
@@ -76,6 +78,33 @@ function LeadsContent() {
   const [programs, setPrograms] = useState<ProgramOption[]>([]);
   const [batches, setBatches] = useState<BatchOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const toast = useToast();
+  const [acceptingLeadId, setAcceptingLeadId] = useState<string | null>(null);
+
+  const handleAcceptCall = async (leadId: string, leadName?: string) => {
+    setAcceptingLeadId(leadId);
+    try {
+      await acceptDiscoveryCall({ leadId });
+      toast.success(`Discovery call for ${leadName || "prospect"} accepted! Zoom room generated and invite emailed.`);
+      await load();
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to accept discovery call");
+    } finally {
+      setAcceptingLeadId(null);
+    }
+  };
+
+  const handleDeclineCall = async (leadId: string, leadName?: string) => {
+    const reason = prompt("Reason for declining discovery call (sent to prospect):", "Instructor is unavailable at the requested time.");
+    if (reason === null) return;
+    try {
+      await declineDiscoveryCall({ leadId, reason: reason.trim() });
+      toast.success(`Discovery call for ${leadName || "prospect"} declined and prospect notified.`);
+      await load();
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to decline discovery call");
+    }
+  };
 
   // Filters, Sorting & Pagination
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -85,8 +114,6 @@ function LeadsContent() {
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-
-  const toast = useToast();
   const [leadToDelete, setLeadToDelete] = useState<Lead | null>(null);
   const [isDeletingLead, setIsDeletingLead] = useState(false);
 
@@ -598,6 +625,46 @@ function LeadsContent() {
                           <span className={styles.cellTextMuted}>
                             {courseTitle || (parsed.isWhatsAppGeneral ? "WhatsApp" : "Website Contact")}
                           </span>
+                          {parsed.discovery?.scheduledAt && !zoomMatch && (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                                fontSize: "0.7rem",
+                                color: "#b45309",
+                                background: "#fffbeb",
+                                border: "1px solid #fde68a",
+                                borderRadius: "4px",
+                                padding: "1px 6px",
+                                fontWeight: 700,
+                                width: "fit-content",
+                                marginTop: "2px",
+                              }}
+                            >
+                              ⏳ Call Pending Acceptance
+                            </span>
+                          )}
+                          {parsed.discovery?.scheduledAt && zoomMatch && (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                                fontSize: "0.7rem",
+                                color: "#15803d",
+                                background: "#f0fdf4",
+                                border: "1px solid #bbf7d0",
+                                borderRadius: "4px",
+                                padding: "1px 6px",
+                                fontWeight: 700,
+                                width: "fit-content",
+                                marginTop: "2px",
+                              }}
+                            >
+                              ✓ Call Confirmed
+                            </span>
+                          )}
                         </div>
                       </td>
 
@@ -666,18 +733,49 @@ function LeadsContent() {
                             gap: "6px",
                           }}
                         >
-                          <button
-                            type="button"
-                            onClick={() => handleOpenConvertModal(lead)}
-                            className={
-                              isConverted ? styles.secondaryBtnSmall : styles.primaryBtnSmall
-                            }
-                          >
-                            {isConverted ? "Resend Link" : "Convert & Send"}
-                          </button>
+                          {parsed.discovery?.scheduledAt && !zoomMatch ? (
+                            <button
+                              type="button"
+                              onClick={() => handleAcceptCall(lead.id, lead.name)}
+                              disabled={acceptingLeadId === lead.id}
+                              className={styles.primaryBtnSmall}
+                              style={{
+                                background: "#15803d",
+                                borderColor: "#15803d",
+                                color: "#fff",
+                                fontWeight: 700,
+                              }}
+                              title="Accept discovery call and generate Zoom meeting room"
+                            >
+                              {acceptingLeadId === lead.id ? "Generating Zoom..." : "Accept & Generate Zoom"}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenConvertModal(lead)}
+                              className={
+                                isConverted ? styles.secondaryBtnSmall : styles.primaryBtnSmall
+                              }
+                            >
+                              {isConverted ? "Resend Link" : "Convert & Send"}
+                            </button>
+                          )}
 
                           {(() => {
                             const actionItems = [
+                              ...(parsed.discovery?.scheduledAt && !zoomMatch
+                                ? [
+                                    {
+                                      label: "Accept Call & Generate Zoom",
+                                      onClick: () => handleAcceptCall(lead.id, lead.name),
+                                    },
+                                    {
+                                      label: "Decline Discovery Call",
+                                      danger: true,
+                                      onClick: () => handleDeclineCall(lead.id, lead.name),
+                                    },
+                                  ]
+                                : []),
                               {
                                 label: isConverted
                                   ? "Resend Payment Link"

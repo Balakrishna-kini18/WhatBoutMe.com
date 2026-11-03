@@ -200,6 +200,7 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
         },
         include: {
           learner: { select: { id: true, email: true, name: true, timezone: true } },
+          user: { select: { id: true, email: true, name: true, timezone: true } },
           bookings: {
             where: { status: { in: ['BOOKED', 'CONFIRMED'] } },
             include: { user: { select: { id: true, email: true, name: true, timezone: true } } },
@@ -235,6 +236,7 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
         },
         include: {
           learner: { select: { id: true, email: true, name: true, timezone: true } },
+          user: { select: { id: true, email: true, name: true, timezone: true } },
           bookings: {
             where: { status: { in: ['BOOKED', 'CONFIRMED'] } },
             include: { user: { select: { id: true, email: true, name: true, timezone: true } } },
@@ -270,6 +272,7 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
         },
         include: {
           learner: { select: { id: true, email: true, name: true, timezone: true } },
+          user: { select: { id: true, email: true, name: true, timezone: true } },
           bookings: {
             where: { status: { in: ['BOOKED', 'CONFIRMED'] } },
             include: { user: { select: { id: true, email: true, name: true, timezone: true } } },
@@ -408,17 +411,38 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
     const is1on1 =
       session.sessionType === SessionType.ONE_ON_ONE ||
       session.sessionType === SessionType.ONE_ON_ONE_WITH_RO ||
-      Boolean(session.learnerId) ||
+      session.sessionType === SessionType.SPEAKER_DISCOVERY_CALL ||
+      Boolean(session.learnerId || session.learner?.id) ||
+      Boolean(session.userId || session.user?.id) ||
       (typeof session.title === 'string' && (
         session.title.toLowerCase().includes('1-on-1') ||
         session.title.toLowerCase().includes('1-to-1') ||
-        session.title.toLowerCase().startsWith('1:1')
+        session.title.toLowerCase().startsWith('1:1') ||
+        session.title.toLowerCase().includes('discovery call') ||
+        session.title.toLowerCase().includes('discovery')
       ));
 
     if (session.learner?.id && session.learner?.email) {
       map.set(session.learner.id, session.learner);
     }
+    if (session.user?.id && session.user?.email) {
+      map.set(session.user.id, session.user);
+    }
 
+    if (is1on1) {
+      // 1-on-1 and discovery sessions are strictly confidential between coach and individual learner.
+      // If direct learner was not mapped, check if a single booking exists for this 1-on-1 session.
+      if (map.size === 0 && session.bookings && Array.isArray(session.bookings) && session.bookings.length > 0) {
+        const primaryBooking = session.bookings.find((b: any) => b?.user?.id && b?.user?.email) || session.bookings[0];
+        if (primaryBooking?.user?.id && primaryBooking?.user?.email) {
+          map.set(primaryBooking.user.id, primaryBooking.user);
+        }
+      }
+      // Under NO circumstances should batch enrolments or peer learners receive notifications.
+      return Array.from(map.values());
+    }
+
+    // For Group / Cohort sessions only:
     if (session.bookings && Array.isArray(session.bookings)) {
       for (const b of session.bookings) {
         if (b.user?.id && b.user?.email) {
@@ -427,8 +451,7 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    // Group cohort sessions notify all active batch enrolments; 1-on-1 sessions are strictly private
-    if (!is1on1 && session.batch?.enrolments && Array.isArray(session.batch.enrolments)) {
+    if (session.batch?.enrolments && Array.isArray(session.batch.enrolments)) {
       for (const e of session.batch.enrolments) {
         if (e.user?.id && e.user?.email) {
           map.set(e.user.id, e.user);

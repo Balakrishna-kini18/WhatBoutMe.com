@@ -1226,14 +1226,20 @@ export class SessionsService {
     }
   }
 
-  // Private helper: in-app notifications
-  private async remindLearners(batchId: string, title: string, startTime: Date, dedicatedLearnerId?: string | null) {
+  // Private helper: in-app notifications (strictly guards 1-on-1 sessions from cohort leakage)
+  private async remindLearners(
+    batchId: string,
+    title: string,
+    startTime: Date,
+    dedicatedLearnerId?: string | null,
+    is1on1?: boolean,
+  ) {
     try {
       let targetUserIds: string[] = [];
 
       if (dedicatedLearnerId) {
         targetUserIds = [dedicatedLearnerId];
-      } else {
+      } else if (!is1on1 && batchId) {
         const enrolments = await this.prisma.enrolment.findMany({
           where: { batchId, status: { in: ['ACTIVE', 'COMPLETED'] } },
           select: { userId: true },
@@ -1266,17 +1272,21 @@ export class SessionsService {
       const is1on1 =
         session.sessionType === SessionType.ONE_ON_ONE ||
         session.sessionType === SessionType.ONE_ON_ONE_WITH_RO ||
+        session.sessionType === SessionType.SPEAKER_DISCOVERY_CALL ||
         Boolean(session.learnerId) ||
+        Boolean(session.userId) ||
         (typeof session.title === 'string' && (
           session.title.toLowerCase().includes('1-on-1') ||
           session.title.toLowerCase().includes('1-to-1') ||
-          session.title.toLowerCase().startsWith('1:1')
+          session.title.toLowerCase().startsWith('1:1') ||
+          session.title.toLowerCase().includes('discovery call') ||
+          session.title.toLowerCase().includes('discovery')
         ));
 
-      const dedicatedLearnerId = session.learnerId || (is1on1 ? session.bookings?.[0]?.userId : null);
+      const dedicatedLearnerId = session.learnerId || session.userId || (is1on1 ? session.bookings?.[0]?.userId : null);
 
       // 1. In-App notifications
-      await this.remindLearners(session.batchId, session.title, session.startTime, dedicatedLearnerId);
+      await this.remindLearners(session.batchId, session.title, session.startTime, dedicatedLearnerId, is1on1);
 
       // 2. Fetch enrolled learners with emails
       let learners: Array<{ id: string; name: string | null; email: string; timezone: string | null }> = [];

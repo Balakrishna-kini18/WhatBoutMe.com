@@ -337,11 +337,10 @@ export default function Step7QuizBuilder({
     setNewOptions(remaining);
   };
 
-  const handleCreateQuestion = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newPrompt.trim().length < 3) {
-      toast.error("Please enter a question prompt (at least 3 characters).");
-      return;
+  const buildCurrentQuestionPayload = () => {
+    const hasPrompt = newPrompt.trim().length > 0 || Boolean(newPromptImage);
+    if (!hasPrompt) {
+      throw new Error("Please enter a question prompt or attach an illustration.");
     }
 
     let validOpts: Option[] = [];
@@ -349,93 +348,107 @@ export default function Step7QuizBuilder({
     if (selectedKind !== "TEXT_BOX") {
       validOpts = newOptions.filter((o) => o.text.trim().length > 0 || Boolean(o.imageUrl));
       if (validOpts.length < 2) {
-        toast.error("Choice questions require at least 2 non-empty choices.");
-        return;
+        throw new Error("Choice questions require at least 2 choices with text or image.");
       }
       if (!validOpts.some((o) => o.isCorrect)) {
-        toast.error("Please designate at least one option as the correct answer.");
-        return;
+        throw new Error("Please designate at least one option as the correct answer.");
       }
 
       if (selectedKind === "SINGLE_CHOICE") {
         const correctCount = validOpts.filter((o) => o.isCorrect).length;
         if (correctCount !== 1) {
-          toast.error("Single choice questions must have exactly one correct answer.");
-          return;
+          throw new Error("Single choice questions must have exactly one correct answer.");
         }
       }
     }
 
+    const finalPromptText = newPrompt.trim() || (newPromptImage ? "Select the correct option for this illustration:" : "Question");
+    const payload: any = {
+      text: finalPromptText,
+      type: selectedKind,
+      imageUrl: newPromptImage || undefined,
+      points: Number(newPoints) || 1,
+      explanation: newExplanation.trim() || undefined,
+    };
+
+    if (selectedKind === "TEXT_BOX") {
+      payload.options = [];
+      payload.gradingMode = newGradingMode;
+      payload.minCharacters = Number(newMinCharacters) || 10;
+    } else {
+      payload.options = validOpts.map((o, idx) => ({
+        text: o.text.trim() || `Option ${String.fromCharCode(65 + idx)}`,
+        imageUrl: o.imageUrl || undefined,
+        isCorrect: Boolean(o.isCorrect),
+        order: idx + 1,
+      }));
+    }
+
+    return payload;
+  };
+
+  const commitDraftQuestion = async (targetQuizId: string): Promise<Question[] | null> => {
+    const hasPrompt = newPrompt.trim().length > 0 || Boolean(newPromptImage);
+    if (!hasPrompt) return null;
+
+    const payload = buildCurrentQuestionPayload();
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    let updatedQuestion: any;
+
+    if (editingQuestionId) {
+      // Edit existing question
+      const res = await fetch(`${API_URL}/quizzes/questions/${editingQuestionId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        throw new Error(await errorMessage(res, "Failed to update question"));
+      }
+      updatedQuestion = await res.json();
+      const updatedList = questions.map((q) =>
+        q.id === editingQuestionId ? { ...q, ...updatedQuestion, ...payload } : q
+      );
+      setQuestions(updatedList);
+      handleResetToNewQuestion();
+      return updatedList;
+    } else {
+      // Create new question
+      const res = await fetch(`${API_URL}/quizzes/${targetQuizId}/questions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        throw new Error(await errorMessage(res, "Failed to create question"));
+      }
+      updatedQuestion = await res.json();
+      const updatedList = [...questions, updatedQuestion];
+      setQuestions(updatedList);
+      handleResetToNewQuestion();
+      return updatedList;
+    }
+  };
+
+  const handleCreateQuestion = async (e: React.FormEvent) => {
+    e.preventDefault();
     setIsAddingQuestion(true);
     try {
       const activeQId = await ensureQuizEntity();
-
-      const payload: any = {
-        text: newPrompt.trim(),
-        type: selectedKind,
-        imageUrl: newPromptImage || undefined,
-        points: Number(newPoints) || 1,
-        explanation: newExplanation.trim() || undefined,
-      };
-
-      if (selectedKind === "TEXT_BOX") {
-        payload.options = [];
-        payload.gradingMode = newGradingMode;
-        payload.minCharacters = Number(newMinCharacters) || 10;
-      } else {
-        payload.options = validOpts.map((o, idx) => ({
-          text: o.text.trim(),
-          imageUrl: o.imageUrl || undefined,
-          isCorrect: Boolean(o.isCorrect),
-          order: idx + 1,
-        }));
+      const updatedList = await commitDraftQuestion(activeQId);
+      if (updatedList) {
+        toast.success(editingQuestionId ? "Question updated successfully." : "Question added.");
+        setFeedbackMsg(editingQuestionId ? "Question updated." : "Question added.");
+        setTimeout(() => setFeedbackMsg(null), 3000);
       }
-
-      let updatedQuestion: any;
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-
-      if (editingQuestionId) {
-        // Edit existing question
-        const res = await fetch(`${API_URL}/quizzes/questions/${editingQuestionId}`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify(payload),
-        });
-
-        if (!res.ok) {
-          throw new Error(await errorMessage(res, "Failed to update question"));
-        }
-        updatedQuestion = await res.json();
-        setQuestions((prev) =>
-          prev.map((q) => (q.id === editingQuestionId ? { ...q, ...updatedQuestion, ...payload } : q))
-        );
-        toast.success("Question updated successfully.");
-      } else {
-        // Create new question
-        const res = await fetch(`${API_URL}/quizzes/${activeQId}/questions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify(payload),
-        });
-
-        if (!res.ok) {
-          throw new Error(await errorMessage(res, "Failed to create question"));
-        }
-        updatedQuestion = await res.json();
-        setQuestions((prev) => [...prev, updatedQuestion]);
-        toast.success("Question created.");
-      }
-
-      // Reset form
-      handleResetToNewQuestion();
-      setFeedbackMsg(editingQuestionId ? "Question updated." : "Question added.");
-      setTimeout(() => setFeedbackMsg(null), 3000);
     } catch (err: any) {
       toast.error(err.message || "Failed to add question.");
     } finally {
@@ -470,12 +483,29 @@ export default function Step7QuizBuilder({
     setIsSavingAll(true);
     try {
       const activeQId = await ensureQuizEntity();
+      let currentQuestions = questions;
+
+      // Auto-commit draft question if user has started composing
+      if (newPrompt.trim().length > 0 || Boolean(newPromptImage)) {
+        try {
+          const committed = await commitDraftQuestion(activeQId);
+          if (committed) {
+            currentQuestions = committed;
+            toast.success("Draft question saved into quiz.");
+          }
+        } catch (draftErr: any) {
+          toast.error(draftErr.message || "Could not save current draft question.");
+          setIsSavingAll(false);
+          return;
+        }
+      }
+
       onQuizSaved({
         id: activeQId,
         title: quizTitle.trim() || `${moduleTitle} Knowledge Check`,
         passMark: requirePassingScore ? (Number(passMark) || 80) : 0,
         quizPlacement,
-        questions,
+        questions: currentQuestions,
       });
       toast.success("Quiz settings saved successfully.");
     } catch (err: any) {
@@ -486,6 +516,28 @@ export default function Step7QuizBuilder({
   };
 
   const handleOpenPreview = () => {
+    let previewQuestions = [...questions];
+    if (newPrompt.trim().length > 0 || Boolean(newPromptImage)) {
+      const draftOpts = newOptions.filter((o) => o.text.trim().length > 0 || Boolean(o.imageUrl));
+      if (draftOpts.length > 0 || selectedKind === "TEXT_BOX") {
+        previewQuestions.push({
+          id: editingQuestionId || "draft-preview",
+          text: newPrompt.trim() || (newPromptImage ? "Illustration Question" : "Untitled Question"),
+          imageUrl: newPromptImage || undefined,
+          type: selectedKind,
+          points: Number(newPoints) || 1,
+          explanation: newExplanation || undefined,
+          options: draftOpts.map((o, idx) => ({
+            id: o.id || `opt-${idx}`,
+            text: o.text.trim() || `Option ${String.fromCharCode(65 + idx)}`,
+            imageUrl: o.imageUrl || undefined,
+            isCorrect: Boolean(o.isCorrect),
+            order: idx + 1,
+          })),
+        });
+      }
+    }
+
     setPreviewConfig({
       isOpen: true,
       type: "QUIZ",
@@ -494,7 +546,7 @@ export default function Step7QuizBuilder({
         title: quizTitle.trim() || `${moduleTitle} Knowledge Check`,
         passingScore: requirePassingScore ? (Number(passMark) || 75) : 0,
         quizPlacement,
-        questions: questions.map((q) => ({
+        questions: previewQuestions.map((q) => ({
           ...q,
           prompt: q.text,
         })),
@@ -1024,7 +1076,7 @@ export default function Step7QuizBuilder({
               </label>
               <textarea
                 rows={2}
-                required
+                required={!newPromptImage}
                 placeholder="Enter your question statement here..."
                 value={newPrompt}
                 onChange={(e) => setNewPrompt(e.target.value)}

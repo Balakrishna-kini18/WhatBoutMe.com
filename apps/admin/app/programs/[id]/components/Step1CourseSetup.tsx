@@ -339,6 +339,10 @@ export default function Step1CourseSetup({
       setErrorMsg("Program Title is required.");
       return;
     }
+    if (!thumbnailUrl || !thumbnailUrl.trim()) {
+      setErrorMsg("Course Cover Banner is required. Please upload or provide a cover banner image.");
+      return;
+    }
     setErrorMsg(null);
 
     // Validate FAQs if any
@@ -570,9 +574,9 @@ export default function Step1CourseSetup({
             <div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "5px" }}>
                 <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "#44403c", margin: 0 }}>
-                  Cover Banner
+                  Cover Banner <span style={{ color: "#dc2626" }}>*</span>
                 </label>
-                <span style={{ fontSize: "0.72rem", color: "#a8a29e" }}>16:9</span>
+                <span style={{ fontSize: "0.72rem", color: "#dc2626", fontWeight: 600 }}>16:9 (Required)</span>
               </div>
 
               <input
@@ -594,6 +598,8 @@ export default function Step1CourseSetup({
                   borderRadius: "12px",
                   border: isDragging
                     ? "2px solid var(--accent-primary, #c97a1e)"
+                    : (!thumbnailUrl.trim() && errorMsg)
+                    ? "2px dashed #dc2626"
                     : "1.5px dashed #d6cbbe",
                   background: isDragging ? "#fdf6ed" : "#faf8f5",
                   overflow: "hidden",

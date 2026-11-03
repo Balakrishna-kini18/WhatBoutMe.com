@@ -68,8 +68,8 @@ export default async function CoursePage({ params }: Props) {
         <div className="mt-6 grid gap-8 lg:grid-cols-[1.5fr_1fr] lg:gap-10">
           {/* about the course */}
           <div>
-            <div className="relative aspect-[16/9] overflow-hidden rounded-3xl">
-              {course.image && (
+            <div className="relative aspect-[16/9] overflow-hidden rounded-3xl bg-gradient-to-br from-[#fcf9f2] via-[#f7f1e4] to-[#ebe1ce] border border-line">
+              {course.image ? (
                 <Image
                   src={course.image}
                   alt={course.alt || course.title || "Course"}
@@ -80,6 +80,15 @@ export default async function CoursePage({ params }: Props) {
                   sizes="(max-width: 1024px) 100vw, 720px"
                   className="object-cover"
                 />
+              ) : (
+                <div className="flex h-full min-h-[16rem] w-full flex-col items-center justify-center p-8 text-center select-none">
+                  <span className="flex h-20 w-20 items-center justify-center rounded-3xl bg-[#c97a1e]/15 text-3xl font-extrabold text-[#c97a1e] ring-1 ring-[#c97a1e]/25">
+                    {course.title.trim().charAt(0).toUpperCase()}
+                  </span>
+                  <span className="mt-4 text-sm font-semibold uppercase tracking-widest text-[#8c6538]">
+                    {course.category || "WhatBoutMe"}
+                  </span>
+                </div>
               )}
             </div>
 

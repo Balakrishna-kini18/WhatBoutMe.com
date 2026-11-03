@@ -17,8 +17,8 @@ export default function CourseCard({ course }: { course: Course }) {
       aria-label={`${course.title}: view details`}
       className="group flex h-full w-full flex-col overflow-hidden rounded-2xl border border-[#cbb797] bg-white text-left shadow-[0_1px_2px_rgba(20,17,15,0.05),0_10px_24px_-18px_rgba(110,63,18,0.35)] transition-[box-shadow,transform] duration-300 sm:hover:shadow-[0_24px_48px_-28px_rgba(110,63,18,0.45)] active:scale-[0.985]"
     >
-      <span className="relative block aspect-[16/10] overflow-hidden border-b border-line bg-sand">
-        {course.image && (
+      <span className="relative block aspect-[16/10] overflow-hidden border-b border-line bg-gradient-to-br from-[#fcf9f2] via-[#f7f1e4] to-[#ebe1ce]">
+        {course.image ? (
           <Image
             src={course.image}
             alt={course.alt || course.title || "Course"}
@@ -29,6 +29,15 @@ export default function CourseCard({ course }: { course: Course }) {
             sizes="(max-width: 640px) 100vw, (max-width: 1280px) 50vw, 360px"
             className="object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]"
           />
+        ) : (
+          <span className="flex h-full w-full flex-col items-center justify-center p-4 text-center select-none">
+            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#c97a1e]/15 text-xl font-bold text-[#c97a1e] ring-1 ring-[#c97a1e]/25">
+              {course.title.trim().charAt(0).toUpperCase()}
+            </span>
+            <span className="mt-2 text-xs font-semibold uppercase tracking-wider text-[#8c6538]">
+              {course.category || "WhatBoutMe"}
+            </span>
+          </span>
         )}
       </span>
 

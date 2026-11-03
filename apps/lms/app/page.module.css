@@ -9,9 +9,9 @@
 
 .dashboard {
   width: 100%;
-  max-width: 1280px;
+  max-width: 1360px;
   margin-inline: auto;
-  padding: 32px 32px 48px;
+  padding: 1rem 1.5rem 2.5rem;
   box-sizing: border-box;
   animation: fadeIn 0.2s ease-out;
 }
@@ -38,9 +38,9 @@
     radial-gradient(ellipse 65% 75% at 85% 20%, rgba(254, 215, 170, 0.45) 0%, rgba(254, 235, 212, 0.18) 50%, transparent 75%),
     radial-gradient(ellipse 50% 60% at 15% 85%, rgba(254, 235, 212, 0.25) 0%, transparent 70%);
   border: 1px solid rgba(254, 215, 170, 0.75);
-  border-radius: 20px;
-  padding: 24px 32px;
-  margin-bottom: 24px;
+  border-radius: 18px;
+  padding: 18px 24px 16px;
+  margin-bottom: 16px;
   box-shadow: 0 4px 20px -2px rgba(234, 88, 12, 0.04), 0 2px 6px rgba(28, 25, 23, 0.02);
   position: relative;
   overflow: hidden;
@@ -51,7 +51,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 24px;
+  gap: 20px;
   width: 100%;
 }
 
@@ -122,7 +122,7 @@
 
 .heroVisualCol {
   flex-shrink: 0;
-  width: 200px;
+  width: 180px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -139,24 +139,24 @@
   display: block;
   width: auto;
   max-width: 100%;
-  max-height: 145px;
+  max-height: 125px;
   object-fit: contain;
   filter: drop-shadow(0 6px 12px rgba(234, 88, 12, 0.06));
 }
 
 .heroBottomRow {
-  margin-top: 14px;
+  margin-top: 10px;
   width: 100%;
 }
 
 .floatingQuoteCard {
   background: #ffffff;
   border: 1px solid rgba(254, 215, 170, 0.85);
-  border-radius: 14px;
-  padding: 10px 16px;
+  border-radius: 12px;
+  padding: 8px 14px;
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   box-shadow: 0 2px 8px rgba(28, 25, 23, 0.03);
   max-width: 540px;
   box-sizing: border-box;
@@ -199,8 +199,8 @@
    ------------------------------------------------------------------------- */
 .dashboardGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 18px;
   align-items: start;
   width: 100%;
 }
@@ -213,8 +213,8 @@
 .rightStack {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  width: 380px;
+  gap: 16px;
+  width: 360px;
   flex-shrink: 0;
 }
 
@@ -223,8 +223,8 @@
   width: 100%;
   background: #ffffff;
   border: 1px solid #ece6dd;
-  border-radius: 18px;
-  padding: 20px 22px;
+  border-radius: 16px;
+  padding: 16px 18px;
   box-shadow: 0 1px 4px rgba(28, 25, 23, 0.02);
   box-sizing: border-box;
 }
@@ -233,7 +233,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .cardHeaderTitle {
@@ -340,7 +340,7 @@
    ------------------------------------------------------------------------- */
 .yourCoursesContainer {
   width: 100%;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
   box-sizing: border-box;
 }
 
@@ -348,7 +348,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .sectionHeaderTitleGroup {
@@ -406,13 +406,13 @@
 .coursesGrid2x2 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px;
+  gap: 16px;
 }
 
 .courseCard {
   background: #ffffff;
   border: 1px solid #ece6dd;
-  border-radius: 18px;
+  border-radius: 16px;
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(28, 25, 23, 0.02);
   display: flex;
@@ -641,16 +641,16 @@
    ------------------------------------------------------------------------- */
 .certificatesWrapper {
   width: 100%;
-  margin-top: 8px;
-  margin-bottom: 24px;
+  margin-top: 0;
+  margin-bottom: 0;
   box-sizing: border-box;
 }
 
 .certificatesCard {
   background: #ffffff;
   border: 1px solid #ece6dd;
-  border-radius: 18px;
-  padding: 20px 24px;
+  border-radius: 16px;
+  padding: 16px 18px;
   box-shadow: 0 1px 4px rgba(28, 25, 23, 0.02);
   box-sizing: border-box;
 }
@@ -659,7 +659,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .viewAllLinkSmall {
@@ -667,7 +667,8 @@
   font-weight: 700;
   color: #ea580c;
   display: inline-flex;
-  align-items: gap: 4px;
+  align-items: center;
+  gap: 4px;
   text-decoration: none;
   transition: color 0.15s ease, transform 0.15s ease;
 }
@@ -944,7 +945,7 @@
 /* Bottom Breathing Zone to prevent overlap with floating navigation */
 .bottomBreathingZone {
   width: 100%;
-  height: 36px;
+  height: 16px;
   display: block;
   pointer-events: none;
 }

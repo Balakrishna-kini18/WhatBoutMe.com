@@ -203,7 +203,7 @@ export default function Step1CourseSetup({
   const [isShortDescFocused, setIsShortDescFocused] = useState(false);
 
   // Markdown Quick Formatter
-  const applyMarkdownFormat = (action: "bold" | "italic" | "h2" | "bullet" | "link") => {
+  const applyMarkdownFormat = (action: "bold" | "italic" | "underline" | "h2" | "bullet" | "link") => {
     const textarea = textareaRef.current;
     if (!textarea) return;
     const start = textarea.selectionStart;
@@ -222,6 +222,10 @@ export default function Step1CourseSetup({
       case "italic":
         replacement = selection ? `*${selection}*` : "*italic text*";
         newCursorPos = selection ? end + 2 : start + 1;
+        break;
+      case "underline":
+        replacement = selection ? `<u>${selection}</u>` : "<u>underlined text</u>";
+        newCursorPos = selection ? end + 7 : start + 3;
         break;
       case "h2":
         replacement = `\n## ${selection || "Heading"}\n`;
@@ -1028,6 +1032,25 @@ export default function Step1CourseSetup({
                         title="Italic (*text*)"
                       >
                         I
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyMarkdownFormat("underline")}
+                        style={{
+                          padding: "4px 9px",
+                          fontSize: "0.78rem",
+                          textDecoration: "underline",
+                          fontWeight: 600,
+                          borderRadius: "5px",
+                          border: "1px solid #ebd9c4",
+                          background: "#ffffff",
+                          color: "#292524",
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
+                        }}
+                        title="Underline (<u>text</u>)"
+                      >
+                        U
                       </button>
                       <button
                         type="button"

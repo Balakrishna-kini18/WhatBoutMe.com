@@ -59,6 +59,8 @@ export default function FeaturedCourse({ course }: { course?: Course }) {
           {course.programId && (
             <EnrolLink
               programId={course.programId}
+              slug={course.slug}
+              showStatusBadge={false}
               className="text-sm font-semibold text-gold-deep underline-offset-4 transition-colors hover:underline"
             >
               Enrol Now

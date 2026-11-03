@@ -223,6 +223,17 @@ export class CheckoutController {
       });
     }
 
+    if (existing.status === EnrolmentStatus.ACTIVE || existing.status === EnrolmentStatus.COMPLETED) {
+      return {
+        status: existing.status,
+        enrolmentId: existing.id,
+        programId: existing.programId,
+        alreadyEnrolled: true,
+        message: 'Learner is already enrolled in this program and course is active.',
+        redirectUrl: `/programs/${existing.programId}/steps?welcomeBack=1`,
+      };
+    }
+
     if (existing.status === EnrolmentStatus.REVOKED) {
       throw new BadRequestException('Cannot complete checkout for a revoked enrolment.');
     }

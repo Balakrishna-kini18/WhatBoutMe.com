@@ -195,6 +195,7 @@ export default async function CoursePage({ params }: Props) {
             {course.programId && (
               <EnrolLink
                 programId={course.programId}
+                slug={course.slug}
                 className="group mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-ink py-3.5 text-sm font-medium text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
               >
                 Enrol Now

@@ -5,7 +5,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import type { CertificateDetails } from "../Certificate";
 import styles from "../Certificate.module.css";
-import { API_URL, getMarketingUrl } from "../../lib/api";
+import { API_URL } from "../../lib/api";
 
 const Certificate = dynamic(() => import("../Certificate"), { ssr: false });
 
@@ -19,11 +19,133 @@ type Row = {
   };
 };
 
+function CertificateSkeleton() {
+  return (
+    <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "0 1rem" }}>
+      {/* Top Toolbar Skeleton */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: "1.5rem",
+          padding: "0.25rem 0",
+        }}
+      >
+        <div
+          className="skeleton"
+          style={{ width: "230px", height: "38px", borderRadius: "8px" }}
+        />
+        <div
+          className="skeleton"
+          style={{ width: "140px", height: "38px", borderRadius: "8px" }}
+        />
+      </div>
+
+      {/* A4 Landscape Certificate Canvas Skeleton */}
+      <div
+        style={{
+          width: "100%",
+          maxWidth: "1100px",
+          aspectRatio: "297 / 210",
+          margin: "0 auto",
+          borderRadius: "8px",
+          border: "2px solid rgba(184, 134, 11, 0.22)",
+          backgroundColor: "#fdfbf7",
+          boxShadow: "0 10px 30px rgba(0,0,0,0.06)",
+          position: "relative",
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          padding: "5%",
+          boxSizing: "border-box",
+        }}
+      >
+        {/* Left gold ribbon placeholder */}
+        <div
+          className="skeleton"
+          style={{
+            position: "absolute",
+            top: "3%",
+            bottom: "3%",
+            left: "4%",
+            width: "3.5%",
+            borderRadius: "2px",
+            opacity: 0.65,
+          }}
+        />
+
+        {/* Top Header & Rosette */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginLeft: "6%" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div className="skeleton" style={{ width: "160px", height: "24px", borderRadius: "4px" }} />
+            <div className="skeleton" style={{ width: "120px", height: "12px", borderRadius: "3px" }} />
+          </div>
+          <div
+            className="skeleton"
+            style={{
+              width: "72px",
+              height: "72px",
+              borderRadius: "50%",
+              opacity: 0.8,
+            }}
+          />
+        </div>
+
+        {/* Center Recipient & Course */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "14px",
+            margin: "auto 0",
+            marginLeft: "6%",
+          }}
+        >
+          <div className="skeleton" style={{ width: "180px", height: "12px", borderRadius: "3px" }} />
+          <div className="skeleton" style={{ width: "340px", height: "36px", borderRadius: "6px" }} />
+          <div className="skeleton" style={{ width: "240px", height: "14px", borderRadius: "4px" }} />
+          <div className="skeleton" style={{ width: "420px", height: "24px", borderRadius: "5px" }} />
+          <div className="skeleton" style={{ width: "380px", height: "12px", borderRadius: "3px", marginTop: "4px" }} />
+        </div>
+
+        {/* Bottom Signatures & QR Seal */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-end",
+            marginLeft: "6%",
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <div className="skeleton" style={{ width: "140px", height: "32px", borderRadius: "4px" }} />
+            <div className="skeleton" style={{ width: "120px", height: "12px", borderRadius: "3px" }} />
+            <div className="skeleton" style={{ width: "90px", height: "10px", borderRadius: "3px" }} />
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" }}>
+            <div
+              className="skeleton"
+              style={{ width: "64px", height: "64px", borderRadius: "6px" }}
+            />
+            <div className="skeleton" style={{ width: "80px", height: "8px", borderRadius: "2px" }} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** A learner's certificate as the learner sees it, for checking and printing. */
 export default function CertificatePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [details, setDetails] = useState<CertificateDetails | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "missing" | "error">("loading");
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   useEffect(() => {
     fetch(`${API_URL}/certificates`)
@@ -46,40 +168,53 @@ export default function CertificatePage({ params }: { params: Promise<{ id: stri
       .catch(() => setState("error"));
   }, [id]);
 
+  if (state === "loading") {
+    return <CertificateSkeleton />;
+  }
+
   if (state !== "ready" || !details) {
     return (
-      <p className={styles.message} role={state === "loading" ? "status" : "alert"}>
-        {state === "loading" && "Loading the certificate..."}
-        {state === "missing" && "This certificate could not be found."}
-        {state === "error" && "The certificate could not be loaded. Check that the API is running."}{" "}
-        {state !== "loading" && <Link href="/certificates">Back to certificates</Link>}
-      </p>
+      <div style={{ maxWidth: "600px", margin: "3rem auto", textAlign: "center", padding: "2rem" }}>
+        <p className={styles.message} role="alert" style={{ marginBottom: "1rem" }}>
+          {state === "missing" && "This certificate could not be found."}
+          {state === "error" && "The certificate could not be loaded. Check that the API is running."}
+        </p>
+        <Link
+          href="/approvals?tab=certs"
+          className={styles.secondary}
+          style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", textDecoration: "none" }}
+        >
+          &larr; Back to Approvals &amp; Gates
+        </Link>
+      </div>
     );
   }
 
   const certCode = details.number || id;
-  const marketingBase = getMarketingUrl();
-  const verifyUrl = `${marketingBase}/verify/${encodeURIComponent(certCode)}`;
-  const issueDateObj = details.issuedAt ? new Date(details.issuedAt) : new Date();
-  const linkedInUrl = `https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=${encodeURIComponent(
-    `${details.course || "Curriculum"} Certification`,
-  )}&organizationName=whatboutme&issueYear=${issueDateObj.getFullYear()}&issueMonth=${issueDateObj.getMonth() + 1}&certUrl=${encodeURIComponent(
-    verifyUrl,
-  )}&certId=${encodeURIComponent(certCode)}`;
 
   const handleDownloadPdf = async () => {
+    setDownloadingPdf(true);
     try {
       const res = await fetch(`${API_URL}/certificates/${id}/pdf`);
       if (res.ok) {
         const data = await res.json();
         if (data.downloadUrl || data.pdfUrl) {
-          window.open(data.downloadUrl || data.pdfUrl, "_blank");
+          const downloadLink = document.createElement("a");
+          downloadLink.href = data.downloadUrl || data.pdfUrl;
+          downloadLink.target = "_blank";
+          downloadLink.rel = "noopener noreferrer";
+          downloadLink.download = `certificate-${certCode}.pdf`;
+          document.body.appendChild(downloadLink);
+          downloadLink.click();
+          document.body.removeChild(downloadLink);
           return;
         }
       }
       window.print();
     } catch {
       window.print();
+    } finally {
+      setDownloadingPdf(false);
     }
   };
 
@@ -141,69 +276,86 @@ export default function CertificatePage({ params }: { params: Promise<{ id: stri
           `,
         }}
       />
-      <div className={styles.toolbar}>
-        <div>
-          <h1>Certificate Preview</h1>
-          <p>
-            Credential ID: <strong>{certCode}</strong> • Official Accredited Credential
-          </p>
-        </div>
-        <div className={styles.actions} style={{ flexWrap: "wrap" }}>
-          <Link href="/certificates" className={styles.secondary} style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
-            <span>Back</span>
-          </Link>
-          <a
-            href={verifyUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={styles.secondary}
-            title="Open public verification page"
-            style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem" }}
+      <div
+        className={styles.toolbar}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: "1.5rem",
+          padding: "0.25rem 0",
+        }}
+      >
+        <Link
+          href="/approvals?tab=certs"
+          className={styles.secondary}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            textDecoration: "none",
+            fontWeight: 600,
+            fontSize: "0.875rem",
+            color: "var(--text-primary, #14110f)",
+            border: "1px solid var(--border-light, #e2e8f0)",
+            background: "#ffffff",
+            padding: "0.5rem 1rem",
+            borderRadius: "8px",
+            boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
+          }}
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            </svg>
-            <span>Verify Online ↗</span>
-          </a>
-          <a
-            href={linkedInUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={styles.secondary}
-            title="Add credential to LinkedIn Profile"
-            style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem", color: "#0a66c2", borderColor: "#0a66c2" }}
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+          <span>Back to Approvals &amp; Gates</span>
+        </Link>
+
+        <button
+          type="button"
+          className={styles.primary}
+          onClick={handleDownloadPdf}
+          disabled={downloadingPdf}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            fontWeight: 600,
+            fontSize: "0.875rem",
+            padding: "0.5rem 1.25rem",
+            borderRadius: "8px",
+            cursor: "pointer",
+          }}
+          title="Download Certificate PDF"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
           >
-            <span>Add to LinkedIn ↗</span>
-          </a>
-          <button
-            type="button"
-            className={styles.secondary}
-            onClick={handleDownloadPdf}
-            title="Download official generated PDF"
-            style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem" }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-              <polyline points="14 2 14 8 20 8"></polyline>
-              <line x1="12" y1="18" x2="12" y2="12"></line>
-              <line x1="9" y1="15" x2="15" y2="15"></line>
-            </svg>
-            <span>Official PDF</span>
-          </button>
-          <button type="button" className={styles.primary} onClick={() => window.print()} style={{ display: "inline-flex", alignItems: "center", gap: "0.45rem" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <polyline points="6 9 6 2 18 2 18 9" />
-              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-              <rect x="6" y="14" width="12" height="8" />
-            </svg>
-            <span>Print / Save PDF</span>
-          </button>
-        </div>
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          <span>{downloadingPdf ? "Downloading..." : "Download PDF"}</span>
+        </button>
       </div>
-      <Certificate {...details} />
+      <Certificate {...details} showLinkedInShare={false} />
     </>
   );
 }

@@ -1900,6 +1900,13 @@ export async function duplicateProgram(id: string): Promise<any> {
 // NOTIFICATION BROADCAST & DELIVERY LOGS (TASK 13)
 // -----------------------------------------------------------------------------
 
+export interface BroadcastAttachment {
+  filename: string;
+  content: string; // base64 data string
+  contentType?: string;
+  size?: number;
+}
+
 export interface BroadcastNotificationPayload {
   target: 'ALL' | 'BATCH' | 'USER';
   targetId?: string;
@@ -1907,6 +1914,7 @@ export interface BroadcastNotificationPayload {
   message: string;
   link?: string;
   channels: ('IN_APP' | 'PUSH' | 'EMAIL')[];
+  attachments?: BroadcastAttachment[];
 }
 
 export interface BroadcastResult {

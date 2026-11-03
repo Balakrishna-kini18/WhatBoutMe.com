@@ -258,12 +258,12 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
   },
   {
     id: "batches",
-    title: "Batches & Cohorts",
-    description: "Active cohorts, live schedules, and class dates",
+    title: "Batches",
+    description: "Active batches, live schedules, and class dates",
     href: "/batches",
-    category: "Overview",
+    category: "Curriculum",
     iconName: "Batches",
-    keywords: ["cohorts", "classes", "schedule", "timings", "live"],
+    keywords: ["batches", "classes", "schedule", "timings", "live"],
   },
   {
     id: "revenue",
@@ -279,7 +279,7 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
     title: "Compliance & Audit Logs",
     description: "System-wide immutable audit trail, administrative overrides, and compliance history",
     href: "/audit-logs",
-    category: "Overview",
+    category: "System",
     iconName: "Approvals",
     keywords: ["audit", "logs", "compliance", "forensics", "history", "overrides", "security"],
   },
@@ -331,7 +331,7 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
   },
   {
     id: "meetings",
-    title: "Calendar & Live Sessions",
+    title: "Calendar",
     description: "Single calendar system, scheduling, and Outlook sync",
     href: "/meetings",
     category: "Communication",
@@ -523,14 +523,28 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         localStorage.removeItem("admin_theme");
         document.documentElement.classList.remove("dark");
 
-        // Platform detection for search shortcut
-        if (typeof window !== "undefined") {
+        // Platform detection for search shortcut (Explicit Windows priority prevents false Mac command)
+        if (typeof window !== "undefined" && typeof navigator !== "undefined") {
           setPushStatus(getPushPermissionStatus());
-          const isMac =
-            /Mac|iPod|iPhone|iPad/.test(navigator.platform) ||
-            /Macintosh|Mac OS X/.test(navigator.userAgent);
-          if (isMac) {
-            setSearchShortcut("⌘K");
+          const navAny = navigator as any;
+          const platform = (navAny.userAgentData?.platform || navigator.platform || "").toLowerCase();
+          const ua = (navigator.userAgent || "").toLowerCase();
+
+          // 1. Explicit Windows priority (Guaranteed Ctrl K for Windows / PC users)
+          const isWindows = platform.includes("win") || ua.includes("windows");
+          if (isWindows) {
+            setSearchShortcut("Ctrl K");
+          } else {
+            // 2. Apple macOS / iOS check
+            const isApple =
+              platform.includes("mac") ||
+              platform.includes("iphone") ||
+              platform.includes("ipad") ||
+              platform.includes("ipod") ||
+              ua.includes("macintosh") ||
+              ua.includes("mac os x");
+
+            setSearchShortcut(isApple ? "⌘K" : "Ctrl K");
           }
         }
       }, []);
@@ -797,17 +811,16 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
             { label: "Dashboard", href: "/", icon: <Icons.Dashboard />, perm: "all" },
             { label: "Users & Enrolments", href: "/users", icon: <Icons.Users />, perm: "view_users" },
             { label: "Organizations", href: "/users/organizations", icon: <Icons.Organizations />, perm: "view_users" },
-            { label: "Batches", href: "/batches", icon: <Icons.Batches />, perm: "view_batches" },
             { label: "Revenue", href: "/revenue", icon: <Icons.Analytics />, perm: "view_finance" },
             { label: "Coupons", href: "/coupons", icon: <Icons.Coupons />, perm: "manage_coupons" },
-            { label: "Audit Logs", href: "/audit-logs", icon: <Icons.Approvals />, perm: "super_admin_only" },
           ],
         },
         {
           title: "CURRICULUM",
-          permission: hasPermission("manage_curriculum"),
+          permission: hasPermission("manage_curriculum") || hasPermission("view_batches"),
           items: [
             { label: "Programs", href: "/programs", icon: <Icons.Programs />, perm: "manage_curriculum" },
+            { label: "Batches", href: "/batches", icon: <Icons.Batches />, perm: "view_batches" },
             { label: "Agreements", href: "/agreements", icon: <Icons.Agreements />, perm: "manage_operations" },
             { label: "Approvals & Gates", href: "/approvals", icon: <Icons.Certificates />, perm: "manage_operations" },
           ],
@@ -816,9 +829,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
           title: "COMMUNICATION",
           permission: hasPermission("manage_operations"),
           items: [
+            { label: "Calendar", href: "/meetings", icon: <Icons.Calendar />, perm: "manage_operations" },
             { label: "Enquiries", href: "/leads", icon: <Icons.Enquiries />, perm: "manage_website" },
             { label: "Events & Webinars", href: "/events", icon: <Icons.Events />, perm: "manage_operations" },
-            { label: "Calendar & Sessions", href: "/meetings", icon: <Icons.Calendar />, perm: "manage_operations" },
           ],
         },
         {
@@ -826,6 +839,13 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
           permission: hasPermission("manage_website"),
           items: [
             { label: "Website Content", href: "/website", icon: <Icons.WebsiteContent />, perm: "manage_website" },
+          ],
+        },
+        {
+          title: "SYSTEM",
+          permission: hasPermission("super_admin_only"),
+          items: [
+            { label: "Audit Logs", href: "/audit-logs", icon: <Icons.Approvals />, perm: "super_admin_only" },
           ],
         },
       ];

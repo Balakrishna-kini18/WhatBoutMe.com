@@ -17,11 +17,11 @@
    1. Page Header & Primary Action
    ========================================================================= */
 .pageHeader {
-  background: #ffffff;
-  border: 1px solid var(--border-light, #ece4d7);
-  border-radius: 12px;
-  padding: 1.25rem 1.5rem;
-  box-shadow: var(--shadow-sm, 0 1px 3px rgba(20, 17, 15, 0.04));
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0.25rem 0 0.5rem 0;
+  box-shadow: none;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -657,7 +657,7 @@
   color: var(--text-primary, #14110f);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 0.25rem;
 }
 
 .requiredStar {

@@ -18,6 +18,10 @@ export type EmptyStateNamedIcon =
   | "certificates"
   | "graduation"
   | "course"
+  | "clipboard"
+  | "oral"
+  | "assessment"
+  | "rubric"
   | "search";
 
 export function resolveEmptyStateIcon(icon?: React.ReactNode): React.ReactNode {
@@ -64,6 +68,27 @@ export function resolveEmptyStateIcon(icon?: React.ReactNode): React.ReactNode {
           React.createElement("circle", { cx: "9", cy: "7", r: "4" }),
           React.createElement("path", { d: "M23 21v-2a4 4 0 0 0-3-3.87" }),
           React.createElement("path", { d: "M16 3.13a4 4 0 0 1 0 7.75" })
+        );
+      case "clipboard":
+      case "oral":
+      case "assessment":
+      case "rubric":
+        return React.createElement(
+          "svg",
+          {
+            width: "24",
+            height: "24",
+            viewBox: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            strokeWidth: "1.75",
+            strokeLinecap: "round",
+            strokeLinejoin: "round",
+            "aria-hidden": "true",
+          },
+          React.createElement("path", { d: "M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" }),
+          React.createElement("rect", { x: "8", y: "2", width: "8", height: "4", rx: "1", ry: "1" }),
+          React.createElement("path", { d: "M9 14l2 2 4-4" })
         );
       case "document":
       case "documents":
@@ -147,6 +172,27 @@ export function resolveEmptyStateIcon(icon?: React.ReactNode): React.ReactNode {
           React.createElement("polygon", { points: "12 2 2 7 12 12 22 7 12 2" }),
           React.createElement("polyline", { points: "2 17 12 22 22 17" }),
           React.createElement("polyline", { points: "2 12 12 17 22 12" })
+        );
+      case "clipboard":
+      case "oral":
+      case "assessment":
+      case "rubric":
+        return React.createElement(
+          "svg",
+          {
+            width: "24",
+            height: "24",
+            viewBox: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            strokeWidth: "1.75",
+            strokeLinecap: "round",
+            strokeLinejoin: "round",
+            "aria-hidden": "true",
+          },
+          React.createElement("path", { d: "M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" }),
+          React.createElement("rect", { x: "8", y: "2", width: "8", height: "4", rx: "1", ry: "1" }),
+          React.createElement("path", { d: "M9 14l2 2 4-4" })
         );
       case "search":
         return React.createElement(

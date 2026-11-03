@@ -224,7 +224,7 @@ export class StageGateService {
       this.prisma.oralAssessment.findMany({
         where: { enrolmentId: enrolment.id },
         orderBy: { createdAt: 'desc' },
-        select: { id: true, status: true, passed: true, overallScore: true, completedAt: true },
+        select: { id: true, status: true, passed: true, overallScore: true, completedAt: true, scheduledDate: true, trainerNotes: true },
       }),
 
       // 7. Exam configured entity
@@ -393,10 +393,11 @@ export class StageGateService {
     const passedExam = examAttempts.find(
       (a) => a.status === AttemptStatus.PASSED || a.passed === true,
     );
-    const oralRequired = !isCorporateTrack && programOralCount > 0;
+    const oralRequired = !isCorporateTrack && (programOralCount > 0 || oralAssessments.length > 0);
     const passedOral = oralAssessments.find(
       (a) => a.status === OralAssessmentStatus.PASSED || a.passed === true,
     );
+    const latestOral = oralAssessments[0] || null;
 
     const examMet = !isExamRequired || Boolean(passedExam);
     const oralMet = !oralRequired || Boolean(passedOral);
@@ -586,8 +587,11 @@ export class StageGateService {
           attemptCount: examAttempts.length,
           oralRequired,
           oralPassed: Boolean(passedOral),
-          oralScore: passedOral?.overallScore ?? null,
-          oralStatus: passedOral?.status ?? null,
+          oralScore: latestOral?.overallScore ?? passedOral?.overallScore ?? null,
+          oralStatus: latestOral?.status ?? (oralRequired ? 'AWAITING_SCHEDULE' : 'EXEMPT'),
+          oralScheduledDate: latestOral?.scheduledDate ?? null,
+          oralTrainerNotes: latestOral?.trainerNotes ?? null,
+          oralAssessmentId: latestOral?.id ?? null,
         },
         unmetPrerequisites: stage2Unlocked
           ? !stage2Met

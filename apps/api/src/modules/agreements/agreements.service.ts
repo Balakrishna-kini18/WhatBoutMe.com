@@ -13,6 +13,10 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { EmailService } from '../email/email.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 import {
+  isRegistrationDeadlinePassed,
+  getRegistrationDeadlineCutoff,
+} from '../../common/utils/deadline.util.js';
+import {
   CreateAgreementTemplateDto,
   CreateTemplateVersionDto,
   QueryAgreementTemplatesDto,
@@ -830,8 +834,9 @@ export class AgreementsService {
             programId,
             status: { in: [BatchStatus.ACTIVE, BatchStatus.UPCOMING] },
             OR: [
+              { status: BatchStatus.ACTIVE },
               { registrationDeadline: null },
-              { registrationDeadline: { gte: now } },
+              { registrationDeadline: { gte: getRegistrationDeadlineCutoff(now) } },
             ],
           },
           orderBy: [
@@ -853,7 +858,7 @@ export class AgreementsService {
       }
 
       // Find first batch that still has capacity
-      const openBatch = candidateBatches.find(b => b._count.enrolments < b.capacity);
+      const openBatch = candidateBatches.find(b => b._count.enrolments < b.capacity && (b.status === BatchStatus.ACTIVE || !isRegistrationDeadlinePassed(b.registrationDeadline, now)));
 
       let batch: any = openBatch;
       let initialStatus: EnrolmentStatus = EnrolmentStatus.PENDING_PAYMENT;
@@ -1275,9 +1280,9 @@ export class AgreementsService {
           const occupied = batch?._count?.enrolments ?? 0;
           const capacity = batch?.capacity ?? 50;
           const isFull = occupied >= capacity;
-          const isDeadlinePassed = batch?.registrationDeadline
-            ? new Date() > new Date(batch.registrationDeadline)
-            : false;
+          const isDeadlinePassed = isRegistrationDeadlinePassed(batch?.registrationDeadline);
+
+
 
           nextStatus = (isFull || isDeadlinePassed) ? EnrolmentStatus.WAITLIST : EnrolmentStatus.ACTIVE;
         }
@@ -1528,6 +1533,7 @@ export class AgreementsService {
         query.paymentStatus ||
         query.scope ||
         query.programId ||
+        query.batchId ||
         query.startDate ||
         query.endDate);
 
@@ -1631,8 +1637,13 @@ export class AgreementsService {
     }
 
     // Program filter (especially useful for shared defaults covering multiple courses)
-    if (query.programId) {
+    if (query.programId && query.programId !== 'ALL') {
       andFilters.push({ programId: query.programId });
+    }
+
+    // Batch filter
+    if (query.batchId && query.batchId !== 'ALL') {
+      andFilters.push({ enrolment: { batchId: query.batchId, ...(managerBatchCondition || {}) } });
     }
 
     // Explicit enrolment status filter

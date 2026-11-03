@@ -209,7 +209,7 @@ export class OneOnOneService {
    * Learner views all their 1-on-1 requests and scheduled sessions.
    */
   async getMyRequests(userId: string, enrolmentId?: string) {
-    return this.prisma.oneOnOneRequest.findMany({
+    const reqs = await this.prisma.oneOnOneRequest.findMany({
       where: {
         userId,
         ...(enrolmentId ? { enrolmentId } : {}),
@@ -227,6 +227,15 @@ export class OneOnOneService {
         },
       },
       orderBy: { createdAt: 'desc' },
+    });
+
+    // Security & Role isolation: Learners join as guest; strip hostUrl so they cannot launch as host
+    return reqs.map((r) => {
+      if (r.session) {
+        const { hostUrl, ...safeSession } = r.session as any;
+        return { ...r, session: safeSession };
+      }
+      return r;
     });
   }
 
@@ -480,6 +489,34 @@ export class OneOnOneService {
           },
         });
 
+        // Synchronize Enrolment 1:1 scheduling fields
+        await tx.enrolment.update({
+          where: { id: request.enrolmentId },
+          data: {
+            oneOnOneStatus: 'SCHEDULED' as any,
+            oneOnOneScheduledAt: startTime,
+            oneOnOneMeetingUrl: joinUrl,
+            oneOnOneFacilitatorId: hostTrainerId,
+            oneOnOneAdminNotes: dto.notes || 'Approved by instructor',
+          },
+        });
+
+        // In-app notification for the learner
+        if (tx.notification?.create) {
+          try {
+            await tx.notification.create({
+              data: {
+                userId: request.userId,
+                type: 'ONE_ON_ONE_APPROVED',
+                template: `Your 1-on-1 coaching session has been confirmed for ${startTime.toDateString()} at ${startTime.toTimeString().slice(0, 5)} (${request.learnerTimezone || 'UTC'}).`,
+                channel: 'IN_APP',
+              },
+            });
+          } catch {
+            // non-blocking
+          }
+        }
+
         // Immutable AuditLog
         await tx.auditLog.create({
           data: {
@@ -587,6 +624,55 @@ export class OneOnOneService {
         },
       },
     });
+
+    // Reset enrolment one-on-one status if necessary
+    try {
+      await this.prisma.enrolment.update({
+        where: { id: request.enrolmentId },
+        data: {
+          oneOnOneStatus: 'NOT_BOOKED' as any,
+          oneOnOneMeetingUrl: null,
+          oneOnOneAdminNotes: dto.reason,
+        },
+      });
+    } catch {
+      // non-blocking
+    }
+
+    // Create in-app notification for the learner
+    try {
+      await this.prisma.notification.create({
+        data: {
+          userId: request.userId,
+          type: 'ONE_ON_ONE_REJECTED',
+          template: `Your 1-on-1 coaching call request could not be confirmed. Note: "${dto.reason}". Please select an alternative slot.`,
+          channel: 'IN_APP',
+        },
+      });
+    } catch {
+      // non-blocking
+    }
+
+    // Send notification email to the learner
+    if (this.emailService && request.user?.email) {
+      try {
+        await this.emailService.sendTemplateEmail({
+          to: request.user.email,
+          subject: 'Update on your 1-on-1 Coaching Request',
+          template: 'SessionReminderEmail',
+          props: {
+            firstName: request.user.name?.split(' ')[0] || 'Learner',
+            sessionTitle: '1-on-1 Coaching Session Slot Rescheduling',
+            timeframe: 'Action Required: Choose Alternative Slot',
+            date: new Date().toDateString(),
+            time: `Feedback: ${dto.reason}`,
+            joinUrl: '',
+          },
+        });
+      } catch (err: any) {
+        this.logger.warn(`Could not send decline email: ${err?.message}`);
+      }
+    }
 
     await this.prisma.auditLog.create({
       data: {

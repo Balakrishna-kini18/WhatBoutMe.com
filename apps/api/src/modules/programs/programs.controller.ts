@@ -134,6 +134,20 @@ export class ProgramsController {
     return this.programsService.getStep(stepId, req?.user?.role);
   }
 
+  @Get('steps/:stepId/quiz')
+  getStepQuiz(@Param('stepId') stepId: string) {
+    return this.programsService.getStepQuiz(stepId);
+  }
+
+  @RequirePermission(Permission.CONTENT_CREATE)
+  @Post('steps/:stepId/quiz')
+  createStepQuiz(
+    @Param('stepId') stepId: string,
+    @Body() dto: any,
+  ) {
+    return this.programsService.upsertStepQuiz(stepId, dto);
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   // 3. LESSON ROUTES (Literal 'lessons/...' prefixes placed before ':id' routes)
   // ─────────────────────────────────────────────────────────────────────────────

@@ -673,7 +673,7 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
                         <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "flex-start" }}>
                           {s.joinUrl ? (
                             <a
-                              href={s.joinUrl}
+                              href={(s as any).hostUrl || s.joinUrl}
                               target="_blank"
                               rel="noreferrer"
                               style={{

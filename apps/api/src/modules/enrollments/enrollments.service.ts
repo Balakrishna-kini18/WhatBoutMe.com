@@ -9,6 +9,10 @@ import {
 import { AgreementStatus, BatchStatus, EnrolmentStatus, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
+import {
+  isRegistrationDeadlinePassed,
+  getRegistrationDeadlineCutoff,
+} from '../../common/utils/deadline.util.js';
 import { EmailService } from '../email/email.service.js';
 import {
   CreateEnrolmentDto,
@@ -64,23 +68,27 @@ export class EnrollmentsService {
       },
     });
 
-    const activePools = await tx.seatPool.findMany({
-      where: {
-        batchId,
-        status: { in: ['ACTIVE', 'ACTIVE_UNPAID'] },
-      },
-      select: { totalSeats: true },
-    });
+    const activePools = typeof tx.seatPool?.findMany === 'function'
+      ? await tx.seatPool.findMany({
+          where: {
+            batchId,
+            status: { in: ['ACTIVE', 'ACTIVE_UNPAID'] },
+          },
+          select: { totalSeats: true },
+        })
+      : [];
     const activeOrgSeats = activePools.reduce((sum: number, p: any) => sum + p.totalSeats, 0);
 
-    const holdPools = await tx.seatPool.findMany({
-      where: {
-        batchId,
-        status: 'PENDING_PAYMENT',
-        paymentExpiresAt: { gt: new Date() },
-      },
-      select: { totalSeats: true },
-    });
+    const holdPools = typeof tx.seatPool?.findMany === 'function'
+      ? await tx.seatPool.findMany({
+          where: {
+            batchId,
+            status: 'PENDING_PAYMENT',
+            paymentExpiresAt: { gt: new Date() },
+          },
+          select: { totalSeats: true },
+        })
+      : [];
     const holdOrgSeats = holdPools.reduce((sum: number, p: any) => sum + p.totalSeats, 0);
 
     return individualEnrolments + activeOrgSeats + holdOrgSeats;
@@ -152,12 +160,7 @@ export class EnrollmentsService {
       // Staff (SUPER_ADMIN, ADMIN, MANAGER) can explicitly override and manually assign.
       const isStaff = actor && ['SUPER_ADMIN', 'ADMIN', 'MANAGER', Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER].includes(actor.role);
       if (!isStaff) {
-        const now = Date.now();
-        const cutoffTime = (batch as any).registrationDeadline
-          ? new Date((batch as any).registrationDeadline).getTime()
-          : null;
-
-        if (cutoffTime && now > cutoffTime) {
+        if (isRegistrationDeadlinePassed((batch as any).registrationDeadline)) {
           throw new BadRequestException(
             'Registration for this cohort has closed as the registration deadline has passed. Please enroll in the next upcoming cohort or join the waitlist.',
           );
@@ -194,9 +197,7 @@ export class EnrollmentsService {
       const occupiedSeats = await this.getBatchOccupiedSeats(dto.batchId, tx);
 
       const isFull = occupiedSeats >= batch.capacity;
-      const isDeadlinePassed = batch.registrationDeadline
-        ? new Date() > new Date(batch.registrationDeadline)
-        : false;
+      const isDeadlinePassed = !isStaff && isRegistrationDeadlinePassed(batch.registrationDeadline);
       let initialStatus: EnrolmentStatus;
 
       if (isFull || isDeadlinePassed) {
@@ -1275,13 +1276,15 @@ export class EnrollmentsService {
     }
 
     for (const [programId, learners] of programMap.entries()) {
+      const deadlineCutoff = getRegistrationDeadlineCutoff(now);
       const openBatches = await this.prisma.batch.findMany({
         where: {
           programId,
           status: { in: [BatchStatus.ACTIVE, BatchStatus.UPCOMING] },
           OR: [
+            { status: BatchStatus.ACTIVE },
             { registrationDeadline: null },
-            { registrationDeadline: { gte: now } },
+            { registrationDeadline: { gte: deadlineCutoff } },
           ],
         },
         include: {
@@ -1305,6 +1308,7 @@ export class EnrollmentsService {
       });
 
       for (const batch of openBatches) {
+        if (batch.status !== BatchStatus.ACTIVE && isRegistrationDeadlinePassed(batch.registrationDeadline, now)) continue;
         let currentCount = batch._count.enrolments;
         const availableSeats = batch.capacity - currentCount;
         if (availableSeats <= 0) continue;

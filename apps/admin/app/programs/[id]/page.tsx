@@ -29,7 +29,7 @@ const ProgramSettingsPanel = dynamic(() => import("./components/ProgramSettingsP
 const ProgramEnrolmentsPanel = dynamic(() => import("./components/ProgramEnrolmentsPanel"), { ssr: false });
 const ProgramAnalyticsPanel = dynamic(() => import("./components/ProgramAnalyticsPanel"), { ssr: false });
 const ProgramCertificatePanel = dynamic(() => import("./components/ProgramCertificatePanel"), { ssr: false });
-const ProgramResourcesPanel = dynamic(() => import("./components/ProgramResourcesPanel"), { ssr: false });
+
 
 export type WizardStep =
   | "COURSE_SETUP"
@@ -45,10 +45,9 @@ export type WizardStep =
 
 export type ProgramTab =
   | "DETAILS"
-  | "PRICING"
   | "STEPS"
   | "FINAL_EXAM"
-  | "RESOURCES"
+
   | "CERTIFICATE"
   | "PUBLISH";
 
@@ -80,6 +79,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
   const [isCreateModuleModalOpen, setIsCreateModuleModalOpen] = useState(false);
   const [isCreatingModule, setIsCreatingModule] = useState(false);
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundUploadTask[]>([]);
+  const [editingLesson, setEditingLesson] = useState<any | null>(null);
   const toast = useToast();
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean;
@@ -212,6 +212,7 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
       const updated = await res.json();
       setProgramData((prev: any) => ({ ...prev, ...updated }));
       toast.success(programData?.isActive ? "Program details updated." : "Program details saved to draft.");
+      setActiveProgramTab("STEPS");
     } catch (err: any) {
       toast.error(err.message || "Failed to save course details");
     } finally {
@@ -526,29 +527,37 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
     });
   };
 
-  // Delete Lesson Action with in-website popup
+  // Delete Lesson Action
   const handleDeleteLesson = async (lessonId: string) => {
-    setConfirmConfig({
-      isOpen: true,
-      title: "Delete Lesson",
-      description: "Are you sure you want to delete this lesson from the module? This action cannot be undone.",
-      confirmText: "Delete Lesson",
-      onConfirm: async () => {
-        setIsConfirming(true);
-        try {
-          const res = await cachedFetch(`${API_URL}/programs/lessons/${lessonId}`, { method: "DELETE" });
-          if (res.ok) {
-            toast.success("Lesson deleted successfully.");
-            fetchProgramAndSteps();
-          } else {
-            toast.error("Failed to delete lesson.");
-          }
-        } finally {
-          setIsConfirming(false);
-          setConfirmConfig(null);
-        }
-      },
-    });
+    setIsConfirming(true);
+    try {
+      const res = await cachedFetch(`${API_URL}/programs/lessons/${lessonId}`, {
+        method: "DELETE",
+        timeoutMs: 30000,
+      });
+      if (res.ok) {
+        setSteps((prev) =>
+          prev.map((step) => ({
+            ...step,
+            lessons: (step.lessons || []).filter((l) => l.id !== lessonId),
+          }))
+        );
+        toast.success("Lesson deleted successfully.");
+        await fetchProgramAndSteps();
+      } else {
+        const errorData = await res.json().catch(() => null);
+        toast.error(errorData?.message || errorData?.error?.message || "Failed to delete lesson.");
+      }
+    } catch (err: any) {
+      const msg = err?.message || "";
+      if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+        toast.error("Network connection error. Please verify the backend is running and try again.");
+      } else {
+        toast.error(msg || "Failed to delete lesson.");
+      }
+    } finally {
+      setIsConfirming(false);
+    }
   };
 
   // Delete Quiz Action with in-website popup
@@ -634,13 +643,145 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
   // ---------------------------------------------------------------------------
   // Loading & Error States
   // ---------------------------------------------------------------------------
+    // ---------------------------------------------------------------------------
+  // Loading & Error States
+  // ---------------------------------------------------------------------------
   if (isLoading && !programData) {
     return (
       <div className={styles.wizardContainer}>
-        <div style={{ maxWidth: 800, margin: "3rem auto", width: "100%" }}>
-          <div className="skeleton" style={{ height: 28, width: 200, marginBottom: 16, borderRadius: 8 }} />
-          <div className="skeleton" style={{ height: 48, width: "100%", marginBottom: 32, borderRadius: 12 }} />
-          <div className="skeleton" style={{ height: 380, width: "100%", borderRadius: 18 }} />
+        {/* Top Breadcrumb & Actions Bar Skeleton */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", marginBottom: "0.75rem" }}>
+          <div className="skeleton" style={{ width: 150, height: 28, borderRadius: 6 }} />
+          <div className="skeleton" style={{ width: 120, height: 32, borderRadius: 6 }} />
+        </div>
+
+        {/* Program Header Card Skeleton */}
+        <div
+          style={{
+            background: "#ffffff",
+            border: "1px solid var(--border-light, #e7decb)",
+            borderRadius: "12px",
+            boxShadow: "0 1px 3px rgba(20, 17, 15, 0.03)",
+            padding: "1rem 1.25rem",
+            marginBottom: "1rem",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+            <div className="skeleton" style={{ width: 48, height: 48, borderRadius: 12, flexShrink: 0 }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                <div className="skeleton" style={{ height: 24, width: 260, borderRadius: 6 }} />
+                <div className="skeleton" style={{ height: 20, width: 64, borderRadius: 6 }} />
+              </div>
+              <div className="skeleton" style={{ height: 14, width: 340, borderRadius: 4 }} />
+            </div>
+          </div>
+        </div>
+
+        {/* Horizontal Tab Bar Skeleton */}
+        <div className={styles.programTabBar} style={{ borderBottom: "none", pointerEvents: "none", display: "flex", gap: "0.5rem" }}>
+          {[140, 130, 110, 110, 140].map((w, idx) => (
+            <div
+              key={idx}
+              className="skeleton"
+              style={{
+                height: 38,
+                width: w,
+                borderRadius: 8,
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Studio Content Card Skeleton */}
+        <div
+          style={{
+            background: "#ffffff",
+            border: "1px solid var(--border-light, #e7decb)",
+            borderRadius: 14,
+            padding: "1.75rem",
+            boxShadow: "0 1px 3px rgba(20, 17, 15, 0.03)",
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1fr)",
+            gap: "1.75rem",
+            minHeight: 460,
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+            <div className="skeleton" style={{ height: 24, width: 180, borderRadius: 6 }} />
+            <div className="skeleton" style={{ height: 42, width: "100%", borderRadius: 8 }} />
+            <div className="skeleton" style={{ height: 110, width: "100%", borderRadius: 8 }} />
+            <div className="skeleton" style={{ height: 42, width: "100%", borderRadius: 8 }} />
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+            <div className="skeleton" style={{ height: 24, width: 160, borderRadius: 6 }} />
+            <div className="skeleton" style={{ height: 160, width: "100%", borderRadius: 10 }} />
+            <div className="skeleton" style={{ height: 42, width: "100%", borderRadius: 8 }} />
+            <div className="skeleton" style={{ height: 42, width: 140, borderRadius: 8, alignSelf: "flex-end" }} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isLoading && !programData) {
+    return (
+      <div className={styles.wizardContainer}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", marginBottom: "0.75rem" }}>
+          <Link
+            href="/programs"
+            className={styles.breadcrumbRootLink}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.45rem",
+              color: "var(--text-muted, #78716a)",
+              fontSize: "0.82rem",
+              fontWeight: 600,
+              textDecoration: "none",
+              padding: "0.3rem 0.6rem",
+              borderRadius: "6px",
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            <span>Back to All Programs</span>
+          </Link>
+        </div>
+
+        <div
+          style={{
+            background: "#ffffff",
+            border: "1px solid #ece4d7",
+            borderRadius: 14,
+            padding: "3.5rem 2rem",
+            textAlign: "center",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            marginTop: "1.5rem",
+          }}
+        >
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#a8a29e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ marginBottom: "1rem" }}>
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+          </svg>
+          <h2 style={{ fontSize: "1.2rem", fontWeight: 700, color: "#14110f", margin: "0 0 0.5rem" }}>
+            Program Not Found
+          </h2>
+          <p style={{ fontSize: "0.88rem", color: "#78716a", maxWidth: 420, margin: "0 0 1.5rem", lineHeight: 1.5 }}>
+            The program you are trying to view does not exist or may have been deleted.
+          </p>
+          <Link
+            href="/programs"
+            className={styles.btnPrimary}
+            style={{ textDecoration: "none", padding: "0.55rem 1.25rem", fontSize: "0.88rem" }}
+          >
+            Return to Programs List
+          </Link>
         </div>
       </div>
     );
@@ -818,15 +959,6 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         <button
           type="button"
           role="tab"
-          aria-selected={activeProgramTab === "PRICING"}
-          className={`${styles.programTabBtn} ${activeProgramTab === "PRICING" ? styles.programTabBtnActive : ""}`}
-          onClick={() => setActiveProgramTab("PRICING")}
-        >
-          Pricing &amp; Access
-        </button>
-        <button
-          type="button"
-          role="tab"
           aria-selected={activeProgramTab === "STEPS"}
           className={`${styles.programTabBtn} ${activeProgramTab === "STEPS" ? styles.programTabBtnActive : ""}`}
           onClick={() => {
@@ -844,15 +976,6 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
           onClick={() => setActiveProgramTab("FINAL_EXAM")}
         >
           Final Exam
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeProgramTab === "RESOURCES"}
-          className={`${styles.programTabBtn} ${activeProgramTab === "RESOURCES" ? styles.programTabBtnActive : ""}`}
-          onClick={() => setActiveProgramTab("RESOURCES")}
-        >
-          Resources
         </button>
         <button
           type="button"
@@ -883,13 +1006,6 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         />
       )}
 
-      {activeProgramTab === "PRICING" && (
-        <Step3PricingAccess
-          programData={programData}
-          onSave={handleSavePricingAccess}
-          isSaving={isSaving}
-        />
-      )}
 
       {/* Main Steps & Lessons Tab */}
       {activeProgramTab === "STEPS" && (
@@ -901,7 +1017,26 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
               onSelectModule={(id) => setActiveModuleId(id)}
               onOpenCreateModal={() => setIsCreateModuleModalOpen(true)}
               onOpenAddLessonChooser={() => setWizardStep("ADD_LESSON_CHOOSER")}
+              onOpenAddVideoLesson={() => {
+                setEditingLesson(null);
+                setWizardStep("ADD_VIDEO_LESSON");
+              }}
+              onOpenAddPdfLesson={() => {
+                setEditingLesson(null);
+                setWizardStep("ADD_PDF_LESSON");
+              }}
               onOpenQuizBuilder={() => setWizardStep("QUIZ_BUILDER")}
+              onEditLesson={(lesson, step) => {
+                setEditingLesson(lesson);
+                setActiveModuleId(step.id);
+                if (lesson.type === "VIDEO") {
+                  setWizardStep("ADD_VIDEO_LESSON");
+                } else if (lesson.type === "PDF") {
+                  setWizardStep("ADD_PDF_LESSON");
+                } else if (lesson.type === "QUIZ") {
+                  setWizardStep("QUIZ_BUILDER");
+                }
+              }}
               onDeleteModule={handleDeleteModule}
               onDeleteLesson={handleDeleteLesson}
               onDeleteQuiz={handleDeleteQuiz}
@@ -919,13 +1054,18 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
             />
           )}
 
-          {/* Add Video Lesson */}
+          {/* Add / Edit Video Lesson */}
           {wizardStep === "ADD_VIDEO_LESSON" && activeModule && (
             <Step6AddVideoLesson
               moduleTitle={activeModule.title}
               moduleId={activeModule.id}
-              onBackToChooser={() => setWizardStep("ADD_LESSON_CHOOSER")}
+              editingLesson={editingLesson}
+              onBackToChooser={() => {
+                setEditingLesson(null);
+                setWizardStep("MODULE_LIST");
+              }}
               onLessonSaved={() => {
+                setEditingLesson(null);
                 fetchProgramAndSteps();
                 setWizardStep("MODULE_LIST");
               }}
@@ -933,13 +1073,18 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
             />
           )}
 
-          {/* Add PDF Lesson */}
+          {/* Add / Edit PDF Lesson */}
           {wizardStep === "ADD_PDF_LESSON" && activeModule && (
             <Step6AddPdfLesson
               moduleTitle={activeModule.title}
               moduleId={activeModule.id}
-              onBackToChooser={() => setWizardStep("ADD_LESSON_CHOOSER")}
+              editingLesson={editingLesson}
+              onBackToChooser={() => {
+                setEditingLesson(null);
+                setWizardStep("MODULE_LIST");
+              }}
               onLessonSaved={() => {
+                setEditingLesson(null);
                 fetchProgramAndSteps();
                 setWizardStep("MODULE_LIST");
               }}
@@ -989,18 +1134,12 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
         />
       )}
 
-      {activeProgramTab === "RESOURCES" && (
-        <ProgramResourcesPanel
-          programId={programId}
-          programTitle={programData?.title}
-        />
-      )}
-
       {activeProgramTab === "CERTIFICATE" && (
         <ProgramCertificatePanel
           programId={programId}
           programTitle={programData?.title}
           hasCertificate={programData?.hasCertificate !== false}
+          certificateTemplate={programData?.certificateTemplate}
           onUpdateCertificate={handleUpdateProgramSettings}
         />
       )}

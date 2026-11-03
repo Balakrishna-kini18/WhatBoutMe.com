@@ -861,6 +861,31 @@ export async function uploadFile(file: File): Promise<string> {
   return (await res.json()).url;
 }
 
+/**
+ * Resolves internal storage schemes (e.g. upload:<publicId> or bare keys) into streamable URLs with auth token.
+ */
+export function resolveMediaUrl(url?: string | null): string {
+  if (!url) return "";
+  if (url.startsWith("blob:") || url.startsWith("data:")) return url;
+
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : "";
+
+  if (url.startsWith("upload:")) {
+    const rawKey = url.replace("upload:", "").trim();
+    const streamingKey = rawKey.includes(".") ? rawKey : `${rawKey}.mp4`;
+    return `${API_URL}/media/stream/${streamingKey}${tokenQuery}`;
+  }
+
+  if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("/")) {
+    const streamingKey = url.includes(".") ? url : `${url}.mp4`;
+    return `${API_URL}/media/stream/${streamingKey}${tokenQuery}`;
+  }
+
+  return url;
+}
+
+
 // -----------------------------------------------------------------------------
 // EVENT MANAGEMENT & TICKETING INTERFACES
 // -----------------------------------------------------------------------------
@@ -3369,6 +3394,7 @@ export interface OneOnOneRequestItem {
     startTime: string;
     endTime: string;
     joinUrl?: string | null;
+    hostUrl?: string | null;
     hostTrainer?: { id: string; name?: string | null; email?: string | null } | null;
   } | null;
   user?: {
@@ -3402,7 +3428,7 @@ export async function fetchOneOnOneRequests(status?: string): Promise<OneOnOneRe
 
 export async function approveOneOnOneRequest(
   requestId: string,
-  payload: { hostTrainerId?: string; startTime?: string; endTime?: string; notes?: string }
+  payload: { hostTrainerId?: string; startTime?: string; endTime?: string; notes?: string; meetingLink?: string }
 ): Promise<OneOnOneRequestItem> {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const res = await fetch(`${API_URL}/one-on-one/requests/${requestId}/approve`, {

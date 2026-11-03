@@ -161,7 +161,7 @@ const formatMonth = (d: Date) =>
   d.toLocaleDateString([], { month: "short" }).toUpperCase();
 
 const formatDay = (d: Date) =>
-  String(d.getDate()).padStart(2, "0");
+  String(d.getDate()).padStart(2, "0"); const buildLearnerJoinUrl = (rawUrl: string | null | undefined): string | null => { const safe = sanitizeExternalUrl(rawUrl); if (!safe) return null; if (typeof window !== "undefined" && safe.includes("zoom.us") && !safe.includes("uname=")) { try { const u = JSON.parse(localStorage.getItem("user") || "null"); if (u?.name?.trim()) return `${safe}${safe.includes("?") ? "&" : "?"}uname=${encodeURIComponent(u.name.trim())}`; } catch {} } return safe; };
 
 const formatWeekdayDate = (d: Date) => {
   const tz = getUserTimeZone();
@@ -467,8 +467,8 @@ export default function LiveSessionsPage() {
   }, []);
 
   const now = Date.now();
-  const upcoming = sessions.filter((s) => new Date(s.endTime).getTime() >= now);
-  const past = sessions.filter((s) => new Date(s.endTime).getTime() < now);
+  const upcoming = sessions.filter((s) => s.status !== "COMPLETED" && (s.status === "ACTIVE" || new Date(s.endTime).getTime() + 2 * 60 * 60000 >= now));
+  const past = sessions.filter((s) => s.status === "COMPLETED" || (s.status !== "ACTIVE" && new Date(s.endTime).getTime() + 2 * 60 * 60000 < now));
   const visible = tab === "upcoming" ? upcoming : past;
   const next = [...upcoming].sort(
     (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
@@ -842,8 +842,8 @@ export default function LiveSessionsPage() {
           {visible.map((s, sIdx) => {
             const start = new Date(s.startTime);
             const end = new Date(s.endTime);
-            const live = now >= start.getTime() - 5 * 60000 && now <= end.getTime();
-            const ended = now > end.getTime();
+            const live = s.status !== "COMPLETED" && s.status !== "CANCELLED" && (s.status === "ACTIVE" || (now >= start.getTime() - 10 * 60000 && now <= end.getTime() + 2 * 60 * 60000));
+            const ended = s.status === "COMPLETED" || (s.status !== "ACTIVE" && now > end.getTime() + 2 * 60 * 60000);
             const isNext = s.id === next?.id && !ended;
             const isBooked =
               s.bookingStatus === "BOOKED" ||
@@ -852,7 +852,7 @@ export default function LiveSessionsPage() {
 
             // A group-cohort session in the future that is SCHEDULED or ACTIVE can be booked
             const canBook =
-              !ended &&
+              s.sessionType === "ONE_ON_ONE" && !ended &&
               !live &&
               s.status !== "CANCELLED" &&
               s.status !== "RESCHEDULED";
@@ -976,9 +976,16 @@ export default function LiveSessionsPage() {
                   {/* Session is live — show join link */}
                   {live && sanitizeExternalUrl(s.joinUrl) ? (
                     <a
-                      href={sanitizeExternalUrl(s.joinUrl)!}
+                      href={buildLearnerJoinUrl(s.joinUrl)!}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={() => {
+                        fetch(`${API_URL}/sessions/${s.id}/attend`, {
+                          method: "POST",
+                          headers: getAuthHeaders(),
+                          keepalive: true,
+                        }).catch(() => {});
+                      }}
                       className={`${styles.joinBtn} ${styles.joinBtnLive}`}
                       aria-label={`Join ${s.title} — live now`}
                     >
@@ -1011,7 +1018,7 @@ export default function LiveSessionsPage() {
                     /* Has join link — show join button, plus booking action if applicable */
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
                       <a
-                        href={sanitizeExternalUrl(s.joinUrl)!}
+                        href={buildLearnerJoinUrl(s.joinUrl)!}
                         target="_blank"
                         rel="noopener noreferrer"
                         className={styles.joinBtn}
@@ -1021,7 +1028,7 @@ export default function LiveSessionsPage() {
                         <span>Join Meeting</span>
                         {Icons.arrowUpRight}
                       </a>
-                      {(isBooked || canBook) && (
+                      {s.sessionType === "ONE_ON_ONE" && (isBooked || canBook) && (
                         <BookingButton session={s} onBooked={handleBooked} onRescheduleStart={handleRescheduleStart} />
                       )}
                     </div>
@@ -1035,7 +1042,7 @@ export default function LiveSessionsPage() {
                     /* Default: join link without booking */
                     sanitizeExternalUrl(s.joinUrl) ? (
                       <a
-                        href={sanitizeExternalUrl(s.joinUrl)!}
+                        href={buildLearnerJoinUrl(s.joinUrl)!}
                         target="_blank"
                         rel="noopener noreferrer"
                         className={styles.joinBtn}

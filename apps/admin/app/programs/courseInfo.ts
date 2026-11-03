@@ -219,7 +219,6 @@ export function formatCourseInfo(info: CourseInfo): string {
     .join("\n\n");
 }
 
-
 /**
  * Strips basic markdown and HTML tags so plain text previews (like card summaries)
  * do not show raw markup syntax.
@@ -237,4 +236,19 @@ export function stripFormatting(text?: string | null): string {
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * Produces a clean, elegant 1-2 sentence plain text summary for program cards,
+ * stripping bullets and markdown artifacts while providing a smart fallback.
+ */
+export function cleanCardSummary(text?: string | null): string {
+  if (!text) return "Comprehensive curriculum with modules, lessons, and assessments.";
+  let clean = stripFormatting(text);
+  clean = clean.replace(/^[•\-\*\s]+/, "");
+  clean = clean.replace(/\s+/g, " ").trim();
+  if (!clean || clean.length < 4) {
+    return "Comprehensive curriculum with modules, lessons, and assessments.";
+  }
+  return clean;
 }

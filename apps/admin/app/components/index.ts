@@ -37,6 +37,8 @@ export { Pagination } from "./Pagination";
 export type { PaginationProps } from "./Pagination";
 
 export { DatePicker } from "./DatePicker";
+export { TimePicker } from "./TimePicker";
+export type { TimePickerProps } from "./TimePicker";
 export type { DatePickerProps } from "./DatePicker";
 
 export { SortIndicator } from "./SortIndicator";

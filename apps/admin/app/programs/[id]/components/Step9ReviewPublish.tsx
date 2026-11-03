@@ -2,7 +2,6 @@
 
 import React, { useState } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import styles from "../curriculum.module.css";
 import { parseCourseInfo } from "../../courseInfo";
 
@@ -14,13 +13,13 @@ interface Step9ReviewPublishProps {
   isPublishing: boolean;
 }
 
-interface PreflightCheck {
-  id: string;
-  title: string;
-  status: "PASS" | "WARN" | "FAIL";
-  badgeText: string;
-  summary: string;
-  details?: string[];
+function formatProgramPrice(amount: number, currency: string) {
+  const num = Number(amount) || 0;
+  if (num === 0) return "Free";
+  if (currency === "USD") return `$${num.toLocaleString()} USD`;
+  if (currency === "AED") return `${num.toLocaleString()} AED`;
+  if (currency === "INR") return `₹${num.toLocaleString()} INR`;
+  return `${currency} ${num.toLocaleString()}`;
 }
 
 export default function Step9ReviewPublish({
@@ -33,252 +32,210 @@ export default function Step9ReviewPublish({
   const [status, setStatus] = useState<"PUBLISHED" | "DRAFT">(
     programData?.status === "DRAFT" ? "DRAFT" : "PUBLISHED"
   );
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
-  const [expandedCheckId, setExpandedCheckId] = useState<string | null>(null);
   const [expandedModuleId, setExpandedModuleId] = useState<string | null>(null);
 
-  // Stats calculation
+  // Curriculum Stats
   const totalLessons = steps.reduce((sum, s) => sum + (s.lessons?.length || 0), 0);
-  const totalQuizzes = steps.filter((s) => s.quiz).length;
-
   const courseInfo = parseCourseInfo(programData?.description);
 
-  // 1. Multi-Currency Pricing (USD, AED, INR)
-  const priceUSD = Number(programData?.priceUSD ?? (programData?.currency === "USD" ? programData?.price : 0));
-  const priceAED = Number(programData?.priceAED ?? (programData?.currency === "AED" ? programData?.price : 0));
-  const priceINR = Number(programData?.priceINR ?? (programData?.currency === "INR" ? programData?.price : 0));
+  const category = programData?.category || courseInfo.type || "Certification";
+  const level = programData?.level || courseInfo.audience || "All Levels";
+  const baseCurrency = programData?.currency || "USD";
+  const basePrice = Number(programData?.price || 0);
 
-  const multiCurrencyPass = priceUSD > 0 && priceAED > 0 && priceINR > 0;
-  const multiCurrencyCheck: PreflightCheck = {
-    id: "multi-currency",
-    title: "Multi-Currency Pricing (USD, AED, INR)",
-    status: multiCurrencyPass ? "PASS" : "WARN",
-    badgeText: multiCurrencyPass ? "All 3 Configured" : "Rates Optional",
-    summary: multiCurrencyPass
-      ? `USD ($${priceUSD}), AED (${priceAED} AED), and INR (₹${priceINR}) configured.`
-      : `Base price active (${programData?.currency || "USD"} ${programData?.price || 0}). Regional rates optional.`,
-    details: [
-      `USD ($): ${priceUSD > 0 ? `$${priceUSD}` : "Not set"}`,
-      `AED: ${priceAED > 0 ? `${priceAED} AED` : "Not set"}`,
-      `INR (₹): ${priceINR > 0 ? `₹${priceINR}` : "Not set"}`,
-    ],
-  };
+  // Check for uploaded image
+  const coverImage = programData?.thumbnailUrl || courseInfo.image;
+  const hasCoverImage = Boolean(coverImage && typeof coverImage === "string" && coverImage.trim().length > 0);
 
-  // 2. Compulsory Video Playback Rules & Quiz Placement
-  const modulesWithQuiz = steps.filter((s) => s.quiz);
-  const quizzesMissingPlacement = modulesWithQuiz.filter(
-    (s) => !s.quiz?.quizPlacement || (s.quiz.quizPlacement !== "BEFORE_VIDEO" && s.quiz.quizPlacement !== "AFTER_VIDEO")
-  );
-  const stepsWithoutLessons = steps.filter((s) => !s.lessons || s.lessons.length === 0);
-
-  const playbackStatus: "PASS" | "WARN" | "FAIL" = steps.length === 0
-    ? "FAIL"
-    : stepsWithoutLessons.length > 0
-    ? "WARN"
-    : "PASS";
-
-  const playbackCheck: PreflightCheck = {
-    id: "playback-rules",
-    title: "Curriculum Modules & Lesson Sequence",
-    status: playbackStatus,
-    badgeText: playbackStatus === "PASS" ? "Verified" : playbackStatus === "WARN" ? "Empty Modules" : "Curriculum Empty",
-    summary: playbackStatus === "PASS"
-      ? `All ${steps.length} modules established with progressive lesson sequences.`
-      : "Modules should contain lessons or study materials for learners.",
-    details: [
-      `Curriculum Modules: ${steps.length} established`,
-      `Anti-Skip Compulsory Playback: Active (scrub bar locked, dynamic watermark on, server watch check)`,
-      ...(quizzesMissingPlacement.length > 0
-        ? quizzesMissingPlacement.map((s) => `Module "${s.title}" quiz is missing quizPlacement timing`)
-        : []),
-      ...(stepsWithoutLessons.length > 0
-        ? stepsWithoutLessons.map((s) => `Module "${s.title}" has no lessons attached yet`)
-        : []),
-    ],
-  };
-
-  // 3. Question Bank & Answer Keys
-  let allChoiceQuestionsCount = 0;
-  for (const step of steps) {
-    if (step.quiz?.questions && Array.isArray(step.quiz.questions)) {
-      allChoiceQuestionsCount += step.quiz.questions.length;
-    }
-  }
-
-  const questionBankCheck: PreflightCheck = {
-    id: "question-bank",
-    title: "Question Bank & Quiz Assessments",
-    status: "PASS",
-    badgeText: `${totalQuizzes} Quizzes`,
-    summary: `${totalQuizzes} knowledge check quizzes established across modules.`,
-    details: [
-      `${totalQuizzes} module quizzes configured.`,
-      `${allChoiceQuestionsCount} choice-based questions evaluated.`,
-    ],
-  };
-
-  // 4. Course FAQs
-  const programFaqs = Array.isArray(programData?.faqs)
-    ? programData.faqs
-    : Array.isArray(courseInfo.faqs)
-    ? courseInfo.faqs
-    : [];
-  const validFaqs = programFaqs.filter(
-    (f: any) => f && typeof f.question === "string" && f.question.trim().length > 0
-  );
-
-  const faqsCheck: PreflightCheck = {
-    id: "course-faqs",
-    title: "Course-Specific FAQs",
-    status: validFaqs.length > 0 ? "PASS" : "WARN",
-    badgeText: validFaqs.length > 0 ? `${validFaqs.length} Ready` : "Optional",
-    summary: validFaqs.length > 0
-      ? `${validFaqs.length} structured FAQs ready for marketing course page.`
-      : "No course FAQs configured. Fallback FAQs will display.",
-  };
-
-  const allChecks: PreflightCheck[] = [
-    multiCurrencyCheck,
-    playbackCheck,
-    questionBankCheck,
-    faqsCheck,
-  ];
+  const finalExamRequired = programData?.requireExam !== false;
+  const certificateEnabled = programData?.hasCertificate !== false;
 
   const handlePublishSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await onPublish({
-      status,
-      startDate: startDate || undefined,
-      endDate: endDate || undefined,
-    });
-    setIsSuccessModalOpen(true);
+    await onPublish({ status });
   };
 
   return (
     <section className={styles.cardSurface}>
-      {/* Header */}
-      <div className={styles.cardHeaderArea}>
-        <div className={styles.stepEyebrow}>
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-          <span>STEP 4: REVIEW &amp; PUBLISH</span>
-        </div>
-        <h2 className={styles.stepTitle}>Review &amp; Publish Program</h2>
-        <p className={styles.stepSubtitle}>
-          Verify curriculum structure, review summary details, and publish your program live.
-        </p>
+      {/* Clean Header */}
+      <div style={{ marginBottom: "1.5rem" }}>
+        <h2 className={styles.stepTitle} style={{ margin: 0 }}>
+          Review &amp; Publish
+        </h2>
       </div>
 
       <form onSubmit={handlePublishSubmit}>
         {/* 2-Column Review Grid */}
-        <div className={styles.studioBasicGrid}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(340px, 1fr) minmax(340px, 1fr)",
+            gap: "1.75rem",
+            alignItems: "start",
+          }}
+        >
           {/* =========================================================
-              Left Card: Program Preview & Curriculum Overview
+              Left Column: Course Banner & Curriculum Overview
               ========================================================= */}
           <div>
             <div
               style={{
                 background: "#ffffff",
-                border: "1px solid #ece6dd",
+                border: "1px solid #ece4d7",
                 borderRadius: 14,
                 overflow: "hidden",
-                boxShadow: "0 2px 10px rgba(28, 25, 23, 0.04)",
-                marginBottom: "1.5rem",
+                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.04)",
               }}
             >
-              {/* Cover Banner Preview with Overlay */}
-              <div
-                style={{
-                  position: "relative",
-                  width: "100%",
-                  aspectRatio: "16 / 9",
-                  background: "#14110f",
-                  display: "flex",
-                  alignItems: "flex-end",
-                  padding: "1.5rem",
-                  boxSizing: "border-box",
-                }}
-              >
-                {programData?.thumbnailUrl && (
-                  <Image
-                    src={programData.thumbnailUrl}
-                    alt={programData.title}
-                    fill
-                    style={{ objectFit: "cover", opacity: 0.75 }}
-                    unoptimized={!programData.thumbnailUrl.startsWith("/")}
-                  />
-                )}
+              {/* Cover Banner: Show image if exists, or clean warm header if not */}
+              {hasCoverImage ? (
                 <div
                   style={{
-                    position: "absolute",
-                    inset: 0,
-                    background: "linear-gradient(to top, rgba(20,17,15,0.85) 0%, transparent 60%)",
+                    position: "relative",
+                    width: "100%",
+                    aspectRatio: "16 / 9",
+                    background: "#f5ede4",
+                    display: "flex",
+                    alignItems: "flex-end",
+                    padding: "1.25rem 1.5rem",
+                    boxSizing: "border-box",
                   }}
-                />
+                >
+                  <Image
+                    src={coverImage}
+                    alt={programData?.title || "Course thumbnail"}
+                    fill
+                    style={{ objectFit: "cover" }}
+                    unoptimized={!coverImage.startsWith("/")}
+                  />
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      background: "linear-gradient(to top, rgba(20, 17, 15, 0.75) 0%, transparent 60%)",
+                    }}
+                  />
+                  <div style={{ position: "relative", zIndex: 2, width: "100%" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "1rem" }}>
+                      <div>
+                        <span
+                          style={{
+                            fontSize: "0.72rem",
+                            fontWeight: 700,
+                            background: "#c97a1e",
+                            color: "#ffffff",
+                            padding: "2px 8px",
+                            borderRadius: 4,
+                            display: "inline-block",
+                            marginBottom: "0.35rem",
+                          }}
+                        >
+                          {category}
+                        </span>
+                        <h3 style={{ fontSize: "1.2rem", fontWeight: 700, color: "#ffffff", margin: 0, lineHeight: 1.3 }}>
+                          {programData?.title}
+                        </h3>
+                      </div>
 
-                <div style={{ position: "relative", zIndex: 2, width: "100%" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-                    <div>
-                      <span
+                      <button
+                        type="button"
+                        onClick={onBackToModules}
                         style={{
-                          fontSize: "0.75rem",
-                          fontWeight: 700,
-                          background: "#d97706",
+                          background: "rgba(255, 255, 255, 0.2)",
+                          border: "1px solid rgba(255, 255, 255, 0.4)",
                           color: "#ffffff",
-                          padding: "3px 8px",
+                          padding: "0.38rem 0.75rem",
                           borderRadius: 6,
-                          display: "inline-block",
-                          marginBottom: "0.4rem",
+                          fontSize: "0.78rem",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "5px",
+                          whiteSpace: "nowrap",
+                          backdropFilter: "blur(4px)",
                         }}
+                        title="Edit curriculum steps"
                       >
-                        {programData?.category || "Leadership & Mindset"}
-                      </span>
-                      <h3 style={{ fontSize: "1.35rem", fontWeight: 700, color: "#ffffff", margin: 0 }}>
-                        {programData?.title}
-                      </h3>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                        </svg>
+                        <span>Edit Curriculum</span>
+                      </button>
                     </div>
-
-                    <button
-                      type="button"
-                      onClick={onBackToModules}
-                      style={{
-                        background: "rgba(255,255,255,0.2)",
-                        border: "1px solid rgba(255,255,255,0.35)",
-                        color: "#ffffff",
-                        padding: "0.4rem 0.75rem",
-                        borderRadius: 8,
-                        fontSize: "0.82rem",
-                        fontWeight: 600,
-                        cursor: "pointer",
-                      }}
-                      title="Edit Course Details"
-                    >
-                      ✎ Edit
-                    </button>
                   </div>
                 </div>
-              </div>
+              ) : (
+                /* Clean, light course header when no cover image is uploaded */
+                <div
+                  style={{
+                    padding: "1.25rem 1.5rem",
+                    background: "#fdfbf7",
+                    borderBottom: "1px solid #ece4d7",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "1rem",
+                  }}
+                >
+                  <div>
+                    <span
+                      style={{
+                        fontSize: "0.72rem",
+                        fontWeight: 700,
+                        background: "#f5ece1",
+                        color: "#b45309",
+                        border: "1px solid #ebd9c4",
+                        padding: "2px 8px",
+                        borderRadius: 4,
+                        display: "inline-block",
+                        marginBottom: "0.35rem",
+                        letterSpacing: "0.02em",
+                      }}
+                    >
+                      {category}
+                    </span>
+                    <h3 style={{ fontSize: "1.2rem", fontWeight: 700, color: "#14110f", margin: 0, lineHeight: 1.3 }}>
+                      {programData?.title}
+                    </h3>
+                  </div>
 
-              {/* Curriculum Overview Expandable Rows */}
-              <div style={{ padding: "1.5rem" }}>
-                <h4 style={{ fontSize: "1rem", fontWeight: 700, margin: "0 0 1rem", color: "#14110f" }}>
-                  Curriculum Overview ({steps.length} Modules · {totalLessons} Lessons)
-                </h4>
+                  <button
+                    type="button"
+                    onClick={onBackToModules}
+                    className={styles.secondaryActionBtn}
+                    style={{
+                      fontSize: "0.78rem",
+                      padding: "0.38rem 0.75rem",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                      whiteSpace: "nowrap",
+                    }}
+                    title="Edit curriculum steps"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                    <span>Edit Curriculum</span>
+                  </button>
+                </div>
+              )}
 
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+              {/* Curriculum Overview Accordion */}
+              <div style={{ padding: "1.25rem 1.5rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.85rem" }}>
+                  <h4 style={{ fontSize: "0.92rem", fontWeight: 700, margin: 0, color: "#14110f" }}>
+                    Curriculum Overview
+                  </h4>
+                  <span style={{ fontSize: "0.76rem", fontWeight: 600, color: "#78716a", background: "#f5ece1", padding: "2px 8px", borderRadius: 9999 }}>
+                    {steps.length} {steps.length === 1 ? "Module" : "Modules"} · {totalLessons} {totalLessons === 1 ? "Lesson" : "Lessons"}
+                  </span>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                   {steps.map((step) => {
                     const isExpanded = expandedModuleId === step.id;
                     const lessonsCount = step.lessons?.length || 0;
@@ -288,45 +245,60 @@ export default function Step9ReviewPublish({
                       <div
                         key={step.id}
                         style={{
-                          border: "1px solid #ece6dd",
-                          borderRadius: 10,
+                          border: "1px solid #ece4d7",
+                          borderRadius: 8,
                           overflow: "hidden",
                           background: "#ffffff",
                         }}
                       >
                         <div
                           style={{
-                            padding: "0.75rem 1rem",
+                            padding: "0.65rem 0.85rem",
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "space-between",
                             cursor: "pointer",
-                            background: isExpanded ? "#fff7ed" : "#ffffff",
+                            background: isExpanded ? "#fffdfa" : "#ffffff",
+                            transition: "background 0.15s ease",
                           }}
                           onClick={() => setExpandedModuleId(isExpanded ? null : step.id)}
                         >
-                          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                            <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "#d97706" }}>
-                              Module {step.sequence}:
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#c97a1e" }}>
+                              Step {step.sequence}:
                             </span>
-                            <span style={{ fontSize: "0.9rem", fontWeight: 600, color: "#14110f" }}>
+                            <span style={{ fontSize: "0.86rem", fontWeight: 600, color: "#14110f" }}>
                               {step.title}
                             </span>
                           </div>
 
                           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                            <span style={{ fontSize: "0.78rem", color: "#78716a" }}>
+                            <span style={{ fontSize: "0.74rem", color: "#78716a" }}>
                               {lessonsCount} {lessonsCount === 1 ? "lesson" : "lessons"}
                               {hasQuiz ? " · 1 Quiz" : ""}
                             </span>
-                            <span style={{ fontSize: "0.75rem", color: "#a8a29e" }}>
-                              {isExpanded ? "▲" : "▼"}
-                            </span>
+                            <svg
+                              width="12"
+                              height="12"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="#78716a"
+                              strokeWidth="2.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                              style={{
+                                transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                                transition: "transform 0.15s ease",
+                              }}
+                            >
+                              <polyline points="6 9 12 15 18 9" />
+                            </svg>
                           </div>
                         </div>
 
                         {isExpanded && (
-                          <div style={{ padding: "0.6rem 1rem", background: "#fdfbf7", borderTop: "1px solid #f1ece4" }}>
+                          <div style={{ padding: "0.6rem 0.85rem", background: "#fdfbf7", borderTop: "1px solid #f2ede4" }}>
                             {step.lessons && step.lessons.length > 0 ? (
                               step.lessons.map((lesson: any, idx: number) => (
                                 <div
@@ -335,22 +307,53 @@ export default function Step9ReviewPublish({
                                     display: "flex",
                                     alignItems: "center",
                                     justifyContent: "space-between",
-                                    padding: "0.35rem 0",
-                                    fontSize: "0.82rem",
-                                    color: "#4a443d",
+                                    padding: "0.3rem 0",
+                                    fontSize: "0.8rem",
+                                    color: "#44403c",
+                                    borderBottom: idx < (step.lessons?.length || 0) - 1 ? "1px solid #f5ece1" : "none",
                                   }}
                                 >
                                   <span>
                                     {idx + 1}. {lesson.title}
                                   </span>
-                                  <span style={{ fontSize: "0.75rem", color: "#78716a" }}>
+                                  <span
+                                    style={{
+                                      fontSize: "0.68rem",
+                                      fontWeight: 600,
+                                      padding: "1px 6px",
+                                      borderRadius: 4,
+                                      background: lesson.type === "VIDEO" ? "#eff6ff" : "#fef2f2",
+                                      color: lesson.type === "VIDEO" ? "#1d4ed8" : "#b91c1c",
+                                    }}
+                                  >
                                     {lesson.type}
                                   </span>
                                 </div>
                               ))
                             ) : (
-                              <div style={{ fontSize: "0.8rem", color: "#a8a29e", fontStyle: "italic" }}>
-                                No lessons attached
+                              <div style={{ fontSize: "0.78rem", color: "#a8a29e", fontStyle: "italic" }}>
+                                No lessons attached to this module
+                              </div>
+                            )}
+
+                            {hasQuiz && (
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  padding: "0.3rem 0",
+                                  marginTop: "0.3rem",
+                                  borderTop: "1px dashed #e7decb",
+                                  fontSize: "0.8rem",
+                                  color: "#7e22ce",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                <span>Quiz: {step.quiz.title || "Knowledge Check"}</span>
+                                <span style={{ fontSize: "0.68rem", padding: "1px 6px", borderRadius: 4, background: "#faf5ff", color: "#7e22ce" }}>
+                                  QUIZ
+                                </span>
                               </div>
                             )}
                           </div>
@@ -364,148 +367,116 @@ export default function Step9ReviewPublish({
           </div>
 
           {/* =========================================================
-              Right Card: Program Details Summary Table & Checklist
+              Right Column: Program Details & Publishing Status
               ========================================================= */}
           <div>
             <div
               style={{
                 background: "#ffffff",
-                border: "1px solid #ece6dd",
+                border: "1px solid #ece4d7",
                 borderRadius: 14,
-                padding: "1.75rem",
-                boxShadow: "0 2px 10px rgba(28, 25, 23, 0.04)",
-                marginBottom: "1.5rem",
+                padding: "1.5rem",
+                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.04)",
               }}
             >
-              <h3 style={{ fontSize: "1.15rem", fontWeight: 700, margin: "0 0 1rem", color: "#14110f" }}>
+              <h3 style={{ fontSize: "1.05rem", fontWeight: 700, margin: "0 0 1rem", color: "#14110f" }}>
                 Program Details
               </h3>
 
               {/* Key-Value Summary Table */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", marginBottom: "1.5rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "0.5rem 0", borderBottom: "1px solid #f1ece4", fontSize: "0.88rem" }}>
-                  <span style={{ color: "#78716a", fontWeight: 500 }}>Title</span>
-                  <span style={{ fontWeight: 600, color: "#14110f", maxWidth: 220, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem", marginBottom: "1.5rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "0.45rem 0", borderBottom: "1px solid #f2ede4", fontSize: "0.86rem" }}>
+                  <span style={{ color: "#78716a" }}>Title</span>
+                  <span style={{ fontWeight: 600, color: "#14110f", maxWidth: 240, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {programData?.title}
                   </span>
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "0.5rem 0", borderBottom: "1px solid #f1ece4", fontSize: "0.88rem" }}>
-                  <span style={{ color: "#78716a", fontWeight: 500 }}>Category</span>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "0.45rem 0", borderBottom: "1px solid #f2ede4", fontSize: "0.86rem" }}>
+                  <span style={{ color: "#78716a" }}>Category</span>
                   <span style={{ fontWeight: 600, color: "#14110f" }}>
-                    {programData?.category || "Leadership & Mindset"}
+                    {category}
                   </span>
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "0.5rem 0", borderBottom: "1px solid #f1ece4", fontSize: "0.88rem" }}>
-                  <span style={{ color: "#78716a", fontWeight: 500 }}>Level</span>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "0.45rem 0", borderBottom: "1px solid #f2ede4", fontSize: "0.86rem" }}>
+                  <span style={{ color: "#78716a" }}>Level</span>
                   <span style={{ fontWeight: 600, color: "#14110f" }}>
-                    {programData?.level || "Beginner"}
+                    {level}
                   </span>
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "0.5rem 0", borderBottom: "1px solid #f1ece4", fontSize: "0.88rem" }}>
-                  <span style={{ color: "#78716a", fontWeight: 500 }}>Price</span>
-                  <span style={{ fontWeight: 700, color: "#d97706" }}>
-                    {programData?.currency || "USD"} ${programData?.price || 0}
-                    {priceAED > 0 && ` · AED ${priceAED}`}
-                    {priceINR > 0 && ` · ₹${priceINR}`}
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "0.45rem 0", borderBottom: "1px solid #f2ede4", fontSize: "0.86rem" }}>
+                  <span style={{ color: "#78716a" }}>Price</span>
+                  <span style={{ fontWeight: 700, color: "#b45309" }}>
+                    {formatProgramPrice(basePrice, baseCurrency)}
                   </span>
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "0.5rem 0", borderBottom: "1px solid #f1ece4", fontSize: "0.88rem" }}>
-                  <span style={{ color: "#78716a", fontWeight: 500 }}>Modules</span>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "0.45rem 0", borderBottom: "1px solid #f2ede4", fontSize: "0.86rem" }}>
+                  <span style={{ color: "#78716a" }}>Curriculum</span>
                   <span style={{ fontWeight: 600, color: "#14110f" }}>
-                    {steps.length} Modules • {totalLessons} Lessons
+                    {steps.length} {steps.length === 1 ? "Module" : "Modules"} · {totalLessons} {totalLessons === 1 ? "Lesson" : "Lessons"}
                   </span>
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "0.5rem 0", fontSize: "0.88rem" }}>
-                  <span style={{ color: "#78716a", fontWeight: 500 }}>Enrolment</span>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "0.45rem 0", borderBottom: "1px solid #f2ede4", fontSize: "0.86rem" }}>
+                  <span style={{ color: "#78716a" }}>Final Exam</span>
+                  <span style={{ fontWeight: 600, color: finalExamRequired ? "#15803d" : "#78716a" }}>
+                    {finalExamRequired ? "Required" : "Optional"}
+                  </span>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "0.45rem 0", borderBottom: "1px solid #f2ede4", fontSize: "0.86rem" }}>
+                  <span style={{ color: "#78716a" }}>Certificate</span>
+                  <span style={{ fontWeight: 600, color: certificateEnabled ? "#15803d" : "#78716a" }}>
+                    {certificateEnabled ? "Enabled" : "Disabled"}
+                  </span>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "0.45rem 0", fontSize: "0.86rem" }}>
+                  <span style={{ color: "#78716a" }}>Enrolment</span>
                   <span style={{ fontWeight: 600, color: "#14110f" }}>
-                    Paid Enrolment • Lifetime Access
+                    {basePrice > 0 ? "Paid Enrolment" : "Free Access"}
                   </span>
                 </div>
               </div>
 
-              {/* Readiness Checks Accordion */}
-              <div style={{ paddingTop: "1rem", borderTop: "1px solid #ece6dd" }}>
-                <h4 style={{ fontSize: "0.85rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: "#14110f", margin: "0 0 0.75rem" }}>
-                  Pre-Publish Readiness Checks
-                </h4>
+              {/* Publishing Status Toggle */}
+              <div style={{ paddingTop: "1.25rem", borderTop: "1px solid #ece4d7" }}>
+                <span
+                  style={{
+                    display: "block",
+                    fontSize: "0.75rem",
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    color: "#78716a",
+                    marginBottom: "0.6rem",
+                  }}
+                >
+                  Publishing Status
+                </span>
 
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                  {allChecks.map((check) => {
-                    const isExpanded = expandedCheckId === check.id;
-                    const isPass = check.status === "PASS";
-
-                    return (
-                      <div
-                        key={check.id}
-                        style={{
-                          background: isPass ? "#f0fdf4" : "#fffbeb",
-                          border: `1px solid ${isPass ? "#bbf7d0" : "#fde68a"}`,
-                          borderRadius: 8,
-                          padding: "0.6rem 0.85rem",
-                          fontSize: "0.82rem",
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            cursor: "pointer",
-                          }}
-                          onClick={() => setExpandedCheckId(isExpanded ? null : check.id)}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                            <span style={{ color: isPass ? "#16a34a" : "#d97706", fontWeight: 700 }}>
-                              {isPass ? "✓" : "!"}
-                            </span>
-                            <span style={{ fontWeight: 600, color: "#14110f" }}>
-                              {check.title}
-                            </span>
-                          </div>
-                          <span style={{ fontSize: "0.75rem", fontWeight: 700, color: isPass ? "#15803d" : "#b45309" }}>
-                            {check.badgeText}
-                          </span>
-                        </div>
-
-                        {isExpanded && (
-                          <div style={{ marginTop: "0.4rem", paddingTop: "0.4rem", borderTop: "1px solid rgba(0,0,0,0.06)", color: "#4a443d", fontSize: "0.78rem" }}>
-                            {check.summary}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Status Radio Choices */}
-              <div style={{ marginTop: "1.5rem", paddingTop: "1.25rem", borderTop: "1px solid #ece6dd" }}>
-                <label className={styles.formLabel}>
-                  <span>Publishing Status</span>
-                </label>
-                <div style={{ display: "flex", gap: "1rem" }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.88rem", cursor: "pointer" }}>
+                <div style={{ display: "flex", gap: "1.25rem" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: "0.45rem", fontSize: "0.86rem", cursor: "pointer", fontWeight: status === "PUBLISHED" ? 600 : 400, color: "#14110f" }}>
                     <input
                       type="radio"
                       name="status"
                       checked={status === "PUBLISHED"}
                       onChange={() => setStatus("PUBLISHED")}
-                      style={{ accentColor: "#d97706" }}
+                      style={{ accentColor: "#c97a1e" }}
                     />
                     <span>Live (Published)</span>
                   </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.88rem", cursor: "pointer" }}>
+
+                  <label style={{ display: "flex", alignItems: "center", gap: "0.45rem", fontSize: "0.86rem", cursor: "pointer", fontWeight: status === "DRAFT" ? 600 : 400, color: "#14110f" }}>
                     <input
                       type="radio"
                       name="status"
                       checked={status === "DRAFT"}
                       onChange={() => setStatus("DRAFT")}
-                      style={{ accentColor: "#d97706" }}
+                      style={{ accentColor: "#c97a1e" }}
                     />
                     <span>Draft</span>
                   </label>
@@ -515,15 +486,15 @@ export default function Step9ReviewPublish({
           </div>
         </div>
 
-        {/* Bottom Footer: Previous on Left, Warm-Orange Publish on Right */}
+        {/* Footer Navigation */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            marginTop: "2.5rem",
-            paddingTop: "1.5rem",
-            borderTop: "1px solid #ece6dd",
+            marginTop: "2rem",
+            paddingTop: "1.25rem",
+            borderTop: "1px solid #ece4d7",
           }}
         >
           <button
@@ -531,17 +502,28 @@ export default function Step9ReviewPublish({
             className={styles.secondaryActionBtn}
             onClick={onBackToModules}
             disabled={isPublishing}
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
           >
-            &lt;- Previous
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            <span>Previous</span>
           </button>
 
           <button
             type="submit"
             className={styles.btnPrimary}
             disabled={isPublishing}
-            style={{ padding: "0.75rem 1.75rem", fontSize: "0.95rem" }}
+            style={{
+              padding: "0.65rem 1.6rem",
+              fontSize: "0.92rem",
+              fontWeight: 700,
+              background: status === "PUBLISHED" ? "var(--accent-primary, #c97a1e)" : "#57534e",
+            }}
           >
-            {isPublishing ? "Publishing Program..." : "🚀 Publish Program"}
+            {isPublishing
+              ? status === "PUBLISHED" ? "Publishing Program..." : "Saving Draft..."
+              : status === "PUBLISHED" ? "Publish Program" : "Save as Draft"}
           </button>
         </div>
       </form>

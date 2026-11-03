@@ -202,14 +202,28 @@ export class AttendanceReconciliationService {
       (session.batch as any)?.attendanceThreshold ??
       75;
 
-    // Lookup map of enrolled learners by lowercase email
+    // Lookup map of enrolled learners by lowercase email and normalized name
     const enrolledByEmail = new Map<string, { userId: string; enrolmentId: string }>();
+    const enrolledByName = new Map<string, { userId: string; enrolmentId: string }>();
     const matchedUserIds = new Set<string>();
+
+    const normalizeName = (raw?: string | null) =>
+      (raw || '')
+        .replace(/\s*\((guest|host|me|co-host).*?\)\s*/gi, '')
+        .trim()
+        .toLowerCase();
 
     if (session.batch?.enrolments) {
       for (const enrolment of session.batch.enrolments) {
         if (enrolment.user?.email) {
           enrolledByEmail.set(enrolment.user.email.toLowerCase().trim(), {
+            userId: enrolment.userId,
+            enrolmentId: enrolment.id,
+          });
+        }
+        const normName = normalizeName(enrolment.user?.name);
+        if (normName) {
+          enrolledByName.set(normName, {
             userId: enrolment.userId,
             enrolmentId: enrolment.id,
           });
@@ -221,6 +235,13 @@ export class AttendanceReconciliationService {
         userId: session.userId,
         enrolmentId: '',
       });
+      const normName = normalizeName(session.user?.name);
+      if (normName) {
+        enrolledByName.set(normName, {
+          userId: session.userId,
+          enrolmentId: '',
+        });
+      }
     }
 
     // Pre-fetch existing unmatched records in 1 query to prevent N+1 query loops
@@ -260,7 +281,10 @@ export class AttendanceReconciliationService {
 
     for (const participant of aggregated) {
       const email = participant.participantEmail?.toLowerCase().trim();
-      const matched = email ? enrolledByEmail.get(email) : undefined;
+      const normParticipantName = normalizeName(participant.participantName);
+      const matched =
+        (email ? enrolledByEmail.get(email) : undefined) ||
+        (!email && normParticipantName ? enrolledByName.get(normParticipantName) : undefined);
 
       if (matched) {
         matchedUserIds.add(matched.userId);

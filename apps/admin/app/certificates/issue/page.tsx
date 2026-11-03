@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import page from "../../page.module.css";
 import styles from "../Certificate.module.css";
 import { API_URL } from "../../lib/api";
+import { DatePicker } from "../../components";
 
 const Certificate = dynamic(() => import("../Certificate"), { ssr: false });
 
@@ -24,7 +25,11 @@ export default function IssueCertificatesPage() {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/programs`)
+    const token = typeof window !== "undefined" ? localStorage.getItem("wbm_access_token") : null;
+    fetch(`${API_URL}/programs`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
+    })
       .then((res) => (res.ok ? res.json() : []))
       .then((programs: any) => {
         const list = Array.isArray(programs) ? programs : programs?.items || [];
@@ -59,20 +64,20 @@ export default function IssueCertificatesPage() {
   const ready = people.length > 0 && course.trim() !== "" && date !== "";
 
   return (
-    <div className={page.dashboard}>
+    <div className={page.dashboardContainer}>
       <header className={`${page.header} ${styles.screenOnly}`}>
         <div className={page.headerText}>
           <h1 className={page.title}>Manual Certificate Generator</h1>
-          {/* <p className={page.subtitle}>
+          <p className={page.subtitle}>
             Issue formal CPD-accredited certificates or corporate participation credentials with unique verification numbers and LinkedIn share integration.
-          </p> */}
+          </p>
         </div>
         <div className={page.headerActions}>
-          <Link href="/certificates" className={page.backLink} style={{ margin: 0 }}>
+          <Link href="/approvals" className={page.backLink} style={{ margin: 0 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points="15 18 9 12 15 6" />
             </svg>
-            <span>Back to Certificates</span>
+            <span>Back to Approvals & Gates</span>
           </Link>
           <button
             type="button"
@@ -172,13 +177,11 @@ export default function IssueCertificatesPage() {
             </div>
 
             <div className={page.formGroup}>
-              <label htmlFor="date">Date of Issue *</label>
-              <input
-                id="date"
-                type="date"
+              <label>Date of Issue *</label>
+              <DatePicker
                 value={date}
-                onChange={(e) => setDate(e.target.value)}
-                required
+                onChange={(val) => setDate(val)}
+                placeholder="Select issue date"
               />
             </div>
 

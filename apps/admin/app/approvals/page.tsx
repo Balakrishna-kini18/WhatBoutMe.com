@@ -1,21 +1,33 @@
 "use client";
 
-import { useEffect, useState, FormEvent, Suspense } from "react";
+import { useEffect, useState, useMemo, FormEvent, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import styles from "../page.module.css";
 import {
   API_URL,
-  getMarketingUrl,
   errorMessage,
   fetchMissionStatements,
   approveMissionStatement,
   rejectMissionStatement,
+  fetchOneOnOneRequests,
   type MissionStatementItem,
 } from "../lib/api";
-import { CustomSelect, StatusBadge, Modal, LearnerPortalFlow } from "../components";
+import {
+  CustomSelect,
+  StatusBadge,
+  Modal,
+  TableSkeleton,
+  EmptyState,
+  Pagination,
+  SortIndicator,
+  DatePicker,
+  TimePicker,
+  useToast,
+  type SortOrder,
+} from "../components";
+import { getSystemTimezone, localWallTimeToUtc } from "../lib/timezone";
 import CoachingApprovalsTab from "./components/CoachingApprovalsTab";
-import { fetchOneOnOneRequests } from "../lib/api";
 
 interface Batch {
   id: string;
@@ -54,12 +66,28 @@ interface OralAssessment {
   enrolment?: {
     id: string;
     userId: string;
+    batchId?: string | null;
+    batch?: {
+      id: string;
+      name: string;
+      program?: {
+        id: string;
+        title: string;
+      };
+    };
+    program?: {
+      id: string;
+      title: string;
+    };
     user?: {
       id: string;
       name: string;
       email: string;
     };
   };
+  _batchName?: string;
+  _programTitle?: string;
+  _batchId?: string;
 }
 
 interface EnrolmentOption {
@@ -88,6 +116,7 @@ interface CertificateItem {
   enrolment?: {
     id: string;
     userId: string;
+    batchId?: string | null;
     user?: {
       id: string;
       name: string;
@@ -108,60 +137,16 @@ interface CertificateItem {
   };
 }
 
-interface EligibilityData {
-  enrolmentId: string;
-  userId: string;
-  programId: string;
-  programTitle: string;
-  certificateType: string;
-  isEligible: boolean;
-  status: string;
-  steps: {
-    required: number;
-    completed: number;
-    isMet: boolean;
-    uncompletedStepTitles?: string[];
-  };
-  quizzes: {
-    required: number;
-    passed: number;
-    isMet: boolean;
-    unpassedQuizStepTitles?: string[];
-  };
-  finalExam: {
-    required: boolean;
-    passed: boolean;
-    score: number | null;
-    isMet: boolean;
-  };
-  oralAssessment: {
-    required: boolean;
-    passed: boolean;
-    score: number | null;
-    isMet: boolean;
-  };
-  attendance: {
-    required: boolean;
-    thresholdUsed: number;
-    attendancePercentage: number;
-    attendedSessions: number;
-    requiredSessions: number;
-    isMet: boolean;
-  };
-  closingCall: {
-    required: boolean;
-    completed: boolean;
-    isMet: boolean;
-  };
-  unmetRequirements: string[];
-}
-
 const DEFAULT_RUBRIC: RubricScoreItem[] = [
   { rubricCategory: "Resilience & Self-Leadership", score: 8, maxScore: 10, feedback: "" },
   { rubricCategory: "Application of Curriculum Principles", score: 8, maxScore: 10, feedback: "" },
   { rubricCategory: "Clarity & Reflection", score: 8, maxScore: 10, feedback: "" },
   { rubricCategory: "Goal & Future Readiness", score: 8, maxScore: 10, feedback: "" },
 ];
+
+type CertSortField = "learner" | "program" | "code" | "createdAt" | "status";
+type OralSortField = "learner" | "program" | "scheduledDate" | "score" | "status";
+type MissionSortField = "learner" | "program" | "createdAt" | "status";
 
 export default function ApprovalsPage() {
   return (
@@ -173,19 +158,21 @@ export default function ApprovalsPage() {
 
 function ApprovalsContent() {
   const searchParams = useSearchParams();
+  const { success: toastSuccess, error: toastError } = useToast();
   const tabParam = searchParams?.get("tab");
   const batchParam = searchParams?.get("batchId");
 
-  const [activeTab, setActiveTab] = useState<"certificates" | "coaching" | "missions" | "oral">(
-    tabParam === "coaching" || tabParam === "certificates" || tabParam === "missions" || tabParam === "oral"
+  // Default to "coaching" (1:1 Call - first gate in progression order) unless specified in URL
+  const [activeTab, setActiveTab] = useState<"coaching" | "missions" | "oral" | "certificates">(
+    tabParam === "coaching" || tabParam === "missions" || tabParam === "oral" || tabParam === "certificates"
       ? tabParam
-      : "certificates"
+      : "coaching"
   );
   const [selectedBatchId, setSelectedBatchId] = useState<string>(batchParam || "");
-  const [pendingCoachingCount, setPendingCoachingCount] = useState(0);
+  const [totalCoachingCount, setTotalCoachingCount] = useState(0);
 
   useEffect(() => {
-    if (tabParam === "coaching" || tabParam === "certificates" || tabParam === "missions" || tabParam === "oral") {
+    if (tabParam === "coaching" || tabParam === "missions" || tabParam === "oral" || tabParam === "certificates") {
       setActiveTab(tabParam);
     }
     if (batchParam) {
@@ -194,13 +181,13 @@ function ApprovalsContent() {
   }, [tabParam, batchParam]);
 
   useEffect(() => {
-    fetchOneOnOneRequests("PENDING_APPROVAL")
+    fetchOneOnOneRequests()
       .then((reqs) => {
         if (Array.isArray(reqs)) {
-          setPendingCoachingCount(reqs.length);
+          setTotalCoachingCount(reqs.length);
         }
       })
-      .catch(() => { });
+      .catch(() => {});
   }, []);
 
   // Common notification state
@@ -208,15 +195,18 @@ function ApprovalsContent() {
   const [pageSuccess, setPageSuccess] = useState<string | null>(null);
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // 1. Certificate Approvals Queue & Eligibility Gate State
+  // Certificates State
   // ─────────────────────────────────────────────────────────────────────────────
   const [certificates, setCertificates] = useState<CertificateItem[]>([]);
   const [loadingCertificates, setLoadingCertificates] = useState(true);
   const [certFilter, setCertFilter] = useState<string>("ALL");
-  const [inspectingCert, setInspectingCert] = useState<CertificateItem | null>(null);
-  const [eligibilityData, setEligibilityData] = useState<EligibilityData | null>(null);
-  const [loadingEligibility, setLoadingEligibility] = useState(false);
-  const [eligibilityModalError, setEligibilityModalError] = useState<string | null>(null);
+  const [certSearch, setCertSearch] = useState<string>("");
+  const [certProgramFilter, setCertProgramFilter] = useState<string>("ALL");
+  const [certSortField, setCertSortField] = useState<CertSortField>("createdAt");
+  const [certSortOrder, setCertSortOrder] = useState<SortOrder>("desc");
+  const [certPage, setCertPage] = useState(1);
+  const [certPageSize, setCertPageSize] = useState(10);
+  const [inFlightCertAction, setInFlightCertAction] = useState<{ id: string; action: string } | null>(null);
 
   // Reject Certificate Modal
   const [rejectingCert, setRejectingCert] = useState<CertificateItem | null>(null);
@@ -224,12 +214,19 @@ function ApprovalsContent() {
   const [submittingRejection, setSubmittingRejection] = useState(false);
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // 2. Oral Assessments & Rubrics State
+  // Oral Assessments State
   // ─────────────────────────────────────────────────────────────────────────────
   const [batches, setBatches] = useState<Batch[]>([]);
   const [assessments, setAssessments] = useState<OralAssessment[]>([]);
   const [loadingBatches, setLoadingBatches] = useState(true);
   const [loadingAssessments, setLoadingAssessments] = useState(false);
+  const [oralFilter, setOralFilter] = useState<string>("ALL");
+  const [oralSearch, setOralSearch] = useState<string>("");
+  const [oralProgramFilter, setOralProgramFilter] = useState<string>("ALL");
+  const [oralSortField, setOralSortField] = useState<OralSortField>("scheduledDate");
+  const [oralSortOrder, setOralSortOrder] = useState<SortOrder>("desc");
+  const [oralPage, setOralPage] = useState(1);
+  const [oralPageSize, setOralPageSize] = useState(10);
 
   // Grade Modal State
   const [gradingAssessment, setGradingAssessment] = useState<OralAssessment | null>(null);
@@ -242,21 +239,37 @@ function ApprovalsContent() {
 
   // Schedule Modal State
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [scheduleBatchId, setScheduleBatchId] = useState<string>("");
   const [batchEnrolments, setBatchEnrolments] = useState<EnrolmentOption[]>([]);
+  const [loadingScheduleEnrolments, setLoadingScheduleEnrolments] = useState(false);
   const [selectedEnrolmentId, setSelectedEnrolmentId] = useState("");
-  const [scheduledDate, setScheduledDate] = useState("");
+  const [scheduledDateStr, setScheduledDateStr] = useState("");
+  const [scheduledTimeStr, setScheduledTimeStr] = useState("10:00");
   const [submittingSchedule, setSubmittingSchedule] = useState(false);
   const [scheduleModalError, setScheduleModalError] = useState<string | null>(null);
+  const [displayTimezone, setDisplayTimezone] = useState<string>("UTC");
+
+  useEffect(() => {
+    setDisplayTimezone(getSystemTimezone());
+  }, []);
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // 3. Stage 5: Mission Statements Review Queue & Auto-Cert State
+  // Mission Statements State
   // ─────────────────────────────────────────────────────────────────────────────
   const [missionStatements, setMissionStatements] = useState<MissionStatementItem[]>([]);
   const [loadingMissions, setLoadingMissions] = useState(false);
   const [missionFilter, setMissionFilter] = useState<string>("ALL");
+  const [missionSearch, setMissionSearch] = useState<string>("");
+  const [missionProgramFilter, setMissionProgramFilter] = useState<string>("ALL");
+  const [missionSortField, setMissionSortField] = useState<MissionSortField>("createdAt");
+  const [missionSortOrder, setMissionSortOrder] = useState<SortOrder>("desc");
+  const [missionPage, setMissionPage] = useState(1);
+  const [missionPageSize, setMissionPageSize] = useState(10);
+
   const [previewMissionDoc, setPreviewMissionDoc] = useState<MissionStatementItem | null>(null);
   const [previewLoading, setPreviewLoading] = useState(true);
   const [previewError, setPreviewError] = useState(false);
+  const [previewFullscreen, setPreviewFullscreen] = useState(false);
 
   const [approvingMission, setApprovingMission] = useState<MissionStatementItem | null>(null);
   const [approvalFeedback, setApprovalFeedback] = useState("");
@@ -266,21 +279,28 @@ function ApprovalsContent() {
   const [rejectionFeedback, setRejectionFeedback] = useState("");
   const [submittingMissionReject, setSubmittingMissionReject] = useState(false);
 
-  // Load certificates and mission statements on mount
   useEffect(() => {
     fetchCertificates();
     loadBatches();
     loadMissionStatements();
   }, []);
 
-  // Load assessments when selected batch changes
   useEffect(() => {
-    if (!selectedBatchId) {
-      setAssessments([]);
-      return;
-    }
-    fetchAssessments(selectedBatchId);
-  }, [selectedBatchId]);
+    if (batches.length === 0) return;
+    fetchAssessments(selectedBatchId, batches);
+  }, [selectedBatchId, batches]);
+
+  useEffect(() => {
+    setCertPage(1);
+  }, [certFilter, certSearch, certProgramFilter, selectedBatchId]);
+
+  useEffect(() => {
+    setOralPage(1);
+  }, [oralFilter, oralSearch, oralProgramFilter, selectedBatchId]);
+
+  useEffect(() => {
+    setMissionPage(1);
+  }, [missionFilter, missionSearch, missionProgramFilter, selectedBatchId]);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Certificate Queue API Calls
@@ -297,7 +317,7 @@ function ApprovalsContent() {
         throw new Error(await errorMessage(res, "Could not load certificate queue"));
       }
       const data: CertificateItem[] = await res.json();
-      setCertificates(data);
+      setCertificates(Array.isArray(data) ? data : []);
     } catch (err: any) {
       setPageError(err.message || "Failed to load certificate requests");
     } finally {
@@ -307,6 +327,7 @@ function ApprovalsContent() {
 
   async function handleCertificateAction(id: string, action: "approve" | "issue") {
     try {
+      setInFlightCertAction({ id, action });
       setPageError(null);
       setPageSuccess(null);
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -319,12 +340,16 @@ function ApprovalsContent() {
         throw new Error(await errorMessage(res, `Could not ${action} certificate`));
       }
 
-      setPageSuccess(
-        `Certificate successfully ${action === "approve" ? "approved" : "issued"} and queued for PDF generation.`
-      );
+      const msg = `Certificate successfully ${action === "approve" ? "approved" : "issued"}.`;
+      setPageSuccess(msg);
+      toastSuccess(msg);
       await fetchCertificates();
     } catch (err: any) {
-      setPageError(err.message || `Failed to ${action} certificate`);
+      const msg = err.message || `Failed to ${action} certificate`;
+      setPageError(msg);
+      toastError(msg);
+    } finally {
+      setInFlightCertAction(null);
     }
   }
 
@@ -335,7 +360,7 @@ function ApprovalsContent() {
     setLoadingMissions(true);
     try {
       const data = await fetchMissionStatements();
-      setMissionStatements(data);
+      setMissionStatements(Array.isArray(data) ? data : []);
     } catch (err: any) {
       console.error("Failed to load mission statements:", err);
     } finally {
@@ -350,15 +375,17 @@ function ApprovalsContent() {
     setPageError(null);
     try {
       await approveMissionStatement(approvingMission.id, approvalFeedback.trim() || undefined);
-      setPageSuccess(
-        `Mission statement for ${approvingMission.user?.name || "learner"} approved! Certificate has been automatically issued.`
-      );
+      const msg = `Mission statement for ${approvingMission.user?.name || "learner"} approved and certificate issued.`;
+      setPageSuccess(msg);
+      toastSuccess(msg);
       setApprovingMission(null);
       setApprovalFeedback("");
       await loadMissionStatements();
       await fetchCertificates();
     } catch (err: any) {
-      setPageError(err.message || "Failed to approve mission statement");
+      const msg = err.message || "Failed to approve mission statement";
+      setPageError(msg);
+      toastError(msg);
     } finally {
       setSubmittingApproval(false);
     }
@@ -375,48 +402,18 @@ function ApprovalsContent() {
     setPageError(null);
     try {
       await rejectMissionStatement(rejectingMission.id, rejectionFeedback.trim());
-      setPageSuccess(
-        `Mission statement revision requested for ${rejectingMission.user?.name || "learner"}.`
-      );
+      const msg = `Mission statement revision requested for ${rejectingMission.user?.name || "learner"}.`;
+      setPageSuccess(msg);
+      toastSuccess(msg);
       setRejectingMission(null);
       setRejectionFeedback("");
       await loadMissionStatements();
     } catch (err: any) {
-      setPageError(err.message || "Failed to reject mission statement");
+      const msg = err.message || "Failed to reject mission statement";
+      setPageError(msg);
+      toastError(msg);
     } finally {
       setSubmittingMissionReject(false);
-    }
-  }
-
-  async function handleOpenInspectEligibility(cert: CertificateItem) {
-    setInspectingCert(cert);
-    setEligibilityData(null);
-    setEligibilityModalError(null);
-    setLoadingEligibility(true);
-
-    const enrolmentId = cert.enrolment?.id;
-    if (!enrolmentId) {
-      setEligibilityModalError("No valid enrolment ID attached to this certificate request.");
-      setLoadingEligibility(false);
-      return;
-    }
-
-    try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/certificates/eligibility/${enrolmentId}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-
-      if (!res.ok) {
-        throw new Error(await errorMessage(res, "Could not evaluate certificate eligibility gates"));
-      }
-
-      const data: EligibilityData = await res.json();
-      setEligibilityData(data);
-    } catch (err: any) {
-      setEligibilityModalError(err.message || "Failed to load eligibility evaluation details");
-    } finally {
-      setLoadingEligibility(false);
     }
   }
 
@@ -452,34 +449,18 @@ function ApprovalsContent() {
       }
 
       setRejectingCert(null);
-      setPageSuccess("Certificate request has been marked as REJECTED with logged reason.");
+      const msg = "Certificate request has been marked as REJECTED.";
+      setPageSuccess(msg);
+      toastSuccess(msg);
       await fetchCertificates();
     } catch (err: any) {
-      setPageError(err.message || "Failed to reject certificate");
+      const msg = err.message || "Failed to reject certificate";
+      setPageError(msg);
+      toastError(msg);
     } finally {
       setSubmittingRejection(false);
     }
   }
-
-  const handleDownloadPdf = async (certId: string, directUrl?: string | null) => {
-    try {
-      const res = await fetch(`${API_URL}/certificates/${certId}/pdf`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.downloadUrl || data.pdfUrl) {
-          window.open(data.downloadUrl || data.pdfUrl, "_blank");
-          return;
-        }
-      }
-      if (directUrl) {
-        window.open(directUrl, "_blank");
-      } else {
-        alert("Official signed PDF is still being generated or is currently processing.");
-      }
-    } catch {
-      if (directUrl) window.open(directUrl, "_blank");
-    }
-  };
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Oral Assessments API Calls
@@ -492,15 +473,12 @@ function ApprovalsContent() {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (res.ok) {
-        const data: Batch[] = await res.json();
+        const raw = await res.json();
+        const data: Batch[] = Array.isArray(raw) ? raw : raw?.batches || [];
         setBatches(data);
-        if (data.length > 0) {
-          const bParam = searchParams?.get("batchId") || selectedBatchId;
-          if (bParam && data.some((b) => b.id === bParam)) {
-            setSelectedBatchId(bParam);
-          } else if (!selectedBatchId && data[0]) {
-            setSelectedBatchId(data[0].id);
-          }
+        const bParam = searchParams?.get("batchId");
+        if (bParam && data.some((b) => b.id === bParam)) {
+          setSelectedBatchId(bParam);
         }
       }
     } catch (err: any) {
@@ -510,16 +488,55 @@ function ApprovalsContent() {
     }
   }
 
-  async function fetchAssessments(batchId: string) {
+  async function fetchAssessments(targetBatchId: string, batchList: Batch[] = batches) {
+    if (batchList.length === 0) {
+      setAssessments([]);
+      return;
+    }
     setLoadingAssessments(true);
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/oral-assessments/batches/${batchId}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (res.ok) {
-        const data: OralAssessment[] = await res.json();
-        setAssessments(data);
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+      if (targetBatchId && targetBatchId !== "UNASSIGNED") {
+        const batchObj = batchList.find((b) => b.id === targetBatchId);
+        const res = await fetch(`${API_URL}/oral-assessments/batches/${targetBatchId}`, { headers });
+        if (res.ok) {
+          const data: OralAssessment[] = await res.json();
+          setAssessments(
+            (Array.isArray(data) ? data : []).map((a) => ({
+              ...a,
+              _batchId: targetBatchId,
+              _batchName: batchObj?.name || a.enrolment?.batch?.name || "Assigned Batch",
+              _programTitle: batchObj?.program?.title || a.enrolment?.program?.title || "11 Steps Programme",
+            }))
+          );
+        } else {
+          setAssessments([]);
+        }
+      } else if (targetBatchId === "UNASSIGNED") {
+        setAssessments([]);
+      } else {
+        const results = await Promise.all(
+          batchList.map(async (b) => {
+            try {
+              const res = await fetch(`${API_URL}/oral-assessments/batches/${b.id}`, { headers });
+              if (!res.ok) return [];
+              const items: OralAssessment[] = await res.json();
+              return (Array.isArray(items) ? items : []).map((a) => ({
+                ...a,
+                _batchId: b.id,
+                _batchName: b.name,
+                _programTitle: b.program?.title || a.enrolment?.program?.title || "11 Steps Programme",
+              }));
+            } catch {
+              return [];
+            }
+          })
+        );
+        const merged = results.flat();
+        const deduped = Array.from(new Map(merged.map((item) => [item.id, item])).values());
+        setAssessments(deduped);
       }
     } catch (err: any) {
       console.error(err);
@@ -614,26 +631,27 @@ function ApprovalsContent() {
     const previousAssessments = assessments;
     const optimisticStatus: "PASSED" | "FAILED" = passed ? "PASSED" : "FAILED";
 
+    setSubmittingGrade(true);
     setAssessments((prev) =>
       prev.map((a) =>
         a.id === targetId
           ? {
-            ...a,
-            status: optimisticStatus,
-            overallScore: calculatedPercent,
-            trainerNotes: trainerNotes.trim(),
-            retryGuidance: !passed ? retryGuidance.trim() : null,
-            gradedAt: new Date().toISOString(),
-            scores: rubricScores,
-          }
+              ...a,
+              status: optimisticStatus,
+              overallScore: calculatedPercent,
+              trainerNotes: trainerNotes.trim(),
+              retryGuidance: !passed ? retryGuidance.trim() : null,
+              gradedAt: new Date().toISOString(),
+              scores: rubricScores,
+            }
           : a
       )
     );
 
     setGradingAssessment(null);
-    setPageSuccess(
-      `Oral assessment successfully graded (${passed ? "PASSED" : "RETRY REQUIRED"}, ${calculatedPercent}%).`
-    );
+    const msg = `Oral assessment graded (${passed ? "PASSED" : "RETRY REQUIRED"}, ${calculatedPercent}%).`;
+    setPageSuccess(msg);
+    toastSuccess(msg);
     setGradeModalError(null);
 
     try {
@@ -664,53 +682,95 @@ function ApprovalsContent() {
         throw new Error(await errorMessage(res, "Failed to submit oral assessment evaluation"));
       }
 
-      fetchAssessments(selectedBatchId);
+      fetchAssessments(selectedBatchId, batches);
     } catch (err: any) {
-      setPageError(err.message || "Failed to submit grade evaluation");
+      const errMsg = err.message || "Failed to submit grade evaluation";
+      setPageError(errMsg);
+      toastError(errMsg);
     } finally {
       setSubmittingGrade(false);
+    }
+  }
+
+  async function loadEnrolmentsForScheduleBatch(bId: string) {
+    if (!bId) {
+      setBatchEnrolments([]);
+      setSelectedEnrolmentId("");
+      return;
+    }
+    setLoadingScheduleEnrolments(true);
+    setScheduleModalError(null);
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const res = await fetch(`${API_URL}/admin/enrolments?batchId=${bId}&limit=100`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const enrs = json.data || json || [];
+        setBatchEnrolments(Array.isArray(enrs) ? enrs : []);
+        setSelectedEnrolmentId(enrs.length > 0 && enrs[0] ? enrs[0].id : "");
+      }
+    } catch {
+      setScheduleModalError("Failed to fetch learners in batch.");
+    } finally {
+      setLoadingScheduleEnrolments(false);
     }
   }
 
   async function handleOpenScheduleModal() {
     setIsScheduleModalOpen(true);
     setScheduleModalError(null);
-    setBatchEnrolments([]);
-    setSelectedEnrolmentId("");
-
-    try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-      const res = await fetch(`${API_URL}/admin/enrolments?batchId=${selectedBatchId}&limit=100`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (res.ok) {
-        const json = await res.json();
-        const enrs = json.data || json || [];
-        setBatchEnrolments(enrs);
-        if (enrs.length > 0 && enrs[0]) {
-          setSelectedEnrolmentId(enrs[0].id);
-        }
-      }
-    } catch {
-      setScheduleModalError("Failed to fetch learners in batch.");
+    const defaultBatch =
+      selectedBatchId && selectedBatchId !== "UNASSIGNED"
+        ? selectedBatchId
+        : batches[0]?.id || "";
+    setScheduleBatchId(defaultBatch);
+    setScheduledDateStr("");
+    setScheduledTimeStr("10:00");
+    if (defaultBatch) {
+      await loadEnrolmentsForScheduleBatch(defaultBatch);
+    } else {
+      setBatchEnrolments([]);
+      setSelectedEnrolmentId("");
     }
   }
 
   async function handleSubmitSchedule(e: FormEvent) {
     e.preventDefault();
-    if (!selectedEnrolmentId || !selectedBatchId) return;
+    if (!selectedEnrolmentId || !scheduleBatchId) return;
 
-    const currentBatch = batches.find((b) => b.id === selectedBatchId);
+    const currentBatch = batches.find((b) => b.id === scheduleBatchId);
     if (!currentBatch) return;
 
     setSubmittingSchedule(true);
     setScheduleModalError(null);
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      let isoDate: string | undefined = undefined;
+      if (scheduledDateStr) {
+        const utcDate = localWallTimeToUtc(
+          scheduledDateStr,
+          scheduledTimeStr || "10:00",
+          displayTimezone
+        );
+        if (isNaN(utcDate.getTime())) {
+          setScheduleModalError("Invalid scheduled date or time selected.");
+          setSubmittingSchedule(false);
+          return;
+        }
+        if (utcDate.getTime() < Date.now() - 5 * 60 * 1000) {
+          setScheduleModalError("Cannot schedule an assessment in the past. Please choose an upcoming date and time.");
+          setSubmittingSchedule(false);
+          return;
+        }
+        isoDate = utcDate.toISOString();
+      }
+
       const payload = {
         enrolmentId: selectedEnrolmentId,
-        programId: currentBatch.programId,
-        scheduledDate: scheduledDate ? new Date(scheduledDate).toISOString() : undefined,
+        programId: currentBatch.programId || currentBatch.program?.id,
+        scheduledDate: isoDate,
       };
 
       const res = await fetch(`${API_URL}/oral-assessments`, {
@@ -727,1258 +787,1491 @@ function ApprovalsContent() {
       }
 
       setIsScheduleModalOpen(false);
-      setPageSuccess("Oral assessment successfully scheduled.");
-      await fetchAssessments(selectedBatchId);
+      const msg = "Oral assessment scheduled.";
+      setPageSuccess(msg);
+      toastSuccess(msg);
+      await fetchAssessments(selectedBatchId, batches);
     } catch (err: any) {
       setScheduleModalError(err.message);
+      toastError(err.message || "Failed to schedule oral assessment");
     } finally {
       setSubmittingSchedule(false);
     }
   }
 
-  // Filtered certificates
-  const filteredCertificates = certificates.filter((c) => {
-    const certBatchId = c.enrolment?.batch?.id || (c.enrolment as any)?.batchId;
-    if (selectedBatchId && certBatchId !== selectedBatchId) {
-      return false;
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Shared Filter Options (Programs & Batches)
+  // ─────────────────────────────────────────────────────────────────────────────
+  const allProgramOptions = useMemo(() => {
+    const titles = new Set<string>();
+    for (const b of batches) {
+      if (b.program?.title) titles.add(b.program.title);
     }
-    if (certFilter === "ALL") return true;
-    return c.status === certFilter;
-  });
-
-  const pendingCount = certificates.filter((c) => {
-    const certBatchId = c.enrolment?.batch?.id || (c.enrolment as any)?.batchId;
-    if (selectedBatchId && certBatchId !== selectedBatchId) return false;
-    return c.status === "PENDING";
-  }).length;
-  const approvedCount = certificates.filter((c) => {
-    const certBatchId = c.enrolment?.batch?.id || (c.enrolment as any)?.batchId;
-    if (selectedBatchId && certBatchId !== selectedBatchId) return false;
-    return c.status === "APPROVED";
-  }).length;
-  const issuedCount = certificates.filter((c) => {
-    const certBatchId = c.enrolment?.batch?.id || (c.enrolment as any)?.batchId;
-    if (selectedBatchId && certBatchId !== selectedBatchId) return false;
-    return c.status === "ISSUED";
-  }).length;
-
-  const pendingMissionsCount = missionStatements.filter((m) => {
-    const missionBatchId = m.enrolment?.batch?.id || (m.enrolment as any)?.batchId;
-    if (selectedBatchId && missionBatchId !== selectedBatchId) return false;
-    return m.status === "SUBMITTED";
-  }).length;
-  const filteredMissions = missionStatements.filter((m) => {
-    const missionBatchId = m.enrolment?.batch?.id || (m.enrolment as any)?.batchId;
-    if (selectedBatchId && missionBatchId !== selectedBatchId) {
-      return false;
+    for (const c of certificates) {
+      const t = c.enrolment?.batch?.program?.title || c.enrolment?.program?.title;
+      if (t) titles.add(t);
     }
-    if (missionFilter === "ALL") return true;
-    return m.status === missionFilter;
-  });
-  const marketingBase = getMarketingUrl();
+    for (const m of missionStatements) {
+      const t = m.enrolment?.program?.title;
+      if (t) titles.add(t);
+    }
+    for (const a of assessments) {
+      const t = a._programTitle || a.enrolment?.program?.title;
+      if (t) titles.add(t);
+    }
+    return [
+      { value: "ALL", label: "All Programs" },
+      ...Array.from(titles)
+        .sort((a, b) => a.localeCompare(b))
+        .map((t) => ({ value: t, label: t })),
+    ];
+  }, [batches, certificates, missionStatements, assessments]);
+
+  const batchFilterOptions = useMemo(() => {
+    return [
+      { value: "", label: "All Batches" },
+      { value: "UNASSIGNED", label: "Direct / No Batch" },
+      ...batches.map((b) => ({
+        value: b.id,
+        label: b.name,
+      })),
+    ];
+  }, [batches]);
+
+  const oralBatchFilterOptions = useMemo(() => {
+    return [
+      { value: "", label: "All Batches" },
+      ...batches.map((b) => ({
+        value: b.id,
+        label: b.name,
+      })),
+    ];
+  }, [batches]);
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Certificates Filtering, Sorting & Pagination
+  // ─────────────────────────────────────────────────────────────────────────────
+  const contextFilteredCertificates = useMemo(() => {
+    return certificates.filter((c) => {
+      const certBatchId = c.enrolment?.batch?.id || c.enrolment?.batchId || "";
+      const certBatchName = c.enrolment?.batch?.name || "";
+      const certProgTitle =
+        c.enrolment?.batch?.program?.title || c.enrolment?.program?.title || "11 Steps Programme";
+
+      if (selectedBatchId === "UNASSIGNED") {
+        if (certBatchId) return false;
+      } else if (selectedBatchId) {
+        if (certBatchId !== selectedBatchId) return false;
+      }
+
+      if (certProgramFilter !== "ALL") {
+        if (certProgTitle.toLowerCase() !== certProgramFilter.toLowerCase()) return false;
+      }
+
+      if (certSearch.trim()) {
+        const q = certSearch.toLowerCase().trim();
+        const matchesName = c.enrolment?.user?.name?.toLowerCase().includes(q);
+        const matchesEmail = c.enrolment?.user?.email?.toLowerCase().includes(q);
+        const matchesCode =
+          c.certificateCode?.toLowerCase().includes(q) ||
+          c.certificateNumber?.toLowerCase().includes(q);
+        const matchesProg = certProgTitle.toLowerCase().includes(q);
+        const matchesBatch = certBatchName.toLowerCase().includes(q);
+        if (!matchesName && !matchesEmail && !matchesCode && !matchesProg && !matchesBatch) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [certificates, selectedBatchId, certProgramFilter, certSearch]);
+
+  const certStatusCounts = useMemo(() => {
+    const counts = {
+      ALL: contextFilteredCertificates.length,
+      PENDING: 0,
+      APPROVED: 0,
+      ISSUED: 0,
+      REJECTED: 0,
+    };
+    for (const c of contextFilteredCertificates) {
+      if (c.status === "PENDING") counts.PENDING++;
+      else if (c.status === "APPROVED") counts.APPROVED++;
+      else if (c.status === "ISSUED") counts.ISSUED++;
+      else if (c.status === "REJECTED") counts.REJECTED++;
+    }
+    return counts;
+  }, [contextFilteredCertificates]);
+
+  const certStatusOptions = useMemo(() => {
+    return [
+      { value: "ALL", label: `All Statuses (${certStatusCounts.ALL})` },
+      { value: "PENDING", label: `Pending (${certStatusCounts.PENDING})` },
+      { value: "APPROVED", label: `Approved (${certStatusCounts.APPROVED})` },
+      { value: "ISSUED", label: `Issued (${certStatusCounts.ISSUED})` },
+      { value: "REJECTED", label: `Rejected (${certStatusCounts.REJECTED})` },
+    ];
+  }, [certStatusCounts]);
+
+  const filteredCertificates = useMemo(() => {
+    if (certFilter === "ALL") return contextFilteredCertificates;
+    return contextFilteredCertificates.filter((c) => c.status === certFilter);
+  }, [contextFilteredCertificates, certFilter]);
+
+  const sortedCertificates = useMemo(() => {
+    return [...filteredCertificates].sort((a, b) => {
+      let cmp = 0;
+      if (certSortField === "learner") {
+        cmp = (a.enrolment?.user?.name || "").localeCompare(b.enrolment?.user?.name || "");
+      } else if (certSortField === "program") {
+        const pA = a.enrolment?.batch?.program?.title || a.enrolment?.program?.title || "";
+        const pB = b.enrolment?.batch?.program?.title || b.enrolment?.program?.title || "";
+        cmp = pA.localeCompare(pB);
+      } else if (certSortField === "code") {
+        cmp = (a.certificateCode || "").localeCompare(b.certificateCode || "");
+      } else if (certSortField === "createdAt") {
+        cmp = new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+      } else if (certSortField === "status") {
+        cmp = (a.status || "").localeCompare(b.status || "");
+      }
+      return certSortOrder === "asc" ? cmp : -cmp;
+    });
+  }, [filteredCertificates, certSortField, certSortOrder]);
+
+  const paginatedCertificates = useMemo(() => {
+    const start = (certPage - 1) * certPageSize;
+    return sortedCertificates.slice(start, start + certPageSize);
+  }, [sortedCertificates, certPage, certPageSize]);
+
+  const hasCertFilters = Boolean(
+    certFilter !== "ALL" || certSearch.trim() || certProgramFilter !== "ALL" || selectedBatchId !== ""
+  );
+
+  const resetCertFilters = () => {
+    setCertFilter("ALL");
+    setCertSearch("");
+    setCertProgramFilter("ALL");
+    setSelectedBatchId("");
+    setCertPage(1);
+  };
+
+  const handleCertSort = (field: CertSortField) => {
+    if (certSortField === field) {
+      setCertSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setCertSortField(field);
+      setCertSortOrder("asc");
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Oral Assessments Filtering, Sorting & Pagination
+  // ─────────────────────────────────────────────────────────────────────────────
+  const contextFilteredAssessments = useMemo(() => {
+    return assessments.filter((a) => {
+      const aBatchId = a._batchId || a.enrolment?.batch?.id || a.enrolment?.batchId || "";
+      const aBatchName = a._batchName || a.enrolment?.batch?.name || "";
+      const aProgTitle =
+        a._programTitle || a.enrolment?.batch?.program?.title || a.enrolment?.program?.title || "11 Steps Programme";
+
+      if (selectedBatchId && selectedBatchId !== "UNASSIGNED") {
+        if (aBatchId !== selectedBatchId) return false;
+      }
+
+      if (oralProgramFilter !== "ALL") {
+        if (aProgTitle.toLowerCase() !== oralProgramFilter.toLowerCase()) return false;
+      }
+
+      if (oralSearch.trim()) {
+        const q = oralSearch.toLowerCase().trim();
+        const matchesName = a.enrolment?.user?.name?.toLowerCase().includes(q);
+        const matchesEmail = a.enrolment?.user?.email?.toLowerCase().includes(q);
+        const matchesBatch = aBatchName.toLowerCase().includes(q);
+        const matchesProg = aProgTitle.toLowerCase().includes(q);
+        if (!matchesName && !matchesEmail && !matchesBatch && !matchesProg) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [assessments, selectedBatchId, oralProgramFilter, oralSearch]);
+
+  const oralStatusCounts = useMemo(() => {
+    const counts = {
+      ALL: contextFilteredAssessments.length,
+      SCHEDULED: 0,
+      PASSED: 0,
+      FAILED: 0,
+    };
+    for (const a of contextFilteredAssessments) {
+      if (a.status === "SCHEDULED") counts.SCHEDULED++;
+      else if (a.status === "PASSED") counts.PASSED++;
+      else if (a.status === "FAILED") counts.FAILED++;
+    }
+    return counts;
+  }, [contextFilteredAssessments]);
+
+  const oralStatusOptions = useMemo(() => {
+    return [
+      { value: "ALL", label: `All Statuses (${oralStatusCounts.ALL})` },
+      { value: "SCHEDULED", label: `Scheduled (${oralStatusCounts.SCHEDULED})` },
+      { value: "PASSED", label: `Passed (${oralStatusCounts.PASSED})` },
+      { value: "FAILED", label: `Retry Required (${oralStatusCounts.FAILED})` },
+    ];
+  }, [oralStatusCounts]);
+
+  const filteredAssessments = useMemo(() => {
+    if (oralFilter === "ALL") return contextFilteredAssessments;
+    return contextFilteredAssessments.filter((a) => a.status === oralFilter);
+  }, [contextFilteredAssessments, oralFilter]);
+
+  const sortedAssessments = useMemo(() => {
+    return [...filteredAssessments].sort((a, b) => {
+      let cmp = 0;
+      if (oralSortField === "learner") {
+        cmp = (a.enrolment?.user?.name || "").localeCompare(b.enrolment?.user?.name || "");
+      } else if (oralSortField === "program") {
+        cmp = (a._batchName || "").localeCompare(b._batchName || "");
+      } else if (oralSortField === "scheduledDate") {
+        const tA = a.scheduledDate ? new Date(a.scheduledDate).getTime() : 0;
+        const tB = b.scheduledDate ? new Date(b.scheduledDate).getTime() : 0;
+        cmp = tA - tB;
+      } else if (oralSortField === "score") {
+        cmp = (a.overallScore ?? -1) - (b.overallScore ?? -1);
+      } else if (oralSortField === "status") {
+        cmp = (a.status || "").localeCompare(b.status || "");
+      }
+      return oralSortOrder === "asc" ? cmp : -cmp;
+    });
+  }, [filteredAssessments, oralSortField, oralSortOrder]);
+
+  const paginatedAssessments = useMemo(() => {
+    const start = (oralPage - 1) * oralPageSize;
+    return sortedAssessments.slice(start, start + oralPageSize);
+  }, [sortedAssessments, oralPage, oralPageSize]);
+
+  const hasOralFilters = Boolean(
+    oralFilter !== "ALL" || oralSearch.trim() || oralProgramFilter !== "ALL" || selectedBatchId !== ""
+  );
+
+  const resetOralFilters = () => {
+    setOralFilter("ALL");
+    setOralSearch("");
+    setOralProgramFilter("ALL");
+    setSelectedBatchId("");
+    setOralPage(1);
+  };
+
+  const handleOralSort = (field: OralSortField) => {
+    if (oralSortField === field) {
+      setOralSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setOralSortField(field);
+      setOralSortOrder("asc");
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Mission Statements Filtering, Sorting & Pagination
+  // ─────────────────────────────────────────────────────────────────────────────
+  const contextFilteredMissions = useMemo(() => {
+    return missionStatements.filter((m) => {
+      const mBatchId = m.enrolment?.batch?.id || (m.enrolment as any)?.batchId || "";
+      const mBatchName = m.enrolment?.batch?.name || "";
+      const mProgTitle = m.enrolment?.program?.title || "11 Steps Programme";
+
+      if (selectedBatchId === "UNASSIGNED") {
+        if (mBatchId) return false;
+      } else if (selectedBatchId) {
+        if (mBatchId !== selectedBatchId) return false;
+      }
+
+      if (missionProgramFilter !== "ALL") {
+        if (mProgTitle.toLowerCase() !== missionProgramFilter.toLowerCase()) return false;
+      }
+
+      if (missionSearch.trim()) {
+        const q = missionSearch.toLowerCase().trim();
+        const matchesName = m.user?.name?.toLowerCase().includes(q);
+        const matchesEmail = m.user?.email?.toLowerCase().includes(q);
+        const matchesProg = mProgTitle.toLowerCase().includes(q);
+        const matchesBatch = mBatchName.toLowerCase().includes(q);
+        const matchesFile = m.fileName?.toLowerCase().includes(q);
+        if (!matchesName && !matchesEmail && !matchesProg && !matchesBatch && !matchesFile) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [missionStatements, selectedBatchId, missionProgramFilter, missionSearch]);
+
+  const missionStatusCounts = useMemo(() => {
+    const counts = {
+      ALL: contextFilteredMissions.length,
+      SUBMITTED: 0,
+      APPROVED: 0,
+      REJECTED: 0,
+    };
+    for (const m of contextFilteredMissions) {
+      if (m.status === "SUBMITTED") counts.SUBMITTED++;
+      else if (m.status === "APPROVED") counts.APPROVED++;
+      else if (m.status === "REJECTED") counts.REJECTED++;
+    }
+    return counts;
+  }, [contextFilteredMissions]);
+
+  const missionStatusOptions = useMemo(() => {
+    return [
+      { value: "ALL", label: `All Statuses (${missionStatusCounts.ALL})` },
+      { value: "SUBMITTED", label: `Pending Review (${missionStatusCounts.SUBMITTED})` },
+      { value: "APPROVED", label: `Approved (${missionStatusCounts.APPROVED})` },
+      { value: "REJECTED", label: `Revision Requested (${missionStatusCounts.REJECTED})` },
+    ];
+  }, [missionStatusCounts]);
+
+  const filteredMissions = useMemo(() => {
+    if (missionFilter === "ALL") return contextFilteredMissions;
+    return contextFilteredMissions.filter((m) => m.status === missionFilter);
+  }, [contextFilteredMissions, missionFilter]);
+
+  const sortedMissions = useMemo(() => {
+    return [...filteredMissions].sort((a, b) => {
+      let cmp = 0;
+      if (missionSortField === "learner") {
+        cmp = (a.user?.name || "").localeCompare(b.user?.name || "");
+      } else if (missionSortField === "program") {
+        cmp = (a.enrolment?.program?.title || "").localeCompare(b.enrolment?.program?.title || "");
+      } else if (missionSortField === "createdAt") {
+        cmp = new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+      } else if (missionSortField === "status") {
+        cmp = (a.status || "").localeCompare(b.status || "");
+      }
+      return missionSortOrder === "asc" ? cmp : -cmp;
+    });
+  }, [filteredMissions, missionSortField, missionSortOrder]);
+
+  const paginatedMissions = useMemo(() => {
+    const start = (missionPage - 1) * missionPageSize;
+    return sortedMissions.slice(start, start + missionPageSize);
+  }, [sortedMissions, missionPage, missionPageSize]);
+
+  const hasMissionFilters = Boolean(
+    missionFilter !== "ALL" || missionSearch.trim() || missionProgramFilter !== "ALL" || selectedBatchId !== ""
+  );
+
+  const resetMissionFilters = () => {
+    setMissionFilter("ALL");
+    setMissionSearch("");
+    setMissionProgramFilter("ALL");
+    setSelectedBatchId("");
+    setMissionPage(1);
+  };
+
+  const handleMissionSort = (field: MissionSortField) => {
+    if (missionSortField === field) {
+      setMissionSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setMissionSortField(field);
+      setMissionSortOrder("asc");
+    }
+  };
 
   return (
-    <div className={styles.dashboard}>
+    <div className={styles.dashboardContainer}>
       {/* ─────────────────────────────────────────────────────────────────────────────
-          PAGE HEADER & TAB SWITCHER
+          PAGE HEADER (Clean — No subtitle, no extra clutter buttons)
          ───────────────────────────────────────────────────────────────────────────── */}
-      <header className={styles.header}>
+      <header
+        className={styles.header}
+        style={{
+          marginBottom: 0,
+          alignItems: "center",
+          display: "flex",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: "1rem",
+        }}
+      >
         <div className={styles.headerText}>
-          <h1 className={styles.title}>Approvals &amp; Certification Gates</h1>
-          {/* <p className={styles.subtitle}>
-            Audit learner progression eligibility, approve completion certificates, and conduct live oral competency assessments.
-          </p> */}
+          <h1 className={styles.title} style={{ margin: 0 }}>
+            Approvals &amp; Certification Gates
+          </h1>
         </div>
 
-        <div className={styles.headerActions}>
-          {activeTab === "certificates" ? (
-            <Link href="/certificates/issue" className={styles.primaryBtn}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="12" cy="8" r="6" />
-                <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
-              </svg>
-              <span>Issue Certificates</span>
-            </Link>
-          ) : activeTab === "coaching" ? (
-            <Link href="/meetings" className={styles.primaryBtn} style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                <line x1="16" y1="2" x2="16" y2="6" />
-                <line x1="8" y1="2" x2="8" y2="6" />
-                <line x1="3" y1="10" x2="21" y2="10" />
-              </svg>
-              <span>Open Admin Calendar &rarr;</span>
-            </Link>
-          ) : activeTab === "oral" ? (
+        {activeTab === "oral" && (
+          <div className={styles.headerActions}>
             <button
               type="button"
               className={styles.primaryBtn}
               onClick={handleOpenScheduleModal}
-              disabled={!selectedBatchId}
-              style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}
+              disabled={batches.length === 0}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <line x1="12" y1="5" x2="12" y2="19"></line>
                 <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
-              <span>Schedule Oral Assessment</span>
+              <span>Schedule Assessment</span>
             </button>
-          ) : (
-            <button
-              type="button"
-              className={styles.secondaryBtn}
-              onClick={loadMissionStatements}
-              style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="23 4 23 10 17 10"></polyline>
-                <polyline points="1 20 1 14 7 14"></polyline>
-                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-              </svg>
-              <span>Refresh Queue</span>
-            </button>
-          )}
-        </div>
+          </div>
+        )}
       </header>
 
       {/* Global Page Alerts */}
       {pageError && (
-        <div style={{
-          backgroundColor: "#fef2f2",
-          border: "1px solid #fecaca",
-          color: "#991b1b",
-          padding: "12px 16px",
-          borderRadius: "8px",
-          marginBottom: "1.25rem",
-          display: "flex",
-          alignItems: "center",
-          gap: "10px",
-          fontSize: "0.88rem"
-        }}>
+        <div className={styles.alertError} style={{ marginBottom: 0 }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
             <circle cx="12" cy="12" r="10"></circle>
             <line x1="12" y1="8" x2="12" y2="12"></line>
             <line x1="12" y1="16" x2="12.01" y2="16"></line>
           </svg>
-          <span>{pageError}</span>
-        </div>
-      )}
-
-      {pageSuccess && (
-        <div style={{
-          backgroundColor: "#f0fdf4",
-          border: "1px solid #bbf7d0",
-          color: "#166534",
-          padding: "12px 16px",
-          borderRadius: "8px",
-          marginBottom: "1.25rem",
-          display: "flex",
-          alignItems: "center",
-          gap: "10px",
-          fontSize: "0.88rem"
-        }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-            <polyline points="22 4 12 14.01 9 11.01"></polyline>
-          </svg>
-          <span>{pageSuccess}</span>
-        </div>
-      )}
-
-      {pendingCoachingCount > 0 && activeTab !== "coaching" && (
-        <div style={{
-          background: "#fffbeb",
-          border: "1px solid #fde68a",
-          borderRadius: 8,
-          padding: "10px 16px",
-          marginBottom: "1rem",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "1rem",
-        }}>
-          <span style={{ fontSize: "0.88rem", color: "#92400e", fontWeight: 600 }}>
-            ⚡ You have {pendingCoachingCount} pending 1-on-1 Coaching Session request{pendingCoachingCount > 1 ? "s" : ""} awaiting review &amp; slot scheduling.
-          </span>
+          <span style={{ flex: 1 }}>{pageError}</span>
           <button
             type="button"
-            onClick={() => setActiveTab("coaching")}
-            style={{
-              background: "#b8860b",
-              color: "#ffffff",
-              border: "none",
-              padding: "6px 14px",
-              borderRadius: 6,
-              fontSize: "0.82rem",
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
+            onClick={() => setPageError(null)}
+            style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", fontWeight: 700 }}
+            aria-label="Dismiss error"
           >
-            Review Coaching Requests &rarr;
+            ✕
           </button>
         </div>
       )}
 
-      {/* Primary Tab Bar */}
-      <div style={{
-        display: "flex",
-        gap: "12px",
-        borderBottom: "1px solid var(--border-light)",
-        marginBottom: "1.5rem",
-        paddingBottom: "4px"
-      }}>
-        <button
-          type="button"
-          onClick={() => setActiveTab("certificates")}
-          style={{
-            background: "transparent",
-            border: "none",
-            borderBottom: activeTab === "certificates" ? "3px solid #b8860b" : "3px solid transparent",
-            padding: "8px 18px",
-            fontSize: "0.95rem",
-            fontWeight: activeTab === "certificates" ? 700 : 500,
-            color: activeTab === "certificates" ? "var(--text-primary)" : "var(--text-muted)",
-            cursor: "pointer",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-            transition: "all 0.15s ease"
-          }}
-        >
-          <span>Certificate Approvals &amp; Eligibility</span>
-          {pendingCount > 0 && (
-            <span style={{
-              background: "#b8860b",
-              color: "#ffffff",
-              fontSize: "0.75rem",
-              fontWeight: 700,
-              padding: "2px 7px",
-              borderRadius: "10px"
-            }}>
-              {pendingCount}
-            </span>
-          )}
-        </button>
+      {pageSuccess && (
+        <div className={styles.alertSuccess} style={{ marginBottom: 0 }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+          </svg>
+          <span style={{ flex: 1 }}>{pageSuccess}</span>
+          <button
+            type="button"
+            onClick={() => setPageSuccess(null)}
+            style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", fontWeight: 700 }}
+            aria-label="Dismiss message"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
+      {/* ─────────────────────────────────────────────────────────────────────────────
+          PRIMARY TAB NAVIGATION BAR (Ordered matching Learner Profile stages)
+          1. 1:1 Call -> 2. Mission Statement -> 3. Oral Assessments -> 4. Certificates
+         ───────────────────────────────────────────────────────────────────────────── */}
+      <div
+        className={styles.tabsContainer}
+        role="tablist"
+        aria-label="Approvals and Certification Gates Tabs"
+        style={{ marginBottom: 0, flexWrap: "wrap" }}
+      >
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === "coaching"}
+          className={`${styles.tabBtn} ${activeTab === "coaching" ? styles.tabBtnActive : ""}`}
           onClick={() => setActiveTab("coaching")}
-          style={{
-            background: "transparent",
-            border: "none",
-            borderBottom: activeTab === "coaching" ? "3px solid #b8860b" : "3px solid transparent",
-            padding: "8px 18px",
-            fontSize: "0.95rem",
-            fontWeight: activeTab === "coaching" ? 700 : 500,
-            color: activeTab === "coaching" ? "var(--text-primary)" : "var(--text-muted)",
-            cursor: "pointer",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-            transition: "all 0.15s ease"
-          }}
         >
-          <span>1-on-1 Coaching (Stage 4)</span>
-          {pendingCoachingCount > 0 && (
-            <span style={{
-              background: "#b8860b",
-              color: "#ffffff",
-              fontSize: "0.75rem",
+          <span>1:1 Call</span>
+          <span
+            style={{
+              background: "var(--bg-soft, #f5ece1)",
+              color: "var(--text-secondary)",
+              fontSize: "0.72rem",
               fontWeight: 700,
               padding: "2px 7px",
-              borderRadius: "10px"
-            }}>
-              {pendingCoachingCount}
-            </span>
-          )}
+              borderRadius: "9999px",
+              lineHeight: 1.2,
+            }}
+          >
+            {totalCoachingCount}
+          </span>
         </button>
 
         <button
           type="button"
-          onClick={() => setActiveTab("oral")}
-          style={{
-            background: "transparent",
-            border: "none",
-            borderBottom: activeTab === "oral" ? "3px solid #b8860b" : "3px solid transparent",
-            padding: "8px 18px",
-            fontSize: "0.95rem",
-            fontWeight: activeTab === "oral" ? 700 : 500,
-            color: activeTab === "oral" ? "var(--text-primary)" : "var(--text-muted)",
-            cursor: "pointer",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-            transition: "all 0.15s ease"
-          }}
+          role="tab"
+          aria-selected={activeTab === "missions"}
+          className={`${styles.tabBtn} ${activeTab === "missions" ? styles.tabBtnActive : ""}`}
+          onClick={() => setActiveTab("missions")}
         >
-          <span>Oral Assessments &amp; Rubrics</span>
-          <span style={{
-            background: "var(--border-light)",
-            color: "var(--text-secondary)",
-            fontSize: "0.75rem",
-            fontWeight: 600,
-            padding: "2px 7px",
-            borderRadius: "10px"
-          }}>
+          <span>Mission Statement</span>
+          <span
+            style={{
+              background: "var(--bg-soft, #f5ece1)",
+              color: "var(--text-secondary)",
+              fontSize: "0.72rem",
+              fontWeight: 700,
+              padding: "2px 7px",
+              borderRadius: "9999px",
+              lineHeight: 1.2,
+            }}
+          >
+            {missionStatements.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "oral"}
+          className={`${styles.tabBtn} ${activeTab === "oral" ? styles.tabBtnActive : ""}`}
+          onClick={() => setActiveTab("oral")}
+        >
+          <span>Oral Assessments</span>
+          <span
+            style={{
+              background: "var(--bg-soft, #f5ece1)",
+              color: "var(--text-secondary)",
+              fontSize: "0.72rem",
+              fontWeight: 700,
+              padding: "2px 7px",
+              borderRadius: "9999px",
+              lineHeight: 1.2,
+            }}
+          >
             {assessments.length}
           </span>
         </button>
 
         <button
           type="button"
-          onClick={() => setActiveTab("missions")}
-          style={{
-            background: "transparent",
-            border: "none",
-            borderBottom: activeTab === "missions" ? "3px solid #b8860b" : "3px solid transparent",
-            padding: "8px 18px",
-            fontSize: "0.95rem",
-            fontWeight: activeTab === "missions" ? 700 : 500,
-            color: activeTab === "missions" ? "var(--text-primary)" : "var(--text-muted)",
-            cursor: "pointer",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-            transition: "all 0.15s ease"
-          }}
+          role="tab"
+          aria-selected={activeTab === "certificates"}
+          className={`${styles.tabBtn} ${activeTab === "certificates" ? styles.tabBtnActive : ""}`}
+          onClick={() => setActiveTab("certificates")}
         >
-          <span>Mission Statements (Stage 5)</span>
-          {pendingMissionsCount > 0 && (
-            <span style={{
-              background: "#b8860b",
-              color: "#ffffff",
-              fontSize: "0.75rem",
+          <span>Certificates</span>
+          <span
+            style={{
+              background: "var(--bg-soft, #f5ece1)",
+              color: "var(--text-secondary)",
+              fontSize: "0.72rem",
               fontWeight: 700,
               padding: "2px 7px",
-              borderRadius: "10px"
-            }}>
-              {pendingMissionsCount}
-            </span>
-          )}
+              borderRadius: "9999px",
+              lineHeight: 1.2,
+            }}
+          >
+            {certificates.length}
+          </span>
         </button>
       </div>
 
-      {/* Batch Pre-Filter Banner (when arrived from a learner profile or batch link) */}
-      {selectedBatchId && (
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "0.65rem 1rem",
-          background: "#fef3c7",
-          border: "1px solid #fde68a",
-          borderRadius: "8px",
-          marginBottom: "1rem",
-          fontSize: "0.8125rem",
-          color: "#92400e",
-          gap: "0.75rem",
-          flexWrap: "wrap",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-            </svg>
-            <span>
-              Showing learners from batch: <strong>{batches.find((b) => b.id === selectedBatchId)?.name || "Selected Batch"}</strong>
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setSelectedBatchId("")}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: "#b45309",
-              fontWeight: 700,
-              cursor: "pointer",
-              textDecoration: "none",
-              fontSize: "0.78rem",
-            }}
-          >
-            Show All Batches ✕
-          </button>
-        </div>
-      )}
-
+      {/* ─────────────────────────────────────────────────────────────────────────────
+          TAB 1: 1:1 CALL
+         ───────────────────────────────────────────────────────────────────────────── */}
       {activeTab === "coaching" && (
         <CoachingApprovalsTab
           onError={(msg) => setPageError(msg)}
           onSuccess={(msg) => setPageSuccess(msg)}
-          onPendingCountChange={(cnt) => setPendingCoachingCount(cnt)}
+          onTotalCountChange={(cnt) => setTotalCoachingCount(cnt)}
           batchId={selectedBatchId}
+          onBatchChange={setSelectedBatchId}
+          batches={batches}
         />
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
-          TAB 1: CERTIFICATE APPROVALS QUEUE & ELIGIBILITY GATE
-         ───────────────────────────────────────────────────────────────────────────── */}
-      {activeTab === "certificates" && (
-        <div>
-          {/* Status Filter Buttons */}
-          <div style={{ display: "flex", gap: "8px", marginBottom: "1.25rem", flexWrap: "wrap", alignItems: "center" }}>
-            <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-secondary)", marginRight: "4px" }}>
-              Filter Queue:
-            </span>
-            {[
-              { id: "ALL", label: `All Requests (${certificates.length})` },
-              { id: "PENDING", label: `Pending Approvals (${pendingCount})` },
-              { id: "APPROVED", label: `Approved / Ready to Issue (${approvedCount})` },
-              { id: "ISSUED", label: `Issued (${issuedCount})` },
-              { id: "REJECTED", label: "Rejected" },
-            ].map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => setCertFilter(f.id)}
-                style={{
-                  padding: "5px 12px",
-                  borderRadius: "20px",
-                  fontSize: "0.82rem",
-                  fontWeight: certFilter === f.id ? 700 : 500,
-                  border: certFilter === f.id ? "1px solid #b8860b" : "1px solid var(--border-light)",
-                  background: certFilter === f.id ? "#fef9c3" : "var(--bg-card)",
-                  color: certFilter === f.id ? "#854d0e" : "var(--text-secondary)",
-                  cursor: "pointer",
-                  transition: "all 0.15s ease",
-                }}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-
-          <section className={styles.tableSection}>
-            <div className={styles.sectionHeader}>
-              <h2>Learner Certificate Approvals ({filteredCertificates.length})</h2>
-            </div>
-
-            <div className={styles.tableWrapper}>
-              <table className={styles.adminTable}>
-                <thead>
-                  <tr>
-                    <th>Learner</th>
-                    <th>Program &amp; Batch</th>
-                    <th>Request Date</th>
-                    <th>Eligibility Gate</th>
-                    <th>Status</th>
-                    <th className={styles.alignRight}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loadingCertificates ? (
-                    <tr>
-                      <td colSpan={6} style={{ textAlign: "center", padding: "36px", color: "var(--text-secondary)" }}>
-                        Loading certificate approval queue...
-                      </td>
-                    </tr>
-                  ) : filteredCertificates.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} style={{ textAlign: "center", padding: "36px", color: "var(--text-secondary)" }}>
-                        No certificate requests matching filter &quot;{certFilter}&quot;.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredCertificates.map((cert) => {
-                      const learnerName = cert.enrolment?.user?.name || "Unknown Learner";
-                      const learnerEmail = cert.enrolment?.user?.email || "";
-                      const programTitle = cert.enrolment?.batch?.program?.title || cert.enrolment?.program?.title || "11 Steps Programme";
-                      const batchName = cert.enrolment?.batch?.name;
-
-                      return (
-                        <tr key={cert.id}>
-                          <td>
-                            <div>
-                              <span className={styles.cellUserName}>{learnerName}</span>
-                              {learnerEmail && <div className={styles.cellUserEmail}>{learnerEmail}</div>}
-                            </div>
-                          </td>
-                          <td>
-                            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                              <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.875rem" }}>
-                                {programTitle}
-                              </span>
-                              <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                                {batchName ? `Batch: ${batchName}` : "Direct Enrolment"}
-                              </span>
-                            </div>
-                          </td>
-                          <td>
-                            <span className={styles.cellTextMuted}>
-                              {new Date(cert.createdAt).toLocaleDateString()}
-                            </span>
-                          </td>
-                          <td>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenInspectEligibility(cert)}
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "6px",
-                                padding: "4px 10px",
-                                borderRadius: "6px",
-                                fontSize: "0.8rem",
-                                fontWeight: 600,
-                                background: "#f8fafc",
-                                border: "1px solid #cbd5e1",
-                                color: "#334155",
-                                cursor: "pointer",
-                              }}
-                              title="Audit all 6 eligibility criteria for this learner"
-                            >
-                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                              </svg>
-                              <span>Audit Gate Criteria</span>
-                            </button>
-                          </td>
-                          <td>
-                            <StatusBadge status={cert.status} />
-                            {cert.certificateCode && (
-                              <div style={{ marginTop: "4px" }}>
-                                <code style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                                  {cert.certificateCode}
-                                </code>
-                              </div>
-                            )}
-                          </td>
-                          <td className={styles.alignRight}>
-                            {cert.status === "PENDING" && (
-                              <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
-                                <button
-                                  type="button"
-                                  className={styles.primaryBtnSmall}
-                                  onClick={() => handleCertificateAction(cert.id, "approve")}
-                                >
-                                  Approve
-                                </button>
-                                <button
-                                  type="button"
-                                  className={styles.dangerBtnSmall}
-                                  onClick={() => handleOpenRejectModal(cert)}
-                                >
-                                  Reject
-                                </button>
-                              </div>
-                            )}
-                            {cert.status === "APPROVED" && (
-                              <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end", alignItems: "center" }}>
-                                <button
-                                  type="button"
-                                  className={styles.successBtnSmall}
-                                  onClick={() => handleCertificateAction(cert.id, "issue")}
-                                >
-                                  Issue Certificate
-                                </button>
-                                <Link href={`/certificates/${cert.id}`} className={styles.secondaryBtnSmall}>
-                                  Preview
-                                </Link>
-                              </div>
-                            )}
-                            {cert.status === "ISSUED" && (
-                              <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end", alignItems: "center", flexWrap: "wrap" }}>
-                                <button
-                                  type="button"
-                                  className={styles.secondaryBtnSmall}
-                                  onClick={() => handleDownloadPdf(cert.id, cert.pdfUrl)}
-                                  title="Download official signed PDF"
-                                >
-                                  PDF
-                                </button>
-                                <a
-                                  href={`${marketingBase}/verify/${cert.certificateCode || cert.id}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className={styles.secondaryBtnSmall}
-                                  title="Open public verification page"
-                                >
-                                  Verify ↗
-                                </a>
-                                <a
-                                  href={`https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=${encodeURIComponent(
-                                    `${programTitle} Certification`
-                                  )}&organizationName=whatboutme&issueYear=${new Date(cert.issueDate || cert.createdAt).getFullYear()}&issueMonth=${new Date(cert.issueDate || cert.createdAt).getMonth() + 1}&certUrl=${encodeURIComponent(
-                                    `${marketingBase}/verify/${cert.certificateCode || cert.id}`
-                                  )}&certId=${encodeURIComponent(cert.certificateCode || cert.id)}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className={styles.secondaryBtnSmall}
-                                  style={{ color: "#0a66c2", borderColor: "#0a66c2" }}
-                                  title="Add to LinkedIn profile"
-                                >
-                                  LinkedIn
-                                </a>
-                                <Link href={`/certificates/${cert.id}`} className={styles.secondaryBtnSmall}>
-                                  View
-                                </Link>
-                              </div>
-                            )}
-                            {cert.status === "REJECTED" && (
-                              <span className={styles.cellTextMuted} style={{ fontSize: "0.8rem" }}>
-                                {cert.rejectionReason || "Rejected by administrator"}
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {/* ─────────────────────────────────────────────────────────────────────────────
-          TAB 2: ORAL ASSESSMENTS & RUBRICS
-         ───────────────────────────────────────────────────────────────────────────── */}
-      {activeTab === "oral" && (
-        <div>
-          {/* Cohort Selector */}
-          <div style={{
-            marginBottom: "1.5rem",
-            display: "flex",
-            alignItems: "center",
-            gap: "14px",
-            background: "var(--bg-card)",
-            padding: "14px 18px",
-            borderRadius: "12px",
-            border: "1px solid var(--border-light)",
-            boxShadow: "var(--shadow-sm)",
-            flexWrap: "wrap"
-          }}>
-            <label htmlFor="cohort-select" style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--text-secondary)" }}>
-              Batch:
-            </label>
-            <CustomSelect
-              id="cohort-select"
-              value={selectedBatchId}
-              onChange={setSelectedBatchId}
-              disabled={loadingBatches}
-              minWidth="280px"
-              ariaLabel="Select Batch"
-              options={batches.map((batch) => ({
-                value: batch.id,
-                label: `${batch.name}${batch.program?.title ? ` (${batch.program.title})` : ""}`,
-              }))}
-            />
-            <span style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-              {assessments.length} assessment record{assessments.length !== 1 ? "s" : ""} in this batch
-            </span>
-          </div>
-
-          {/* Assessments Table */}
-          <section className={styles.tableSection}>
-            <div className={styles.sectionHeader}>
-              <h2>Oral Assessments Queue</h2>
-            </div>
-
-            <div className={styles.tableWrapper}>
-              <table className={styles.adminTable}>
-                <thead>
-                  <tr>
-                    <th>Learner</th>
-                    <th>Scheduled Date</th>
-                    <th>Assessor</th>
-                    <th>Overall Score</th>
-                    <th>Status</th>
-                    <th>Graded At</th>
-                    <th className={styles.alignRight}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loadingAssessments ? (
-                    <tr>
-                      <td colSpan={7} style={{ textAlign: "center", padding: "36px", color: "var(--text-secondary)" }}>
-                        Loading oral assessments from backend...
-                      </td>
-                    </tr>
-                  ) : assessments.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} style={{ textAlign: "center", padding: "36px", color: "var(--text-secondary)" }}>
-                        No oral assessments found for this batch. Click <strong>Schedule Oral Assessment</strong> to assign one to an enrolled learner.
-                      </td>
-                    </tr>
-                  ) : (
-                    assessments.map((a) => {
-                      const learnerName = a.enrolment?.user?.name || "Enrolled Learner";
-                      const learnerEmail = a.enrolment?.user?.email || "";
-                      const assessorName = a.assessor?.name || "Unassigned";
-                      const statusClass = a.status === "PASSED" ? styles.passed : a.status === "FAILED" ? styles.failed : styles.scheduled;
-
-                      return (
-                        <tr key={a.id}>
-                          <td>
-                            <div>
-                              <span className={styles.cellUserName}>{learnerName}</span>
-                              {learnerEmail && <div className={styles.cellUserEmail}>{learnerEmail}</div>}
-                            </div>
-                          </td>
-                          <td>
-                            <span className={styles.cellText}>
-                              {a.scheduledDate ? new Date(a.scheduledDate).toLocaleDateString() : "TBD"}
-                            </span>
-                          </td>
-                          <td>
-                            <span className={styles.cellText}>{assessorName}</span>
-                          </td>
-                          <td>
-                            {a.overallScore !== null ? (
-                              <span style={{ fontWeight: 700, fontSize: "0.95rem", color: a.overallScore >= 75 ? "#166534" : "#991b1b" }}>
-                                {a.overallScore}%
-                              </span>
-                            ) : (
-                              <span className={styles.cellTextMuted}>Ungraded</span>
-                            )}
-                          </td>
-                          <td>
-                            <span className={`${styles.statusChip} ${statusClass}`}>
-                              {a.status}
-                            </span>
-                          </td>
-                          <td>
-                            <span className={styles.cellTextMuted}>
-                              {a.gradedAt ? new Date(a.gradedAt).toLocaleDateString() : "—"}
-                            </span>
-                          </td>
-                          <td className={styles.alignRight}>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenGrading(a)}
-                              className={styles.secondaryBtnSmall}
-                            >
-                              {a.status === "SCHEDULED" ? "Grade Assessment" : "Re-evaluate"}
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {/* ─────────────────────────────────────────────────────────────────────────────
-          TAB 3: MISSION STATEMENTS (STAGE 5 SUBMISSIONS & REVIEWS)
+          TAB 2: MISSION STATEMENT
          ───────────────────────────────────────────────────────────────────────────── */}
       {activeTab === "missions" && (
-        <div>
-          {/* Header context description matching student portal wording */}
-          <div style={{
-            background: "#fffbeb",
-            border: "1px solid #fde68a",
-            borderRadius: "10px",
-            padding: "1rem 1.25rem",
-            marginBottom: "1.25rem",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: "10px",
-          }}>
-            <div>
-              <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#b45309", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                Final Requirement · Personal Commitment (Stage 5)
-              </div>
-              <h3 style={{ margin: "4px 0 2px", fontSize: "1.05rem", color: "#78350f", fontWeight: 800 }}>
-                Handwritten Mission Statement Approval Queue
-              </h3>
-              <p style={{ margin: 0, fontSize: "0.84rem", color: "#92400e" }}>
-                Learners upload their handwritten &amp; signed personal Mission Statement after completing 1-on-1 coaching. Approving a submission marks Stage 5 Complete and automatically generates their verified graduation certificate.
-              </p>
-            </div>
-            {pendingMissionsCount > 0 && (
-              <span style={{
-                background: "#fef3c7",
-                border: "1px solid #f59e0b",
-                color: "#92400e",
-                fontWeight: 700,
-                fontSize: "0.82rem",
-                padding: "4px 10px",
-                borderRadius: "20px",
-              }}>
-                {pendingMissionsCount} Awaiting Coach Review
-              </span>
-            )}
-          </div>
-
-          {/* Submissions Filter Toolbar */}
-          <div style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: "12px",
-            marginBottom: "1.25rem",
-            flexWrap: "wrap",
-          }}>
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-              {["ALL", "SUBMITTED", "APPROVED", "REJECTED"].map((st) => (
+        <section className={styles.tableSection}>
+          {/* Search & Filters Toolbar */}
+          <div
+            className={styles.sectionHeader}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "0.75rem",
+            }}
+          >
+            <div
+              className={styles.searchContainer}
+              style={{ minWidth: "240px", flex: "1 1 260px", maxWidth: "340px" }}
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+                style={{ color: "var(--text-muted)", flexShrink: 0, marginRight: "0.45rem" }}
+              >
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Search learner, email, or batch..."
+                className={styles.searchInput}
+                value={missionSearch}
+                onChange={(e) => setMissionSearch(e.target.value)}
+                aria-label="Search mission statements"
+              />
+              {missionSearch && (
                 <button
-                  key={st}
                   type="button"
-                  onClick={() => setMissionFilter(st)}
+                  onClick={() => setMissionSearch("")}
                   style={{
-                    padding: "6px 14px",
-                    borderRadius: "20px",
-                    border: "1px solid",
-                    borderColor: missionFilter === st ? "#b8860b" : "var(--border-light)",
-                    background: missionFilter === st ? "#b8860b" : "var(--bg-card)",
-                    color: missionFilter === st ? "#ffffff" : "var(--text-secondary)",
-                    fontSize: "0.82rem",
-                    fontWeight: 600,
+                    background: "none",
+                    border: "none",
+                    color: "var(--text-muted)",
                     cursor: "pointer",
-                    transition: "all 0.15s ease",
+                    padding: "0 2px",
+                    fontSize: "0.85rem",
+                    lineHeight: 1,
                   }}
+                  aria-label="Clear search"
                 >
-                  {st === "ALL"
-                    ? `All (${missionStatements.length})`
-                    : st === "SUBMITTED"
-                      ? `Pending Review (${pendingMissionsCount})`
-                      : st === "APPROVED"
-                        ? `Approved (${missionStatements.filter((m) => m.status === "APPROVED").length})`
-                        : `Revision Requested (${missionStatements.filter((m) => m.status === "REJECTED").length})`}
+                  ✕
                 </button>
-              ))}
+              )}
             </div>
 
-            <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-              {filteredMissions.length} submission{filteredMissions.length === 1 ? "" : "s"} shown
+            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+              <CustomSelect
+                value={missionFilter}
+                onChange={setMissionFilter}
+                options={missionStatusOptions}
+                minWidth="170px"
+                ariaLabel="Filter by Status"
+              />
+              <CustomSelect
+                value={missionProgramFilter}
+                onChange={setMissionProgramFilter}
+                options={allProgramOptions}
+                minWidth="175px"
+                ariaLabel="Filter by Program"
+              />
+              <CustomSelect
+                value={selectedBatchId}
+                onChange={setSelectedBatchId}
+                options={batchFilterOptions}
+                minWidth="175px"
+                ariaLabel="Filter by Batch"
+              />
+              {hasMissionFilters && (
+                <button
+                  type="button"
+                  onClick={resetMissionFilters}
+                  className={styles.secondaryBtnSmall}
+                  style={{ height: "36px", padding: "0 0.85rem" }}
+                >
+                  Reset
+                </button>
+              )}
             </div>
           </div>
 
-          <section className={styles.tableCard}>
-            <div className={styles.tableWrapper}>
-              <table className={styles.table}>
-                <thead>
+          <div className={styles.tableWrapper}>
+            <table className={styles.adminTable}>
+              <thead>
+                <tr>
+                  <th
+                    onClick={() => handleMissionSort("learner")}
+                    style={{ cursor: "pointer", userSelect: "none" }}
+                  >
+                    Learner
+                    <SortIndicator active={missionSortField === "learner"} order={missionSortOrder} />
+                  </th>
+                  <th
+                    onClick={() => handleMissionSort("program")}
+                    style={{ cursor: "pointer", userSelect: "none" }}
+                  >
+                    Program &amp; Batch
+                    <SortIndicator active={missionSortField === "program"} order={missionSortOrder} />
+                  </th>
+                  <th>Document</th>
+                  <th
+                    onClick={() => handleMissionSort("createdAt")}
+                    style={{ cursor: "pointer", userSelect: "none" }}
+                  >
+                    Submitted Date
+                    <SortIndicator active={missionSortField === "createdAt"} order={missionSortOrder} />
+                  </th>
+                  <th
+                    onClick={() => handleMissionSort("status")}
+                    style={{ cursor: "pointer", userSelect: "none" }}
+                  >
+                    Status
+                    <SortIndicator active={missionSortField === "status"} order={missionSortOrder} />
+                  </th>
+                  <th className={styles.alignRight}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loadingMissions ? (
+                  <TableSkeleton rows={5} columns={6} />
+                ) : paginatedMissions.length === 0 ? (
                   <tr>
-                    <th>Learner</th>
-                    <th>Program &amp; Batch</th>
-                    <th>Version</th>
-                    <th>Document</th>
-                    <th>Submitted At</th>
-                    <th>Status</th>
-                    <th>Reviewer &amp; Feedback</th>
-                    <th className={styles.alignRight}>Actions</th>
+                    <td colSpan={6} style={{ padding: "36px 16px" }}>
+                      <EmptyState
+                        icon="document"
+                        title={
+                          hasMissionFilters
+                            ? "No mission statements match your filters"
+                            : "No mission statement submissions yet"
+                        }
+                        description={
+                          hasMissionFilters
+                            ? "Try clearing your search or switching the active filter."
+                            : "When learners complete their 1:1 call and upload their Mission Statement, submissions will appear here."
+                        }
+                        actionLabel={hasMissionFilters ? "Reset Filters" : undefined}
+                        onAction={hasMissionFilters ? resetMissionFilters : undefined}
+                      />
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {loadingMissions ? (
-                    <tr>
-                      <td colSpan={8} className={styles.emptyState}>
-                        Loading mission statements...
+                ) : (
+                  paginatedMissions.map((m) => (
+                    <tr key={m.id}>
+                      <td>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                          {m.user?.id ? (
+                            <Link
+                              href={`/users/${m.user.id}`}
+                              className={styles.cohortLink}
+                              style={{ fontSize: "0.875rem" }}
+                            >
+                              {m.user.name || "Learner"}
+                            </Link>
+                          ) : (
+                            <span className={styles.cellUserName}>{m.user?.name || "Learner"}</span>
+                          )}
+                          {m.user?.email && (
+                            <span className={styles.cellUserEmail}>{m.user.email}</span>
+                          )}
+                        </div>
                       </td>
-                    </tr>
-                  ) : filteredMissions.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className={styles.emptyState}>
-                        No mission statement submissions found for this filter.
+                      <td>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                          <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.85rem" }}>
+                            {m.enrolment?.program?.title || "11 Steps Programme"}
+                          </span>
+                          <span className={styles.cellTextMuted}>
+                            {m.enrolment?.batch?.name || "Direct Enrolment"}
+                          </span>
+                        </div>
                       </td>
-                    </tr>
-                  ) : (
-                    filteredMissions.map((m) => {
-                      const fileLink = (m.fileUrl.startsWith("http") || m.fileUrl.startsWith("data:"))
-                        ? m.fileUrl
-                        : `${API_URL}/mission-statements/${m.id}/file`;
-                      const sizeMb = (m.sizeBytes / (1024 * 1024)).toFixed(2);
-
-                      return (
-                        <tr key={m.id}>
-                          <td>
-                            <strong className={styles.cellTextPrimary}>
-                              {m.user?.name || "Learner"}
-                            </strong>
-                            <div className={styles.cellTextMuted}>{m.user?.email}</div>
-                          </td>
-                          <td>
-                            <span className={styles.cellText}>
-                              {m.enrolment?.program?.title || "Program"}
-                            </span>
-                            {m.enrolment?.batch?.name && (
-                              <div className={styles.cellTextMuted}>
-                                Batch: {m.enrolment.batch.name}
-                              </div>
-                            )}
-                          </td>
-                          <td>
-                            <span style={{
-                              display: "inline-block",
-                              padding: "2px 8px",
-                              borderRadius: "12px",
-                              background: "#f1f5f9",
-                              color: "#334155",
-                              fontWeight: 700,
-                              fontSize: "0.78rem"
-                            }}>
-                              v{m.version}
-                            </span>
-                          </td>
-                          <td>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPreviewLoading(true);
+                            setPreviewError(false);
+                            setPreviewMissionDoc(m);
+                          }}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            padding: 0,
+                            cursor: "pointer",
+                            color: "var(--accent-primary, #c97a1e)",
+                            fontWeight: 600,
+                            fontSize: "0.84rem",
+                            textAlign: "left",
+                            maxWidth: "200px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={m.fileName}
+                        >
+                          {m.fileName || "Mission Statement"}
+                        </button>
+                      </td>
+                      <td>
+                        <span className={styles.cellTextMuted}>
+                          {new Date(m.createdAt).toLocaleDateString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })}
+                        </span>
+                      </td>
+                      <td>
+                        <StatusBadge status={m.status === "SUBMITTED" ? "PENDING" : m.status} />
+                      </td>
+                      <td className={styles.alignRight}>
+                        <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end", alignItems: "center" }}>
+                          {m.status === "SUBMITTED" ? (
+                            <>
                               <button
                                 type="button"
+                                className={styles.primaryBtnSmall}
                                 onClick={() => {
-                                  setPreviewLoading(true);
-                                  setPreviewError(false);
-                                  setPreviewMissionDoc(m);
+                                  setApprovingMission(m);
+                                  setApprovalFeedback("Outstanding mission statement. Approved for professional certification.");
                                 }}
-                                style={{
-                                  background: "none",
-                                  border: "none",
-                                  padding: 0,
-                                  cursor: "pointer",
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "6px",
-                                  color: "#b8860b",
-                                  fontWeight: 700,
-                                  fontSize: "0.84rem",
-                                  textAlign: "left",
-                                }}
-                                title="Click to preview handwritten manifesto"
                               >
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                                  <circle cx="12" cy="12" r="3" />
-                                </svg>
-                                <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  {m.fileName}
-                                </span>
+                                Approve
                               </button>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                                <span>{sizeMb} MB · {m.mimeType.split("/")[1]?.toUpperCase() || "PDF"}</span>
-                                <span>·</span>
-                                <a
-                                  href={fileLink}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  style={{ color: "#0284c7", textDecoration: "underline", fontWeight: 600 }}
-                                  title="Open in new browser tab"
-                                >
-                                  Open Tab &nearr;
-                                </a>
-                              </div>
-                            </div>
-                          </td>
-                          <td>
-                            <span className={styles.cellTextMuted}>
-                              {new Date(m.createdAt).toLocaleDateString()}
-                            </span>
-                            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                              {new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                            </div>
-                          </td>
-                          <td>
-                            <StatusBadge status={m.status === "SUBMITTED" ? "PENDING" : m.status} />
-                          </td>
-                          <td>
-                            {m.reviewer ? (
-                              <div>
-                                <span className={styles.cellText} style={{ fontSize: "0.8rem", fontWeight: 600 }}>
-                                  {m.reviewer.name}
-                                </span>
-                                {m.feedback && (
-                                  <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", fontStyle: "italic", maxWidth: "220px" }}>
-                                    "{m.feedback}"
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <span className={styles.cellTextMuted} style={{ fontSize: "0.8rem" }}>
-                                Awaiting Review
-                              </span>
-                            )}
-                          </td>
-                          <td className={styles.alignRight}>
-                            {m.status === "SUBMITTED" ? (
-                              <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
-                                <button
-                                  type="button"
-                                  className={styles.primaryBtnSmall}
-                                  onClick={() => {
-                                    setApprovingMission(m);
-                                    setApprovalFeedback("Outstanding mission statement. Approved for professional certification.");
-                                  }}
-                                >
-                                  Approve
-                                </button>
-                                <button
-                                  type="button"
-                                  className={styles.dangerBtnSmall}
-                                  onClick={() => {
-                                    setRejectingMission(m);
-                                    setRejectionFeedback("");
-                                  }}
-                                >
-                                  Request Revisions
-                                </button>
-                              </div>
-                            ) : m.status === "APPROVED" ? (
-                              <span style={{ fontSize: "0.8rem", color: "#166534", fontWeight: 700 }}>
-                                ✓ Cert Auto-Issued
-                              </span>
-                            ) : (
-                              <span style={{ fontSize: "0.8rem", color: "#991b1b", fontWeight: 600 }}>
-                                Revisions Sent
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </div>
+                              <button
+                                type="button"
+                                className={styles.dangerBtnSmall}
+                                onClick={() => {
+                                  setRejectingMission(m);
+                                  setRejectionFeedback("");
+                                }}
+                              >
+                                Reject
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              className={styles.secondaryBtnSmall}
+                              onClick={() => {
+                                setPreviewLoading(true);
+                                setPreviewError(false);
+                                setPreviewMissionDoc(m);
+                              }}
+                            >
+                              View
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <Pagination
+            currentPage={missionPage}
+            totalItems={sortedMissions.length}
+            pageSize={missionPageSize}
+            onPageChange={setMissionPage}
+            onPageSizeChange={(s) => {
+              setMissionPageSize(s);
+              setMissionPage(1);
+            }}
+            itemLabel="mission statements"
+          />
+        </section>
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
-          ELIGIBILITY GATE INSPECTION MODAL
+          TAB 3: ORAL ASSESSMENTS
          ───────────────────────────────────────────────────────────────────────────── */}
-      {inspectingCert && (
-        <div className={styles.modalOverlay}>
-          <div className={styles.modalContent} style={{ maxWidth: "680px" }}>
-            <div className={styles.modalHeader}>
-              <div>
-                <h2>Certificate Eligibility Gate Audit</h2>
-                <p className={styles.modalIntro}>
-                  Learner: {inspectingCert.enrolment?.user?.name || "Learner"} ({inspectingCert.enrolment?.user?.email})
-                </p>
-              </div>
-              <button
-                type="button"
-                className={styles.closeBtn}
-                onClick={() => setInspectingCert(null)}
-                aria-label="Close modal"
+      {activeTab === "oral" && (
+        <section className={styles.tableSection}>
+          <div
+            className={styles.sectionHeader}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "0.75rem",
+            }}
+          >
+            <div
+              className={styles.searchContainer}
+              style={{ minWidth: "240px", flex: "1 1 260px", maxWidth: "340px" }}
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+                style={{ color: "var(--text-muted)", flexShrink: 0, marginRight: "0.45rem" }}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-                  <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-              </button>
-            </div>
-
-            <div style={{ padding: "1.25rem" }}>
-              {loadingEligibility ? (
-                <div style={{ textAlign: "center", padding: "30px", color: "var(--text-muted)" }}>
-                  Evaluating live curriculum gates against learner progression...
-                </div>
-              ) : eligibilityModalError ? (
-                <div style={{ backgroundColor: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", padding: "12px", borderRadius: "8px" }}>
-                  {eligibilityModalError}
-                </div>
-              ) : eligibilityData ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-                  {/* Overall Result Banner */}
-                  <div style={{
-                    padding: "12px 16px",
-                    borderRadius: "8px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    backgroundColor: eligibilityData.isEligible ? "#f0fdf4" : "#fef2f2",
-                    border: eligibilityData.isEligible ? "1px solid #bbf7d0" : "1px solid #fecaca",
-                    color: eligibilityData.isEligible ? "#166534" : "#991b1b",
-                  }}>
-                    <div>
-                      <strong style={{ fontSize: "0.95rem" }}>
-                        Overall Status: {eligibilityData.isEligible ? "ELIGIBLE FOR CERTIFICATION" : "NOT YET ELIGIBLE"}
-                      </strong>
-                      <div style={{ fontSize: "0.8rem", opacity: 0.9 }}>
-                        Track: {eligibilityData.certificateType}
-                      </div>
-                    </div>
-                    <span style={{
-                      fontWeight: 700,
-                      fontSize: "0.8rem",
-                      padding: "4px 10px",
-                      borderRadius: "12px",
-                      background: eligibilityData.isEligible ? "#166534" : "#991b1b",
-                      color: "#ffffff"
-                    }}>
-                      {eligibilityData.isEligible ? "PASSED ALL GATES" : "GATE LOCKS ACTIVE"}
-                    </span>
-                  </div>
-
-                  {/* 5-Stage Sequential Progression Pipeline Flow Visualizer */}
-                  {inspectingCert.enrolment?.id && (
-                    <LearnerPortalFlow
-                      enrolmentId={inspectingCert.enrolment.id}
-                      learnerName={inspectingCert.enrolment.user?.name}
-                    />
-                  )}
-
-                  {/* Gate Verification Checklist */}
-                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                    {/* Gate 1: 11 Steps */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderRadius: "8px", border: "1px solid var(--border-light)", background: "var(--bg-main)" }}>
-                      <div>
-                        <strong style={{ fontSize: "0.88rem", color: "var(--text-primary)" }}>1. Program Steps Completion</strong>
-                        <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                          {eligibilityData.steps.completed} / {eligibilityData.steps.required} Steps Completed
-                        </div>
-                      </div>
-                      <span style={{ fontSize: "0.85rem", fontWeight: 700, color: eligibilityData.steps.isMet ? "#166534" : "#dc2626" }}>
-                        {eligibilityData.steps.isMet ? "✓ COMPLETED" : "✗ INCOMPLETE"}
-                      </span>
-                    </div>
-
-                    {/* Gate 2: Step Quizzes */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderRadius: "8px", border: "1px solid var(--border-light)", background: "var(--bg-main)" }}>
-                      <div>
-                        <strong style={{ fontSize: "0.88rem", color: "var(--text-primary)" }}>2. Step Quizzes (All 11)</strong>
-                        <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                          {eligibilityData.quizzes.passed} / {eligibilityData.quizzes.required} Quizzes Passed
-                        </div>
-                      </div>
-                      <span style={{ fontSize: "0.85rem", fontWeight: 700, color: eligibilityData.quizzes.isMet ? "#166534" : "#dc2626" }}>
-                        {eligibilityData.quizzes.isMet ? "✓ PASSED" : "✗ PENDING"}
-                      </span>
-                    </div>
-
-                    {/* Gate 3: Final Exam */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderRadius: "8px", border: "1px solid var(--border-light)", background: "var(--bg-main)" }}>
-                      <div>
-                        <strong style={{ fontSize: "0.88rem", color: "var(--text-primary)" }}>3. Final 50-Question Exam</strong>
-                        <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                          {eligibilityData.finalExam.required ? `Score: ${eligibilityData.finalExam.score !== null ? `${eligibilityData.finalExam.score}%` : "No attempt"}` : "Exempt / Not required for this track"}
-                        </div>
-                      </div>
-                      <span style={{ fontSize: "0.85rem", fontWeight: 700, color: eligibilityData.finalExam.isMet ? "#166534" : "#dc2626" }}>
-                        {eligibilityData.finalExam.isMet ? "✓ PASSED" : "✗ FAILED / PENDING"}
-                      </span>
-                    </div>
-
-                    {/* Gate 4: Oral Assessment */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderRadius: "8px", border: "1px solid var(--border-light)", background: "var(--bg-main)" }}>
-                      <div>
-                        <strong style={{ fontSize: "0.88rem", color: "var(--text-primary)" }}>4. Live Oral Assessment Interview</strong>
-                        <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                          {eligibilityData.oralAssessment.required ? `Score: ${eligibilityData.oralAssessment.score !== null ? `${eligibilityData.oralAssessment.score}%` : "Ungraded"}` : "Exempt / Not required"}
-                        </div>
-                      </div>
-                      <span style={{ fontSize: "0.85rem", fontWeight: 700, color: eligibilityData.oralAssessment.isMet ? "#166534" : "#dc2626" }}>
-                        {eligibilityData.oralAssessment.isMet ? "✓ PASSED" : "✗ NOT PASSED"}
-                      </span>
-                    </div>
-
-                    {/* Gate 5: Attendance Compliance */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderRadius: "8px", border: "1px solid var(--border-light)", background: "var(--bg-main)" }}>
-                      <div>
-                        <strong style={{ fontSize: "0.88rem", color: "var(--text-primary)" }}>5. Session Attendance Percentage</strong>
-                        <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                          {Math.round(eligibilityData.attendance.attendancePercentage)}% Attended (Threshold: {eligibilityData.attendance.thresholdUsed}%)
-                        </div>
-                      </div>
-                      <span style={{ fontSize: "0.85rem", fontWeight: 700, color: eligibilityData.attendance.isMet ? "#166534" : "#dc2626" }}>
-                        {eligibilityData.attendance.isMet ? "✓ COMPLIANT" : "✗ BELOW THRESHOLD"}
-                      </span>
-                    </div>
-
-                    {/* Gate 6: Closing Call */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderRadius: "8px", border: "1px solid var(--border-light)", background: "var(--bg-main)" }}>
-                      <div>
-                        <strong style={{ fontSize: "0.88rem", color: "var(--text-primary)" }}>6. 1-on-1 Closing Call</strong>
-                        <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                          Closing session with lead facilitator
-                        </div>
-                      </div>
-                      <span style={{ fontSize: "0.85rem", fontWeight: 700, color: eligibilityData.closingCall.isMet ? "#166534" : "#dc2626" }}>
-                        {eligibilityData.closingCall.isMet ? "✓ COMPLETED" : "✗ PENDING"}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Unmet Requirements List if any */}
-                  {eligibilityData.unmetRequirements && eligibilityData.unmetRequirements.length > 0 && (
-                    <div style={{ backgroundColor: "#fef2f2", border: "1px solid #fecaca", padding: "12px 16px", borderRadius: "8px" }}>
-                      <strong style={{ color: "#991b1b", fontSize: "0.85rem", display: "block", marginBottom: "6px" }}>
-                        Blocking Requirements to Resolve:
-                      </strong>
-                      <ul style={{ margin: 0, paddingLeft: "18px", fontSize: "0.82rem", color: "#b91c1c" }}>
-                        {eligibilityData.unmetRequirements.map((unmet, i) => (
-                          <li key={i}>{unmet}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              ) : null}
-
-              <div style={{ marginTop: "1.25rem", display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Search learner, email, or batch..."
+                className={styles.searchInput}
+                value={oralSearch}
+                onChange={(e) => setOralSearch(e.target.value)}
+                aria-label="Search oral assessments"
+              />
+              {oralSearch && (
                 <button
                   type="button"
-                  className={styles.secondaryBtn}
-                  onClick={() => setInspectingCert(null)}
+                  onClick={() => setOralSearch("")}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--text-muted)",
+                    cursor: "pointer",
+                    padding: "0 2px",
+                    fontSize: "0.85rem",
+                    lineHeight: 1,
+                  }}
+                  aria-label="Clear search"
                 >
-                  Close
+                  ✕
                 </button>
-                {inspectingCert.status === "PENDING" && eligibilityData?.isEligible && (
-                  <button
-                    type="button"
-                    className={styles.primaryBtn}
-                    onClick={() => {
-                      setInspectingCert(null);
-                      handleCertificateAction(inspectingCert.id, "approve");
-                    }}
-                  >
-                    Approve Certificate Now
-                  </button>
-                )}
-              </div>
+              )}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+              <CustomSelect
+                value={oralFilter}
+                onChange={setOralFilter}
+                options={oralStatusOptions}
+                minWidth="170px"
+                ariaLabel="Filter by Status"
+              />
+              <CustomSelect
+                value={oralProgramFilter}
+                onChange={setOralProgramFilter}
+                options={allProgramOptions}
+                minWidth="175px"
+                ariaLabel="Filter by Program"
+              />
+              <CustomSelect
+                value={selectedBatchId === "UNASSIGNED" ? "" : selectedBatchId}
+                onChange={setSelectedBatchId}
+                options={oralBatchFilterOptions}
+                disabled={loadingBatches}
+                minWidth="175px"
+                ariaLabel="Filter by Batch"
+              />
+              {hasOralFilters && (
+                <button
+                  type="button"
+                  onClick={resetOralFilters}
+                  className={styles.secondaryBtnSmall}
+                  style={{ height: "36px", padding: "0 0.85rem" }}
+                >
+                  Reset
+                </button>
+              )}
             </div>
           </div>
-        </div>
+
+          <div className={styles.tableWrapper}>
+            <table className={styles.adminTable}>
+              <thead>
+                <tr>
+                  <th
+                    onClick={() => handleOralSort("learner")}
+                    style={{ cursor: "pointer", userSelect: "none" }}
+                  >
+                    Learner
+                    <SortIndicator active={oralSortField === "learner"} order={oralSortOrder} />
+                  </th>
+                  <th
+                    onClick={() => handleOralSort("program")}
+                    style={{ cursor: "pointer", userSelect: "none" }}
+                  >
+                    Program &amp; Batch
+                    <SortIndicator active={oralSortField === "program"} order={oralSortOrder} />
+                  </th>
+                  <th
+                    onClick={() => handleOralSort("scheduledDate")}
+                    style={{ cursor: "pointer", userSelect: "none" }}
+                  >
+                    Scheduled Date
+                    <SortIndicator active={oralSortField === "scheduledDate"} order={oralSortOrder} />
+                  </th>
+                  <th
+                    onClick={() => handleOralSort("score")}
+                    style={{ cursor: "pointer", userSelect: "none" }}
+                  >
+                    Score
+                    <SortIndicator active={oralSortField === "score"} order={oralSortOrder} />
+                  </th>
+                  <th
+                    onClick={() => handleOralSort("status")}
+                    style={{ cursor: "pointer", userSelect: "none" }}
+                  >
+                    Status
+                    <SortIndicator active={oralSortField === "status"} order={oralSortOrder} />
+                  </th>
+                  <th className={styles.alignRight}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loadingAssessments || loadingBatches ? (
+                  <TableSkeleton rows={5} columns={6} />
+                ) : paginatedAssessments.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ padding: "36px 16px" }}>
+                      <EmptyState
+                        icon="clipboard"
+                        title={
+                          hasOralFilters
+                            ? "No oral assessments match your filters"
+                            : "No oral assessments scheduled yet"
+                        }
+                        description={
+                          hasOralFilters
+                            ? "Try clearing your search or switching the active filter."
+                            : "Schedule an oral competency assessment for an enrolled learner to evaluate their rubric scores."
+                        }
+                        actionLabel={
+                          hasOralFilters ? "Reset Filters" : "Schedule Assessment"
+                        }
+                        onAction={
+                          hasOralFilters ? resetOralFilters : handleOpenScheduleModal
+                        }
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedAssessments.map((a) => {
+                    const learnerId = a.enrolment?.user?.id || a.enrolment?.userId;
+                    const learnerName = a.enrolment?.user?.name || "Enrolled Learner";
+                    const learnerEmail = a.enrolment?.user?.email || "";
+                    const progTitle =
+                      a._programTitle || a.enrolment?.program?.title || "11 Steps Programme";
+                    const batchLabel = a._batchName || a.enrolment?.batch?.name;
+
+                    return (
+                      <tr key={a.id}>
+                        <td>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                            {learnerId ? (
+                              <Link
+                                href={`/users/${learnerId}`}
+                                className={styles.cohortLink}
+                                style={{ fontSize: "0.875rem" }}
+                              >
+                                {learnerName}
+                              </Link>
+                            ) : (
+                              <span className={styles.cellUserName}>{learnerName}</span>
+                            )}
+                            {learnerEmail && (
+                              <span className={styles.cellUserEmail}>{learnerEmail}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                            <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.85rem" }}>
+                              {progTitle}
+                            </span>
+                            <span className={styles.cellTextMuted}>
+                              {batchLabel || "Assigned Batch"}
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          {a.scheduledDate ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                              <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.85rem" }}>
+                                {new Date(a.scheduledDate).toLocaleDateString(undefined, {
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                  timeZone: displayTimezone,
+                                })}
+                              </span>
+                              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                                {new Date(a.scheduledDate).toLocaleTimeString(undefined, {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                  hour12: true,
+                                  timeZone: displayTimezone,
+                                })} ({displayTimezone})
+                              </span>
+                            </div>
+                          ) : (
+                            <span className={styles.cellTextMuted}>Not scheduled</span>
+                          )}
+                        </td>
+                        <td>
+                          {a.overallScore !== null ? (
+                            <span
+                              style={{
+                                fontWeight: 700,
+                                fontSize: "0.88rem",
+                                color: a.overallScore >= 75 ? "#166534" : "#991b1b",
+                              }}
+                            >
+                              {a.overallScore}%
+                            </span>
+                          ) : (
+                            <span className={styles.cellTextMuted}>—</span>
+                          )}
+                        </td>
+                        <td>
+                          <StatusBadge status={a.status} />
+                        </td>
+                        <td className={styles.alignRight}>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenGrading(a)}
+                            className={
+                              a.status === "SCHEDULED"
+                                ? styles.primaryBtnSmall
+                                : styles.secondaryBtnSmall
+                            }
+                          >
+                            {a.status === "SCHEDULED" ? "Grade" : "View"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <Pagination
+            currentPage={oralPage}
+            totalItems={sortedAssessments.length}
+            pageSize={oralPageSize}
+            onPageChange={setOralPage}
+            onPageSizeChange={(s) => {
+              setOralPageSize(s);
+              setOralPage(1);
+            }}
+            itemLabel="oral assessments"
+          />
+        </section>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────────────────
+          TAB 4: CERTIFICATES
+         ───────────────────────────────────────────────────────────────────────────── */}
+      {activeTab === "certificates" && (
+        <section className={styles.tableSection}>
+          {/* Search & Filters Toolbar */}
+          <div
+            className={styles.sectionHeader}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "0.75rem",
+            }}
+          >
+            <div
+              className={styles.searchContainer}
+              style={{ minWidth: "240px", flex: "1 1 260px", maxWidth: "340px" }}
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+                style={{ color: "var(--text-muted)", flexShrink: 0, marginRight: "0.45rem" }}
+              >
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Search learner, email, or cert code..."
+                className={styles.searchInput}
+                value={certSearch}
+                onChange={(e) => setCertSearch(e.target.value)}
+                aria-label="Search certificates"
+              />
+              {certSearch && (
+                <button
+                  type="button"
+                  onClick={() => setCertSearch("")}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--text-muted)",
+                    cursor: "pointer",
+                    padding: "0 2px",
+                    fontSize: "0.85rem",
+                    lineHeight: 1,
+                  }}
+                  aria-label="Clear search"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+              <CustomSelect
+                value={certFilter}
+                onChange={setCertFilter}
+                options={certStatusOptions}
+                minWidth="170px"
+                ariaLabel="Filter by Status"
+              />
+              <CustomSelect
+                value={certProgramFilter}
+                onChange={setCertProgramFilter}
+                options={allProgramOptions}
+                minWidth="175px"
+                ariaLabel="Filter by Program"
+              />
+              <CustomSelect
+                value={selectedBatchId}
+                onChange={setSelectedBatchId}
+                options={batchFilterOptions}
+                minWidth="175px"
+                ariaLabel="Filter by Batch"
+              />
+              {hasCertFilters && (
+                <button
+                  type="button"
+                  onClick={resetCertFilters}
+                  className={styles.secondaryBtnSmall}
+                  style={{ height: "36px", padding: "0 0.85rem" }}
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className={styles.tableWrapper}>
+            <table className={styles.adminTable}>
+              <thead>
+                <tr>
+                  <th
+                    onClick={() => handleCertSort("learner")}
+                    style={{ cursor: "pointer", userSelect: "none" }}
+                  >
+                    Learner
+                    <SortIndicator active={certSortField === "learner"} order={certSortOrder} />
+                  </th>
+                  <th
+                    onClick={() => handleCertSort("program")}
+                    style={{ cursor: "pointer", userSelect: "none" }}
+                  >
+                    Program &amp; Batch
+                    <SortIndicator active={certSortField === "program"} order={certSortOrder} />
+                  </th>
+                  <th
+                    onClick={() => handleCertSort("code")}
+                    style={{ cursor: "pointer", userSelect: "none" }}
+                  >
+                    Certificate No.
+                    <SortIndicator active={certSortField === "code"} order={certSortOrder} />
+                  </th>
+                  <th
+                    onClick={() => handleCertSort("createdAt")}
+                    style={{ cursor: "pointer", userSelect: "none" }}
+                  >
+                    Date
+                    <SortIndicator active={certSortField === "createdAt"} order={certSortOrder} />
+                  </th>
+                  <th
+                    onClick={() => handleCertSort("status")}
+                    style={{ cursor: "pointer", userSelect: "none" }}
+                  >
+                    Status
+                    <SortIndicator active={certSortField === "status"} order={certSortOrder} />
+                  </th>
+                  <th className={styles.alignRight}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loadingCertificates ? (
+                  <TableSkeleton rows={5} columns={6} />
+                ) : paginatedCertificates.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ padding: "36px 16px" }}>
+                      <EmptyState
+                        icon="academic"
+                        title={
+                          hasCertFilters
+                            ? "No certificates match your filters"
+                            : "No certificates in queue"
+                        }
+                        description={
+                          hasCertFilters
+                            ? "Try clearing your search or switching the active filter."
+                            : "When learners complete their curriculum steps and final requirements, certificates will appear here."
+                        }
+                        actionLabel={hasCertFilters ? "Reset Filters" : undefined}
+                        onAction={hasCertFilters ? resetCertFilters : undefined}
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedCertificates.map((cert) => {
+                    const learnerId = cert.enrolment?.user?.id || cert.enrolment?.userId;
+                    const learnerName = cert.enrolment?.user?.name || "Unknown Learner";
+                    const learnerEmail = cert.enrolment?.user?.email || "";
+                    const programTitle =
+                      cert.enrolment?.batch?.program?.title ||
+                      cert.enrolment?.program?.title ||
+                      "11 Steps Programme";
+                    const batchName = cert.enrolment?.batch?.name;
+                    const isActionBusy = inFlightCertAction?.id === cert.id;
+                    const certCode = cert.certificateCode || cert.certificateNumber;
+
+                    return (
+                      <tr key={cert.id}>
+                        <td>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                            {learnerId ? (
+                              <Link
+                                href={`/users/${learnerId}`}
+                                className={styles.cohortLink}
+                                style={{ fontSize: "0.875rem" }}
+                              >
+                                {learnerName}
+                              </Link>
+                            ) : (
+                              <span className={styles.cellUserName}>{learnerName}</span>
+                            )}
+                            {learnerEmail && (
+                              <span className={styles.cellUserEmail}>{learnerEmail}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                            <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.85rem" }}>
+                              {programTitle}
+                            </span>
+                            <span className={styles.cellTextMuted}>
+                              {batchName || "Direct Enrolment"}
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          {certCode ? (
+                            <code style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+                              {certCode}
+                            </code>
+                          ) : (
+                            <span className={styles.cellTextMuted}>—</span>
+                          )}
+                        </td>
+                        <td>
+                          <span className={styles.cellTextMuted}>
+                            {new Date(cert.issueDate || cert.createdAt).toLocaleDateString(undefined, {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            })}
+                          </span>
+                        </td>
+                        <td>
+                          <StatusBadge status={cert.status} />
+                        </td>
+                        <td className={styles.alignRight}>
+                          {cert.status === "PENDING" && (
+                            <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
+                              <button
+                                type="button"
+                                className={styles.primaryBtnSmall}
+                                disabled={isActionBusy}
+                                onClick={() => handleCertificateAction(cert.id, "approve")}
+                              >
+                                {isActionBusy && inFlightCertAction?.action === "approve"
+                                  ? "Approving..."
+                                  : "Approve"}
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.dangerBtnSmall}
+                                disabled={isActionBusy}
+                                onClick={() => handleOpenRejectModal(cert)}
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          )}
+                          {cert.status === "APPROVED" && (
+                            <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end", alignItems: "center" }}>
+                              <button
+                                type="button"
+                                className={styles.successBtnSmall}
+                                disabled={isActionBusy}
+                                onClick={() => handleCertificateAction(cert.id, "issue")}
+                              >
+                                {isActionBusy && inFlightCertAction?.action === "issue"
+                                  ? "Issuing..."
+                                  : "Issue"}
+                              </button>
+                              <Link href={`/certificates/${cert.id}`} className={styles.secondaryBtnSmall}>
+                                View
+                              </Link>
+                            </div>
+                          )}
+                          {cert.status === "ISSUED" && (
+                            <Link href={`/certificates/${cert.id}`} className={styles.secondaryBtnSmall}>
+                              View
+                            </Link>
+                          )}
+                          {cert.status === "REJECTED" && (
+                            <span className={styles.cellTextMuted} style={{ fontSize: "0.8rem" }}>
+                              {cert.rejectionReason || "Rejected"}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <Pagination
+            currentPage={certPage}
+            totalItems={sortedCertificates.length}
+            pageSize={certPageSize}
+            onPageChange={setCertPage}
+            onPageSizeChange={(s) => {
+              setCertPageSize(s);
+              setCertPage(1);
+            }}
+            itemLabel="certificates"
+          />
+        </section>
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
           CERTIFICATE REJECTION REASON MODAL
          ───────────────────────────────────────────────────────────────────────────── */}
       {rejectingCert && (
-        <div className={styles.modalOverlay}>
-          <div className={styles.modalContent} style={{ maxWidth: "480px" }}>
-            <div className={styles.modalHeader}>
-              <div>
-                <h2>Reject Certificate Request</h2>
-                <p className={styles.modalIntro}>
-                  Learner: {rejectingCert.enrolment?.user?.name} ({rejectingCert.enrolment?.user?.email})
-                </p>
-              </div>
-              <button
-                type="button"
-                className={styles.closeBtn}
-                onClick={() => setRejectingCert(null)}
-                disabled={submittingRejection}
-                aria-label="Close modal"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-                  <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmitRejection} className={styles.modalForm}>
+        <Modal
+          isOpen={true}
+          onClose={() => setRejectingCert(null)}
+          title="Reject Certificate Request"
+          subtitle={`Learner: ${rejectingCert.enrolment?.user?.name || "Learner"} (${rejectingCert.enrolment?.user?.email || ""})`}
+          maxWidth="480px"
+        >
+          <form onSubmit={handleSubmitRejection}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginTop: "6px" }}>
               <div className={styles.formGroup}>
                 <label htmlFor="reason" style={{ color: "#991b1b" }}>
-                  Mandatory Logged Rejection Reason *
+                  Rejection Reason *
                 </label>
                 <textarea
                   id="reason"
                   rows={3}
-                  placeholder="Specify why this certificate request is being rejected (e.g. step quiz score below threshold, incomplete attendance)..."
+                  placeholder="Specify why this certificate request is being rejected..."
                   value={rejectionReason}
                   onChange={(e) => setRejectionReason(e.target.value)}
                   required
                 />
               </div>
 
-              <div className={styles.modalFooter}>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "8px" }}>
                 <button
                   type="button"
                   className={styles.secondaryBtn}
@@ -1990,62 +2283,74 @@ function ApprovalsContent() {
                 <button
                   type="submit"
                   className={styles.dangerBtnSmall}
-                  style={{ padding: "8px 16px", fontSize: "0.88rem" }}
+                  style={{ padding: "8px 16px", fontSize: "0.85rem" }}
                   disabled={submittingRejection || !rejectionReason.trim()}
                 >
                   {submittingRejection ? "Rejecting..." : "Confirm Rejection"}
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
+            </div>
+          </form>
+        </Modal>
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
           ORAL GRADING MODAL
          ───────────────────────────────────────────────────────────────────────────── */}
       {gradingAssessment && (
-        <div className={styles.modalOverlay}>
-          <div className={styles.modalContent} style={{ maxWidth: "680px" }}>
-            <div className={styles.modalHeader}>
-              <div>
-                <h2>Oral Competency Evaluation</h2>
-                <p className={styles.modalIntro}>
-                  Learner: {gradingAssessment.enrolment?.user?.name || "Learner"} ({gradingAssessment.enrolment?.user?.email})
-                </p>
-              </div>
+        <Modal
+          isOpen={true}
+          onClose={() => setGradingAssessment(null)}
+          title="Oral Competency Evaluation"
+          subtitle={`Learner: ${gradingAssessment.enrolment?.user?.name || "Learner"} (${gradingAssessment.enrolment?.user?.email || ""})`}
+          maxWidth="700px"
+          footer={
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", width: "100%" }}>
               <button
                 type="button"
-                className={styles.closeBtn}
+                className={styles.secondaryBtn}
                 onClick={() => setGradingAssessment(null)}
                 disabled={submittingGrade}
-                aria-label="Close modal"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-                  <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const form = document.getElementById("oral-grading-form") as HTMLFormElement | null;
+                  if (form) form.requestSubmit();
+                }}
+                className={styles.primaryBtn}
+                disabled={submittingGrade}
+              >
+                {submittingGrade ? "Saving Evaluation..." : "Save Evaluation"}
               </button>
             </div>
-
-            <form onSubmit={handleSubmitGrade} className={styles.modalForm}>
+          }
+        >
+          <form id="oral-grading-form" onSubmit={handleSubmitGrade}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginTop: "4px" }}>
               {gradeModalError && (
-                <div style={{ backgroundColor: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", padding: "10px 14px", borderRadius: "8px", fontSize: "0.85rem" }}>
+                <div className={styles.alertError} style={{ marginBottom: 0 }}>
                   {gradeModalError}
                 </div>
               )}
 
-              {/* Rubric Category Scores */}
               <div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                  <h3 style={{ fontSize: "0.95rem", margin: 0, fontWeight: 700, color: "var(--text-primary)" }}>
-                    Rubric Scoring Criteria
-                  </h3>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                  <div>
+                    <h3 style={{ fontSize: "0.95rem", margin: 0, fontWeight: 700, color: "var(--text-primary)" }}>
+                      Rubric Scoring Criteria
+                    </h3>
+                    <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                      Evaluate learner competencies on a 10-point scale per category
+                    </span>
+                  </div>
                   <button
                     type="button"
                     onClick={handleAddRubricItem}
                     className={styles.secondaryBtnSmall}
-                    style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+                    style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
                   >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <line x1="12" y1="5" x2="12" y2="19"></line>
@@ -2063,10 +2368,13 @@ function ApprovalsContent() {
                         padding: "12px 14px",
                         borderRadius: "8px",
                         border: "1px solid var(--border-light)",
-                        backgroundColor: "var(--bg-main)",
+                        backgroundColor: "var(--bg-soft)",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "8px",
                       }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
                         <input
                           type="text"
                           value={item.rubricCategory}
@@ -2083,32 +2391,87 @@ function ApprovalsContent() {
                               return next;
                             });
                           }}
-                          style={{ fontWeight: 600, fontSize: "0.88rem", border: "none", background: "transparent", color: "var(--text-primary)", width: "70%" }}
+                          placeholder="Criterion name..."
+                          style={{
+                            fontWeight: 600,
+                            fontSize: "0.88rem",
+                            border: "1px solid var(--border-light, #e2e8f0)",
+                            borderRadius: "6px",
+                            padding: "6px 10px",
+                            background: "#ffffff",
+                            color: "var(--text-primary)",
+                            flex: "1 1 auto",
+                            minWidth: 0,
+                          }}
                           required
                         />
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
                           <input
                             type="number"
                             min={0}
                             max={item.maxScore}
                             value={item.score}
                             onChange={(e) => handleScoreChange(idx, parseInt(e.target.value, 10) || 0)}
-                            style={{ width: "52px", padding: "4px 8px", textAlign: "center", borderRadius: "6px", border: "1px solid var(--border-light)", background: "var(--bg-card)" }}
+                            style={{
+                              width: "56px",
+                              padding: "6px 8px",
+                              textAlign: "center",
+                              fontWeight: 700,
+                              fontSize: "0.9rem",
+                              borderRadius: "6px",
+                              border: "1px solid var(--border-light, #e2e8f0)",
+                              background: "#ffffff",
+                            }}
                             required
+                            aria-label={`Score for ${item.rubricCategory}`}
                           />
-                          <span style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>/ {item.maxScore}</span>
+                          <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-muted)" }}>/ {item.maxScore}</span>
                           {rubricScores.length > 1 && (
                             <button
                               type="button"
                               onClick={() => handleRemoveRubricItem(idx)}
-                              className={styles.dangerBtnSmall}
-                              style={{ padding: "4px 6px", marginLeft: "4px" }}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                width: "30px",
+                                height: "30px",
+                                borderRadius: "6px",
+                                border: "1px solid var(--border-light, #e2e8f0)",
+                                background: "#ffffff",
+                                color: "var(--text-muted, #71717a)",
+                                cursor: "pointer",
+                                transition: "all 0.15s ease",
+                                marginLeft: "4px",
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.color = "#dc2626";
+                                e.currentTarget.style.borderColor = "#fca5a5";
+                                e.currentTarget.style.background = "#fef2f2";
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.color = "var(--text-muted, #71717a)";
+                                e.currentTarget.style.borderColor = "var(--border-light, #e2e8f0)";
+                                e.currentTarget.style.background = "#ffffff";
+                              }}
                               title="Remove criterion"
                               aria-label="Remove criterion"
                             >
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <line x1="18" y1="6" x2="6" y2="18"></line>
-                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                              <svg
+                                width="15"
+                                height="15"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.85"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <polyline points="3 6 5 6 21 6" />
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                <line x1="10" y1="11" x2="10" y2="17" />
+                                <line x1="14" y1="11" x2="14" y2="17" />
                               </svg>
                             </button>
                           )}
@@ -2120,30 +2483,69 @@ function ApprovalsContent() {
                         placeholder="Optional category observation or constructive feedback..."
                         value={item.feedback || ""}
                         onChange={(e) => handleFeedbackChange(idx, e.target.value)}
-                        style={{ width: "100%", padding: "6px 10px", fontSize: "0.82rem", borderRadius: "6px", border: "1px solid var(--border-light)", background: "var(--bg-card)" }}
+                        style={{
+                          width: "100%",
+                          padding: "6px 10px",
+                          fontSize: "0.82rem",
+                          borderRadius: "6px",
+                          border: "1px solid var(--border-light, #e2e8f0)",
+                          background: "#ffffff",
+                          boxSizing: "border-box",
+                        }}
                       />
                     </div>
                   ))}
                 </div>
 
-                {/* Real-time score calculator */}
-                <div style={{ marginTop: "10px", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "var(--bg-card)", border: "1px solid var(--border-light)", borderRadius: "8px" }}>
-                  <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--text-secondary)" }}>
-                    Aggregate Rubric Score:
-                  </span>
-                  <strong style={{ fontSize: "1.05rem", color: calculatedPercent >= 75 ? "#166534" : "#991b1b" }}>
-                    {totalEarned} / {totalPossible} ({calculatedPercent}%)
-                  </strong>
+                <div
+                  style={{
+                    marginTop: "12px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "12px 16px",
+                    background: calculatedPercent >= 75 ? "rgba(22, 163, 74, 0.05)" : "rgba(220, 38, 38, 0.05)",
+                    border: `1px solid ${calculatedPercent >= 75 ? "rgba(22, 163, 74, 0.25)" : "rgba(220, 38, 38, 0.25)"}`,
+                    borderRadius: "8px",
+                  }}
+                >
+                  <div>
+                    <span style={{ fontSize: "0.82rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text-muted)", display: "block" }}>
+                      Aggregate Rubric Score
+                    </span>
+                    <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+                      {calculatedPercent >= 75 ? "Meets or exceeds 75% competency standard" : "Below 75% passing benchmark"}
+                    </span>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <span style={{ fontSize: "1.15rem", fontWeight: 800, color: calculatedPercent >= 75 ? "#15803d" : "#b91c1c" }}>
+                      {totalEarned} / {totalPossible}
+                    </span>
+                    <span style={{ marginLeft: "6px", fontSize: "0.95rem", fontWeight: 700, color: calculatedPercent >= 75 ? "#15803d" : "#b91c1c" }}>
+                      ({calculatedPercent}%)
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              {/* Pass / Fail Verdict */}
-              <div style={{ padding: "14px", borderRadius: "8px", border: "1px solid var(--border-light)", background: "var(--bg-main)" }}>
-                <label style={{ display: "block", fontWeight: 700, fontSize: "0.88rem", marginBottom: "8px", color: "var(--text-primary)" }}>
+              <div style={{ padding: "14px 16px", borderRadius: "8px", border: "1px solid var(--border-light)", background: "var(--bg-soft)" }}>
+                <label style={{ display: "block", fontWeight: 700, fontSize: "0.88rem", marginBottom: "10px", color: "var(--text-primary)" }}>
                   Assessment Outcome Verdict *
                 </label>
-                <div style={{ display: "flex", gap: "24px", flexWrap: "wrap" }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      cursor: "pointer",
+                      padding: "10px 14px",
+                      borderRadius: "8px",
+                      border: `1.5px solid ${passed ? "#16a34a" : "var(--border-light)"}`,
+                      background: passed ? "rgba(22, 163, 74, 0.08)" : "#ffffff",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
                     <input
                       type="radio"
                       name="passedVerdict"
@@ -2151,12 +2553,29 @@ function ApprovalsContent() {
                       onChange={() => setPassed(true)}
                       style={{ accentColor: "#16a34a", width: "16px", height: "16px" }}
                     />
-                    <span style={{ fontSize: "0.88rem", color: "#166534", fontWeight: 600 }}>
-                      Pass — Meets Competency Standards
-                    </span>
+                    <div>
+                      <span style={{ fontSize: "0.88rem", color: "#166534", fontWeight: 700, display: "block" }}>
+                        Pass
+                      </span>
+                      <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                        Meets Competency Standards
+                      </span>
+                    </div>
                   </label>
 
-                  <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      cursor: "pointer",
+                      padding: "10px 14px",
+                      borderRadius: "8px",
+                      border: `1.5px solid ${!passed ? "#dc2626" : "var(--border-light)"}`,
+                      background: !passed ? "rgba(220, 38, 38, 0.08)" : "#ffffff",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
                     <input
                       type="radio"
                       name="passedVerdict"
@@ -2164,440 +2583,509 @@ function ApprovalsContent() {
                       onChange={() => setPassed(false)}
                       style={{ accentColor: "#dc2626", width: "16px", height: "16px" }}
                     />
-                    <span style={{ fontSize: "0.88rem", color: "#991b1b", fontWeight: 600 }}>
-                      Retry — Prerequisite Competencies Incomplete
-                    </span>
+                    <div>
+                      <span style={{ fontSize: "0.88rem", color: "#991b1b", fontWeight: 700, display: "block" }}>
+                        Retry
+                      </span>
+                      <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                        Prerequisite Competencies Incomplete
+                      </span>
+                    </div>
                   </label>
                 </div>
               </div>
 
-              {/* Trainer Notes */}
               <div className={styles.formGroup}>
-                <label htmlFor="notes">
+                <label htmlFor="notes" style={{ fontWeight: 600, fontSize: "0.85rem", marginBottom: "6px", display: "block" }}>
                   Trainer Qualitative Feedback &amp; Notes *
                 </label>
                 <textarea
                   id="notes"
                   rows={3}
-                  placeholder="Enter comprehensive qualitative feedback regarding the learner's reflection, core competencies, and verbal articulation..."
+                  placeholder="Enter qualitative feedback regarding the learner's reflection, articulation, and core competencies..."
                   value={trainerNotes}
                   onChange={(e) => setTrainerNotes(e.target.value)}
                   required
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    borderRadius: "8px",
+                    border: "1px solid var(--border-light, #e2e8f0)",
+                    fontSize: "0.85rem",
+                    boxSizing: "border-box",
+                  }}
                 />
               </div>
 
-              {/* Retry Guidance (Mandatory if !passed) */}
               {!passed && (
                 <div className={styles.formGroup}>
-                  <label htmlFor="retry" style={{ color: "#991b1b" }}>
+                  <label htmlFor="retry" style={{ color: "#991b1b", fontWeight: 600, fontSize: "0.85rem", marginBottom: "6px", display: "block" }}>
                     Retry Remediation Guidance *
                   </label>
                   <textarea
                     id="retry"
                     rows={2}
-                    placeholder="Specify required remediation, steps to review, or exercises before the rescheduled oral assessment..."
+                    placeholder="Specify required remediation, practice exercises, or study modules before the rescheduled oral assessment..."
                     value={retryGuidance}
                     onChange={(e) => setRetryGuidance(e.target.value)}
                     required={!passed}
-                    style={{ borderColor: "#fecaca" }}
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      borderRadius: "8px",
+                      border: "1px solid #fecaca",
+                      background: "#fff5f5",
+                      fontSize: "0.85rem",
+                      boxSizing: "border-box",
+                    }}
                   />
+                  <span style={{ fontSize: "0.74rem", color: "#b91c1c", marginTop: "4px", display: "block" }}>
+                    Required: Provide concrete guidance to help the learner prepare for their re-evaluation.
+                  </span>
                 </div>
               )}
-
-              <div className={styles.modalFooter}>
-                <button
-                  type="button"
-                  className={styles.secondaryBtn}
-                  onClick={() => setGradingAssessment(null)}
-                  disabled={submittingGrade}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className={styles.primaryBtn}
-                  disabled={submittingGrade}
-                >
-                  {submittingGrade ? "Submitting Grade..." : "Save & Finalize Evaluation"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+            </div>
+          </form>
+        </Modal>
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
           SCHEDULE ORAL ASSESSMENT MODAL
          ───────────────────────────────────────────────────────────────────────────── */}
       {isScheduleModalOpen && (
-        <div className={styles.modalOverlay}>
-          <div className={styles.modalContent} style={{ maxWidth: "480px" }}>
-            <div className={styles.modalHeader}>
-              <div>
-                <h2>Schedule Oral Assessment</h2>
-                <p className={styles.modalIntro}>Assign an oral competency interview to an enrolled learner.</p>
-              </div>
+        <Modal
+          isOpen={true}
+          onClose={() => setIsScheduleModalOpen(false)}
+          title="Schedule Oral Assessment"
+          subtitle="Assign an oral competency interview to an enrolled learner."
+          maxWidth="560px"
+          footer={
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", width: "100%" }}>
               <button
                 type="button"
-                className={styles.closeBtn}
+                className={styles.secondaryBtn}
                 onClick={() => setIsScheduleModalOpen(false)}
                 disabled={submittingSchedule}
-                aria-label="Close modal"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-                  <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const form = document.getElementById("schedule-oral-form") as HTMLFormElement | null;
+                  if (form) form.requestSubmit();
+                }}
+                className={styles.primaryBtn}
+                disabled={submittingSchedule || !selectedEnrolmentId || !scheduleBatchId}
+              >
+                {submittingSchedule ? "Scheduling..." : "Create Assessment"}
               </button>
             </div>
-
-            <form onSubmit={handleSubmitSchedule} className={styles.modalForm}>
+          }
+        >
+          <form id="schedule-oral-form" onSubmit={handleSubmitSchedule}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginTop: "4px" }}>
               {scheduleModalError && (
-                <div style={{ backgroundColor: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", padding: "10px 14px", borderRadius: "8px", fontSize: "0.85rem" }}>
+                <div className={styles.alertError} style={{ marginBottom: 0 }}>
                   {scheduleModalError}
                 </div>
               )}
 
               <div className={styles.formGroup}>
-                <label>Select Enrolled Learner *</label>
+                <label style={{ display: "block", marginBottom: "6px", fontWeight: 600, fontSize: "0.85rem" }}>
+                  Select Batch Cohort *
+                </label>
                 <CustomSelect
-                  value={selectedEnrolmentId}
-                  onChange={setSelectedEnrolmentId}
+                  value={scheduleBatchId}
+                  onChange={(val) => {
+                    setScheduleBatchId(val);
+                    loadEnrolmentsForScheduleBatch(val);
+                  }}
                   fullWidth
-                  ariaLabel="Select Enrolled Learner"
-                  placeholder="Choose an enrolled learner..."
-                  options={batchEnrolments.map((enr) => ({
-                    value: enr.id,
-                    label: `${enr.user?.name || "Learner"} (${enr.user?.email || "No email"}) — ${enr.status}`,
+                  ariaLabel="Select Batch Cohort"
+                  placeholder="Choose a batch..."
+                  options={batches.map((b) => ({
+                    value: b.id,
+                    label: `${b.name}${b.program?.title ? ` (${b.program.title})` : ""}`,
                   }))}
                 />
               </div>
 
               <div className={styles.formGroup}>
-                <label htmlFor="schedDate">
-                  Scheduled Date &amp; Time <span className={styles.optionalLabel}>(Optional)</span>
+                <label style={{ display: "block", marginBottom: "6px", fontWeight: 600, fontSize: "0.85rem" }}>
+                  Select Enrolled Learner *
                 </label>
-                <input
-                  id="schedDate"
-                  type="datetime-local"
-                  value={scheduledDate}
-                  onChange={(e) => setScheduledDate(e.target.value)}
+                <CustomSelect
+                  value={selectedEnrolmentId}
+                  onChange={setSelectedEnrolmentId}
+                  fullWidth
+                  disabled={loadingScheduleEnrolments || batchEnrolments.length === 0}
+                  ariaLabel="Select Enrolled Learner"
+                  placeholder={
+                    loadingScheduleEnrolments
+                      ? "Loading learners..."
+                      : batchEnrolments.length === 0
+                      ? "No enrolled learners in this batch"
+                      : "Choose an enrolled learner..."
+                  }
+                  options={batchEnrolments.map((enr) => ({
+                    value: enr.id,
+                    label: `${enr.user?.name || "Learner"} (${enr.user?.email || "No email"}) — ${enr.status}`,
+                  }))}
                 />
-              </div>
-
-              <div className={styles.modalFooter}>
-                <button
-                  type="button"
-                  className={styles.secondaryBtn}
-                  onClick={() => setIsScheduleModalOpen(false)}
-                  disabled={submittingSchedule}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className={styles.primaryBtn}
-                  disabled={submittingSchedule || !selectedEnrolmentId}
-                >
-                  {submittingSchedule ? "Scheduling..." : "Create Assessment"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ─────────────────────────────────────────────────────────────────────────────
-          STAGE 5: INLINE MISSION STATEMENT DOCUMENT PREVIEW MODAL
-         ───────────────────────────────────────────────────────────────────────────── */}
-      {previewMissionDoc && (
-        <Modal
-          isOpen={true}
-          onClose={() => setPreviewMissionDoc(null)}
-          title={`Review Mission Statement: ${previewMissionDoc.user?.name || "Learner"}`}
-          subtitle={`${previewMissionDoc.enrolment?.program?.title || "Program"} · Version v${previewMissionDoc.version} · ${previewMissionDoc.fileName}`}
-          maxWidth="900px"
-          footer={
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", flexWrap: "wrap", gap: "10px" }}>
-              <a
-                href={
-                  (previewMissionDoc.fileUrl.startsWith("http") || previewMissionDoc.fileUrl.startsWith("data:"))
-                    ? previewMissionDoc.fileUrl
-                    : `${API_URL}/mission-statements/${previewMissionDoc.id}/file`
-                }
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  fontSize: "0.82rem",
-                  color: "#0284c7",
-                  fontWeight: 600,
-                  textDecoration: "underline",
-                }}
-              >
-                Download Raw Document &darr;
-              </a>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <button
-                  type="button"
-                  className={styles.secondaryBtn}
-                  onClick={() => setPreviewMissionDoc(null)}
-                >
-                  Close Preview
-                </button>
-                {previewMissionDoc.status === "SUBMITTED" && (
-                  <>
-                    <button
-                      type="button"
-                      className={styles.dangerBtnSmall}
-                      onClick={() => {
-                        const doc = previewMissionDoc;
-                        setPreviewMissionDoc(null);
-                        setRejectingMission(doc);
-                        setRejectionFeedback("");
-                      }}
-                    >
-                      Request Revisions
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.primaryBtnSmall}
-                      onClick={() => {
-                        const doc = previewMissionDoc;
-                        setPreviewMissionDoc(null);
-                        setApprovingMission(doc);
-                        setApprovalFeedback("Outstanding mission statement. Approved for professional certification.");
-                      }}
-                    >
-                      Approve &amp; Issue Certificate &rarr;
-                    </button>
-                  </>
+                {batchEnrolments.length === 0 && !loadingScheduleEnrolments && scheduleBatchId && (
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "4px", display: "block" }}>
+                    No learners are currently enrolled in this batch.
+                  </span>
                 )}
               </div>
-            </div>
-          }
-        >
-          {(() => {
-            const isDataUri = previewMissionDoc.fileUrl.startsWith("data:");
-            const docFileUrl = (previewMissionDoc.fileUrl.startsWith("http") || isDataUri)
-              ? previewMissionDoc.fileUrl
-              : `${API_URL}/mission-statements/${previewMissionDoc.id}/file`;
-            const isImage = (previewMissionDoc.mimeType || "").includes("image") ||
-              (isDataUri && previewMissionDoc.fileUrl.startsWith("data:image/")) ||
-              docFileUrl.match(/\.(jpg|jpeg|png|webp|svg)(\?.*)?$/i) !== null;
 
-            return (
-              <div style={{ padding: "0.5rem 0", display: "flex", flexDirection: "column", gap: "1rem" }}>
-                {/* Visual Preview Container */}
-                <div
-                  style={{
-                    width: "100%",
-                    minHeight: "450px",
-                    maxHeight: "68vh",
-                    overflow: "auto",
-                    background: "#22201e",
-                    borderRadius: 8,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    border: "1px solid #3f3e3a",
-                    padding: "12px",
-                    position: "relative",
-                  }}
-                >
-                  {/* Loading Spinner */}
-                  {previewLoading && !previewError && (
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        gap: 12,
-                        color: "#d4d4d8",
-                        padding: "2rem",
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: 32,
-                          height: 32,
-                          border: "3px solid rgba(255,255,255,0.2)",
-                          borderTopColor: "#b8860b",
-                          borderRadius: "50%",
-                          animation: "spin 0.8s linear infinite",
-                        }}
-                      />
-                      <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>Loading document preview...</span>
-                    </div>
-                  )}
-
-                  {/* Fallback Error Display */}
-                  {previewError && (
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        gap: 12,
-                        padding: "2rem",
-                        textAlign: "center",
-                        color: "#f87171",
-                      }}
-                    >
-                      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <circle cx="12" cy="12" r="10" />
-                        <line x1="12" y1="8" x2="12" y2="12" />
-                        <line x1="12" y1="16" x2="12.01" y2="16" />
-                      </svg>
-                      <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#ffffff" }}>
-                        Document Preview Unavailable Inline
-                      </div>
-                      <p style={{ margin: 0, fontSize: "0.82rem", color: "#a1a1aa", maxWidth: 440, lineHeight: 1.5 }}>
-                        The document could not be previewed inline, or was submitted as an empty/corrupted file. You can open the file in a new tab, or use &ldquo;Request Revisions&rdquo; below so the learner can re-upload their mission statement.
-                      </p>
-                      <a
-                        href={docFileUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 6,
-                          background: "#b8860b",
-                          color: "#ffffff",
-                          padding: "8px 16px",
-                          borderRadius: 6,
-                          fontSize: "0.84rem",
-                          fontWeight: 700,
-                          textDecoration: "none",
-                          marginTop: 6,
-                        }}
-                      >
-                        <span>Open Document in New Tab</span>
-                        <span>&nearr;</span>
-                      </a>
-                    </div>
-                  )}
-
-                  {/* Live Rendered Image */}
-                  {isImage && (
-                    <img
-                      src={docFileUrl}
-                      alt="Learner Mission Statement"
-                      onLoad={(e) => {
-                        const img = e.currentTarget;
-                        if (img.naturalWidth <= 1 && img.naturalHeight <= 1) {
-                          setPreviewLoading(false);
-                          setPreviewError(true);
-                          return;
-                        }
-                        setPreviewLoading(false);
-                        setPreviewError(false);
-                      }}
-                      onError={() => {
-                        setPreviewLoading(false);
-                        setPreviewError(true);
-                      }}
-                      style={{
-                        maxWidth: "100%",
-                        maxHeight: "65vh",
-                        objectFit: "contain",
-                        borderRadius: 4,
-                        boxShadow: "0 8px 30px rgba(0,0,0,0.6)",
-                        display: previewLoading || previewError ? "none" : "block",
-                      }}
-                    />
-                  )}
-
-                  {/* Live Rendered PDF / Document */}
-                  {!isImage && (
-                    <iframe
-                      src={docFileUrl}
-                      title="Learner Mission Statement Document"
-                      onLoad={() => {
-                        setPreviewLoading(false);
-                        setPreviewError(false);
-                      }}
-                      onError={() => {
-                        setPreviewLoading(false);
-                        setPreviewError(true);
-                      }}
-                      style={{
-                        width: "100%",
-                        height: "550px",
-                        border: "none",
-                        borderRadius: 4,
-                        display: previewLoading || previewError ? "none" : "block",
-                      }}
-                    />
-                  )}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
+                <div className={styles.formGroup}>
+                  <label style={{ display: "block", marginBottom: "6px", fontWeight: 600, fontSize: "0.85rem" }}>
+                    Scheduled Date <span className={styles.optionalLabel}>(Optional)</span>
+                  </label>
+                  <DatePicker
+                    value={scheduledDateStr}
+                    onChange={setScheduledDateStr}
+                    placeholder="Select date"
+                    minWidth="100%"
+                    ariaLabel="Scheduled Date"
+                  />
                 </div>
-
-                {/* Metadata & Direct Link Bar */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, fontSize: "0.82rem", color: "#57534e" }}>
-                  <div>
-                    <strong>Submission Summary:</strong> Uploaded on {new Date(previewMissionDoc.createdAt).toLocaleString()} ·
-                    Size: {(previewMissionDoc.sizeBytes / (1024 * 1024)).toFixed(2)} MB · Format: {previewMissionDoc.mimeType}
-                  </div>
-                  <a
-                    href={docFileUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: "#0284c7", fontWeight: 600, textDecoration: "underline" }}
-                  >
-                    Open in Full Tab &nearr;
-                  </a>
+                <div className={styles.formGroup}>
+                  <label style={{ display: "block", marginBottom: "6px", fontWeight: 600, fontSize: "0.85rem" }}>
+                    Time ({displayTimezone}) <span className={styles.optionalLabel}>(Optional)</span>
+                  </label>
+                  <TimePicker
+                    value={scheduledTimeStr}
+                    onChange={setScheduledTimeStr}
+                    disabled={!scheduledDateStr}
+                    ariaLabel="Scheduled Time"
+                  />
                 </div>
               </div>
-            );
-          })()}
+
+              <div style={{ background: "var(--bg-soft)", padding: "10px 14px", borderRadius: "8px", border: "1px solid var(--border-light)", display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-muted)", flexShrink: 0, marginTop: "2px" }} aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="16" x2="12" y2="12" />
+                  <line x1="12" y1="8" x2="12.01" y2="8" />
+                </svg>
+                <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.45 }}>
+                  Oral assessments are linked to Stage 2 Final Exam milestones. Once scheduled, assessors can evaluate rubric criteria directly in the portal.
+                </span>
+              </div>
+            </div>
+          </form>
         </Modal>
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
-          STAGE 5: APPROVE MISSION STATEMENT & AUTO-ISSUE CERTIFICATE MODAL
+          MISSION STATEMENT DOCUMENT PREVIEW MODAL
+         ───────────────────────────────────────────────────────────────────────────── */}
+      {previewMissionDoc && (() => {
+        const isDataUri = previewMissionDoc.fileUrl.startsWith("data:");
+        const docFileUrl =
+          previewMissionDoc.fileUrl.startsWith("http") || isDataUri
+            ? previewMissionDoc.fileUrl
+            : `${API_URL}/mission-statements/${previewMissionDoc.id}/file`;
+        const isImage =
+          (previewMissionDoc.mimeType || "").includes("image") ||
+          (isDataUri && previewMissionDoc.fileUrl.startsWith("data:image/")) ||
+          docFileUrl.match(/\.(jpg|jpeg|png|webp|svg)(\?.*)?$/i) !== null;
+
+        return (
+          <Modal
+            isOpen={true}
+            onClose={() => {
+              setPreviewMissionDoc(null);
+              setPreviewFullscreen(false);
+            }}
+            title={`Mission Statement: ${previewMissionDoc.user?.name || "Learner"}`}
+            subtitle={`${previewMissionDoc.enrolment?.program?.title || "Program"} · ${previewMissionDoc.fileName}`}
+            maxWidth={previewFullscreen ? "98vw" : "960px"}
+            containerStyle={
+              previewFullscreen
+                ? {
+                    width: "98vw",
+                    height: "94vh",
+                    maxHeight: "94vh",
+                    borderRadius: 10,
+                  }
+                : {
+                    width: "100%",
+                    maxHeight: "92vh",
+                  }
+            }
+            bodyStyle={{
+              padding: 0,
+              overflow: "hidden",
+              background: "#18181b",
+            }}
+            headerActions={
+              <button
+                type="button"
+                onClick={() => setPreviewFullscreen(!previewFullscreen)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "var(--text-muted, #78716a)",
+                  cursor: "pointer",
+                  padding: "6px",
+                  borderRadius: "6px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "all 0.15s ease",
+                }}
+                title={previewFullscreen ? "Exit Fullscreen" : "Fullscreen Preview"}
+                aria-label={previewFullscreen ? "Exit Fullscreen" : "Fullscreen Preview"}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--bg-soft, #f0ece3)";
+                  e.currentTarget.style.color = "var(--text-primary, #14110f)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "transparent";
+                  e.currentTarget.style.color = "var(--text-muted, #78716a)";
+                }}
+              >
+                {previewFullscreen ? (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+                  </svg>
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                  </svg>
+                )}
+              </button>
+            }
+            footer={
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", flexWrap: "wrap", gap: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <a
+                    href={docFileUrl}
+                    download={previewMissionDoc.fileName || "mission-statement.pdf"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.secondaryBtn}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      fontSize: "0.82rem",
+                      padding: "0.45rem 0.95rem",
+                      fontWeight: 600,
+                      textDecoration: "none",
+                    }}
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    <span>Download Document</span>
+                  </a>
+                </div>
+
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    type="button"
+                    className={styles.secondaryBtn}
+                    onClick={() => {
+                      setPreviewMissionDoc(null);
+                      setPreviewFullscreen(false);
+                    }}
+                  >
+                    Close
+                  </button>
+                  {previewMissionDoc.status === "SUBMITTED" && (
+                    <>
+                      <button
+                        type="button"
+                        className={styles.dangerBtnSmall}
+                        onClick={() => {
+                          const doc = previewMissionDoc;
+                          setPreviewMissionDoc(null);
+                          setPreviewFullscreen(false);
+                          setRejectingMission(doc);
+                          setRejectionFeedback("");
+                        }}
+                      >
+                        Reject
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.primaryBtnSmall}
+                        onClick={() => {
+                          const doc = previewMissionDoc;
+                          setPreviewMissionDoc(null);
+                          setPreviewFullscreen(false);
+                          setApprovingMission(doc);
+                          setApprovalFeedback("Outstanding mission statement. Approved for professional certification.");
+                        }}
+                      >
+                        Approve
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            }
+          >
+            <div
+              style={{
+                width: "100%",
+                height: previewFullscreen ? "calc(94vh - 128px)" : "68vh",
+                minHeight: "480px",
+                overflow: "hidden",
+                background: isImage ? "#18181b" : "#ffffff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                position: "relative",
+              }}
+            >
+              {previewLoading && !previewError && (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 12,
+                    color: "#71717a",
+                    background: "#ffffff",
+                    zIndex: 2,
+                  }}
+                >
+                  <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>Loading document preview...</span>
+                </div>
+              )}
+
+              {previewError && (
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: "2rem",
+                    textAlign: "center",
+                    color: "#dc2626",
+                  }}
+                >
+                  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#18181b" }}>
+                    Document Preview Unavailable Inline
+                  </div>
+                  <p style={{ margin: 0, fontSize: "0.82rem", color: "#71717a", maxWidth: 440, lineHeight: 1.5 }}>
+                    The document format or browser security policies prevent inline display. You can open or download the document below.
+                  </p>
+                  <a
+                    href={docFileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.primaryBtnSmall}
+                    style={{ marginTop: 6 }}
+                  >
+                    <span>Open in New Tab &nearr;</span>
+                  </a>
+                </div>
+              )}
+
+              {isImage && (
+                <img
+                  src={docFileUrl}
+                  alt="Learner Mission Statement"
+                  onLoad={(e) => {
+                    const img = e.currentTarget;
+                    if (img.naturalWidth <= 1 && img.naturalHeight <= 1) {
+                      setPreviewLoading(false);
+                      setPreviewError(true);
+                      return;
+                    }
+                    setPreviewLoading(false);
+                    setPreviewError(false);
+                  }}
+                  onError={() => {
+                    setPreviewLoading(false);
+                    setPreviewError(true);
+                  }}
+                  style={{
+                    maxWidth: "100%",
+                    maxHeight: "100%",
+                    objectFit: "contain",
+                    display: previewLoading || previewError ? "none" : "block",
+                  }}
+                />
+              )}
+
+              {!isImage && (
+                <iframe
+                  src={docFileUrl}
+                  title="Learner Mission Statement Document"
+                  onLoad={() => {
+                    setPreviewLoading(false);
+                    setPreviewError(false);
+                  }}
+                  onError={() => {
+                    setPreviewLoading(false);
+                    setPreviewError(true);
+                  }}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    border: "none",
+                    display: previewLoading || previewError ? "none" : "block",
+                  }}
+                />
+              )}
+            </div>
+          </Modal>
+        );
+      })()}
+
+      {/* ─────────────────────────────────────────────────────────────────────────────
+          APPROVE MISSION STATEMENT MODAL
          ───────────────────────────────────────────────────────────────────────────── */}
       {approvingMission && (
         <Modal
           isOpen={true}
           onClose={() => setApprovingMission(null)}
-          title="Approve Mission Statement & Auto-Issue Certificate"
-          subtitle={`Review and approve Stage 5 completion for ${approvingMission.user?.name || "Learner"}.`}
+          title="Approve Mission Statement"
+          subtitle={`Learner: ${approvingMission.user?.name || "Learner"}`}
         >
           <form onSubmit={handleApproveMission}>
-            <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginTop: "10px" }}>
-              <div style={{
-                background: "#f0fdf4",
-                border: "1px solid #bbf7d0",
-                padding: "12px 14px",
-                borderRadius: "8px",
-                fontSize: "0.85rem",
-                color: "#166534"
-              }}>
-                <strong>Automated Certification Trigger:</strong> Approving this mission statement marks <strong>Stage 5 Complete</strong> and immediately generates a verified, signed graduation certificate for the learner!
-              </div>
-
-              <div>
-                <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "4px" }}>
-                  Feedback / Approval Note (included in confirmation)
-                </label>
+            <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginTop: "6px" }}>
+              <div className={styles.formGroup}>
+                <label>Feedback Note (Optional)</label>
                 <textarea
                   value={approvalFeedback}
                   onChange={(e) => setApprovalFeedback(e.target.value)}
                   rows={3}
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    borderRadius: "6px",
-                    border: "1px solid var(--border-light)",
-                    fontSize: "0.88rem",
-                    fontFamily: "inherit",
-                    resize: "vertical",
-                  }}
                   placeholder="Outstanding mission statement. Approved for professional certification."
                 />
               </div>
 
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "10px" }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "8px" }}>
                 <button
                   type="button"
                   className={styles.secondaryBtn}
@@ -2611,7 +3099,7 @@ function ApprovalsContent() {
                   className={styles.primaryBtn}
                   disabled={submittingApproval}
                 >
-                  {submittingApproval ? "Approving & Issuing..." : "Approve & Issue Certificate"}
+                  {submittingApproval ? "Approving..." : "Approve"}
                 </button>
               </div>
             </div>
@@ -2620,40 +3108,31 @@ function ApprovalsContent() {
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────────
-          STAGE 5: REJECT MISSION STATEMENT MODAL
+          REJECT MISSION STATEMENT MODAL
          ───────────────────────────────────────────────────────────────────────────── */}
       {rejectingMission && (
         <Modal
           isOpen={true}
           onClose={() => setRejectingMission(null)}
-          title="Request Mission Statement Revision"
-          subtitle={`Provide actionable guidance to ${rejectingMission.user?.name || "the learner"} so they can revise and resubmit.`}
+          title="Reject Mission Statement"
+          subtitle={`Provide feedback to ${rejectingMission.user?.name || "the learner"} so they can revise and resubmit.`}
         >
           <form onSubmit={handleRejectMission}>
-            <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginTop: "10px" }}>
-              <div>
-                <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "4px" }}>
-                  Revision Guidance &amp; Required Changes <span style={{ color: "#dc2626" }}>*</span>
+            <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginTop: "6px" }}>
+              <div className={styles.formGroup}>
+                <label>
+                  Revision Feedback <span style={{ color: "#dc2626" }}>*</span>
                 </label>
                 <textarea
                   value={rejectionFeedback}
                   onChange={(e) => setRejectionFeedback(e.target.value)}
                   rows={4}
                   required
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    borderRadius: "6px",
-                    border: "1px solid var(--border-light)",
-                    fontSize: "0.88rem",
-                    fontFamily: "inherit",
-                    resize: "vertical",
-                  }}
-                  placeholder="e.g., Please articulate your specific 12-month coaching vision in Section 2, and clarify your target demographic."
+                  placeholder="Specify required changes..."
                 />
               </div>
 
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "10px" }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "8px" }}>
                 <button
                   type="button"
                   className={styles.secondaryBtn}
@@ -2665,7 +3144,7 @@ function ApprovalsContent() {
                 <button
                   type="submit"
                   className={styles.dangerBtnSmall}
-                  style={{ padding: "8px 16px", fontSize: "0.88rem" }}
+                  style={{ padding: "8px 16px", fontSize: "0.85rem" }}
                   disabled={submittingMissionReject || !rejectionFeedback.trim()}
                 >
                   {submittingMissionReject ? "Sending..." : "Send Revision Request"}

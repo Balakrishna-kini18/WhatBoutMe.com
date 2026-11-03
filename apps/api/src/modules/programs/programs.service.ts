@@ -1081,6 +1081,75 @@ export class ProgramsService {
     return step;
   }
 
+  async getStepQuiz(stepId: string) {
+    const quiz = await this.prisma.quiz.findUnique({
+      where: { stepId },
+      include: {
+        questions: {
+          include: { options: true },
+        },
+      },
+    });
+    return quiz;
+  }
+
+  async upsertStepQuiz(stepId: string, data: any) {
+    const existing = await this.prisma.quiz.findUnique({
+      where: { stepId },
+    });
+
+    const passMark = typeof data?.passMark === 'number' ? data.passMark : 75;
+    const maxAttempts = typeof data?.maxAttempts === 'number' ? data.maxAttempts : 999;
+    const cooldownHours = typeof data?.cooldownHours === 'number' ? data.cooldownHours : 0;
+    const title = data?.title ? String(data.title).trim() : 'Step Knowledge Check';
+    const quizPlacement = data?.quizPlacement || 'AFTER_VIDEO';
+
+    let result;
+    if (existing) {
+      result = await this.prisma.quiz.update({
+        where: { id: existing.id },
+        data: {
+          title,
+          passMark,
+          maxAttempts,
+          cooldownHours,
+          quizPlacement,
+        },
+        include: {
+          questions: {
+            include: { options: true },
+          },
+        },
+      });
+    } else {
+      result = await this.prisma.quiz.create({
+        data: {
+          stepId,
+          title,
+          passMark,
+          maxAttempts,
+          cooldownHours,
+          quizPlacement,
+        },
+        include: {
+          questions: {
+            include: { options: true },
+          },
+        },
+      });
+    }
+
+    if (quizPlacement) {
+      await this.prisma.step.update({
+        where: { id: stepId },
+        data: { quizPlacement },
+      }).catch(() => {});
+    }
+
+    await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
+    return result;
+  }
+
   async createStep(programId: string, data: CreateStepDto) {
     const program = await this.prisma.program.findUnique({ where: { id: programId } });
     if (!program) {
@@ -1264,20 +1333,19 @@ export class ProgramsService {
       throw new NotFoundException(`Step not found`);
     }
 
-    // 1. Delete all lessons' media from Cloudinary
-    try {
-      const lessons = await this.prisma.lesson.findMany({
-        where: { stepId },
-        select: { mediaUrl: true, type: true },
-      });
+    // 1. Delete all lessons' media from Cloudinary in background
+    this.prisma.lesson.findMany({
+      where: { stepId },
+      select: { mediaUrl: true, type: true },
+    }).then((lessons) => {
       for (const lesson of lessons) {
         if (lesson.mediaUrl) {
-          await this.safeDeleteCloudinaryMedia(lesson.mediaUrl, lesson.type === 'VIDEO' ? 'video' : 'raw');
+          this.safeDeleteCloudinaryMedia(lesson.mediaUrl, lesson.type === 'VIDEO' ? 'video' : 'raw').catch(() => {});
         }
       }
-    } catch (mediaErr: any) {
-      this.logger.warn(`Media cleanup notice during step deletion: ${mediaErr.message}`);
-    }
+    }).catch((mediaErr: any) => {
+      this.logger.warn(`Media cleanup notice during step deletion: ${mediaErr?.message}`);
+    });
 
     await this.prisma.$transaction(async (tx) => {
       // Clean quiz relations if any
@@ -1562,34 +1630,28 @@ export class ProgramsService {
       throw new NotFoundException(`Lesson not found`);
     }
 
-    // Delete media from Cloudinary (video or document)
-    try {
-      if (lesson.mediaUrl) {
-        await this.safeDeleteCloudinaryMedia(lesson.mediaUrl, lesson.type === 'VIDEO' ? 'video' : 'raw');
-      }
-    } catch (mediaErr: any) {
-      this.logger.warn(`Media cleanup notice during lesson deletion: ${mediaErr.message}`);
+    // Clean up media in background without blocking the HTTP request
+    if (lesson.mediaUrl) {
+      this.safeDeleteCloudinaryMedia(lesson.mediaUrl, lesson.type === 'VIDEO' ? 'video' : 'raw').catch((mediaErr: any) => {
+        this.logger.warn(`Media cleanup notice during lesson deletion: ${mediaErr?.message}`);
+      });
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      if (typeof (tx as any).userLessonProgress?.deleteMany === 'function') {
-        await (tx as any).userLessonProgress.deleteMany({ where: { lessonId } }).catch(() => {});
-      }
-      await tx.lesson.delete({ where: { id: lessonId } });
+    await this.prisma.$transaction(
+      async (tx) => {
+        if (typeof (tx as any).userLessonProgress?.deleteMany === 'function') {
+          await (tx as any).userLessonProgress.deleteMany({ where: { lessonId } }).catch(() => {});
+        }
+        await tx.lesson.delete({ where: { id: lessonId } });
 
-      // Renumber remaining sibling lessons
-      const remaining = await tx.lesson.findMany({
-        where: { stepId: lesson.stepId },
-        orderBy: { order: 'asc' },
-      });
-
-      for (let i = 0; i < remaining.length; i++) {
-        await tx.lesson.update({
-          where: { id: remaining[i].id },
-          data: { order: i + 1 },
+        // Decrement order for subsequent sibling lessons in one fast query
+        await tx.lesson.updateMany({
+          where: { stepId: lesson.stepId, order: { gt: lesson.order } },
+          data: { order: { decrement: 1 } },
         });
-      }
-    });
+      },
+      { maxWait: 15000, timeout: 30000 }
+    );
 
     await this.safeInvalidateTags(['programs', 'steps', 'lessons', `step:${lesson.stepId}`]);
     return { id: lessonId, deleted: true };

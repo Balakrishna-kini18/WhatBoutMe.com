@@ -150,6 +150,10 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
 
   // Save Step 1: Course Setup
   const handleSaveCourseSetup = async (updatedData: any) => {
+    if (!updatedData.thumbnailUrl || !updatedData.thumbnailUrl.trim()) {
+      toast.error("Course Cover Banner is required. Please upload a cover banner before saving.");
+      return;
+    }
     setIsSaving(true);
     try {
       const token = localStorage.getItem("token");

@@ -22,8 +22,8 @@ export default function FeaturedCourse({ course }: { course?: Course }) {
 
   return (
     <div className="grid overflow-hidden rounded-3xl border border-line bg-white lg:grid-cols-[1.1fr_1fr]">
-      <div className="relative aspect-[16/10] bg-sand lg:order-2 lg:aspect-auto lg:min-h-[22rem]">
-        {course.image && (
+      <div className="relative aspect-[16/10] bg-gradient-to-br from-[#fcf9f2] via-[#f7f1e4] to-[#ebe1ce] lg:order-2 lg:aspect-auto lg:min-h-[22rem]">
+        {course.image ? (
           <Image
             src={course.image}
             alt={course.alt || course.title || "Featured course"}
@@ -34,6 +34,15 @@ export default function FeaturedCourse({ course }: { course?: Course }) {
             sizes="(max-width: 1024px) 100vw, 560px"
             className="object-cover"
           />
+        ) : (
+          <div className="flex h-full min-h-[16rem] w-full flex-col items-center justify-center p-8 text-center select-none">
+            <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#c97a1e]/15 text-3xl font-extrabold text-[#c97a1e] ring-1 ring-[#c97a1e]/25">
+              {course.title.trim().charAt(0).toUpperCase()}
+            </span>
+            <span className="mt-3 text-xs font-semibold uppercase tracking-widest text-[#8c6538]">
+              {course.category || "WhatBoutMe"}
+            </span>
+          </div>
         )}
       </div>
 

@@ -2483,14 +2483,14 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                           Question {safeActiveIndex + 1} of {quizQuestions.length}
                         </div>
                         {(currentQuizQuestion as any).imageUrl && (
-                          <div style={{ marginBottom: "1rem", borderRadius: 10, overflow: "hidden", border: "1px solid #ece6dd", maxWidth: 480 }}>
+                          <div style={{ marginBottom: "1.25rem", borderRadius: 10, overflow: "hidden", border: "1px solid #ece6dd", maxWidth: 640, background: "#faf8f5" }}>
                             <img
                               src={resolveMediaDownloadUrl((currentQuizQuestion as any).imageUrl)}
                               alt={`Question ${safeActiveIndex + 1}`}
                               onError={(e) => {
                                 (e.currentTarget.parentElement as HTMLElement | null)?.style.setProperty("display", "none");
                               }}
-                              style={{ width: "100%", maxHeight: 240, objectFit: "cover", display: "block" }}
+                              style={{ width: "100%", maxHeight: 300, objectFit: "contain", display: "block" }}
                             />
                           </div>
                         )}
@@ -2539,8 +2539,21 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                             );
                           }
 
+                          const hasOptionImages = (currentQuizQuestion.options || []).some((opt: any) => Boolean(opt.imageUrl));
+
                           return (
-                            <div className={styles.optionsStack}>
+                            <div
+                              className={styles.optionsStack}
+                              style={
+                                hasOptionImages
+                                  ? {
+                                      display: "grid",
+                                      gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                                      gap: "12px",
+                                    }
+                                  : undefined
+                              }
+                            >
                               {(currentQuizQuestion.options || []).map((opt: any, optIdx: number) => {
                                 const isSelected = isMulti
                                   ? selectedMultiList.includes(opt.id)
@@ -2569,22 +2582,46 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                                       })
                                     }
                                     className={`${styles.optionCard} ${isSelected ? styles.optionCardSelected : ""}`}
+                                    style={
+                                      hasOptionImages
+                                        ? {
+                                            flexDirection: "column",
+                                            alignItems: "stretch",
+                                            padding: "12px",
+                                            gap: "10px",
+                                          }
+                                        : undefined
+                                    }
                                   >
-                                    <div className={styles.optionRadioCircle}>
-                                      {isSelected && <div className={styles.optionRadioInnerDot} />}
-                                    </div>
-                                    <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
-                                      {opt.imageUrl && (
+                                    {opt.imageUrl && (
+                                      <div
+                                        style={{
+                                          width: "100%",
+                                          height: "135px",
+                                          borderRadius: 8,
+                                          overflow: "hidden",
+                                          background: "#f8fafc",
+                                          border: "1px solid #e2e8f0",
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                        }}
+                                      >
                                         <img
                                           src={resolveMediaDownloadUrl(opt.imageUrl)}
-                                          alt={opt.text}
+                                          alt={opt.text || `Option ${String.fromCharCode(65 + optIdx)}`}
                                           onError={(e) => {
-                                            (e.currentTarget as HTMLElement).style.display = "none";
+                                            (e.currentTarget.parentElement as HTMLElement | null)?.style.setProperty("display", "none");
                                           }}
-                                          style={{ maxWidth: 220, maxHeight: 120, objectFit: "cover", borderRadius: 6 }}
+                                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
                                         />
-                                      )}
-                                      <span className={styles.optionText}>{opt.text}</span>
+                                      </div>
+                                    )}
+                                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                      <div className={styles.optionRadioCircle}>
+                                        {isSelected && <div className={styles.optionRadioInnerDot} />}
+                                      </div>
+                                      <span className={styles.optionText}>{opt.text || `Option ${String.fromCharCode(65 + optIdx)}`}</span>
                                     </div>
                                   </div>
                                 );

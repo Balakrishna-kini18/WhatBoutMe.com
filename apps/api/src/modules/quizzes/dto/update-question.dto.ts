@@ -16,7 +16,7 @@ import { CreateOptionDto } from './create-question.dto.js';
 export class UpdateQuestionDto {
   @IsOptional()
   @IsString()
-  @MinLength(5, { message: 'Question text must be at least 5 characters long' })
+  @MinLength(1, { message: 'Question text must not be empty' })
   text?: string;
 
   @IsOptional()

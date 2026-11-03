@@ -490,6 +490,7 @@ export function buildAuthHref(
   authPath: "/login" | "/signup" | "/register" | "/forgot-password" | "/verify-email",
   redirectUrl?: string | null,
   extraParams?: Record<string, string | null | undefined>,
+  explicitLmsOrigin?: string | null,
 ): string {
   const sanitized = sanitizeReturnUrl(redirectUrl, "");
   const params = new URLSearchParams();
@@ -498,20 +499,16 @@ export function buildAuthHref(
     params.set("portal", sanitized);
   }
 
-  // Preserve lms_origin across auth page transitions
-  const currentLmsOrigin =
-    typeof window !== "undefined" && window?.location?.search
-      ? extractLmsOriginParam(window.location.search) || getStoredLmsOrigin()
-      : typeof window !== "undefined"
-        ? getStoredLmsOrigin()
-        : null;
-  if (currentLmsOrigin) {
-    params.set("lms_origin", currentLmsOrigin);
+  // Preserve lms_origin when explicitly passed or in extraParams (hydration-safe, never accesses window synchronously)
+  const rawOrigin = explicitLmsOrigin ?? (extraParams?.lms_origin as string | undefined);
+  const originToUse = sanitizeLmsOrigin(rawOrigin);
+  if (originToUse) {
+    params.set("lms_origin", originToUse);
   }
 
   if (extraParams) {
     for (const [k, v] of Object.entries(extraParams)) {
-      if (v !== undefined && v !== null && v !== "") {
+      if (k !== "lms_origin" && v !== undefined && v !== null && v !== "") {
         params.set(k, v);
       }
     }

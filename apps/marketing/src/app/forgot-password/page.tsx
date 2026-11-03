@@ -9,8 +9,11 @@ import { requestPasswordResetUser } from "@/lib/api";
 import {
   buildAuthHref,
   extractRedirectParam,
+  extractLmsOriginParam,
+  getStoredLmsOrigin,
   peekEnrollmentIntent,
   saveEnrollmentIntent,
+  saveLmsOrigin,
 } from "@/lib/auth-redirect";
 
 export default function ForgotPasswordPage() {
@@ -19,12 +22,21 @@ export default function ForgotPasswordPage() {
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [activeRedirect, setActiveRedirect] = useState<string | null>(null);
+  const [activeLmsOrigin, setActiveLmsOrigin] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const redirectFromUrl = extractRedirectParam(params);
+    const lmsOriginFromUrl = extractLmsOriginParam(params);
+    const origin = lmsOriginFromUrl || getStoredLmsOrigin();
+
+    if (origin) {
+      saveLmsOrigin(origin);
+      setActiveLmsOrigin(origin);
+    }
+
     if (redirectFromUrl) {
-      saveEnrollmentIntent({ returnUrl: redirectFromUrl });
+      saveEnrollmentIntent({ returnUrl: redirectFromUrl, lmsOrigin: origin || undefined });
       setActiveRedirect(redirectFromUrl);
     } else {
       const stored = peekEnrollmentIntent();
@@ -66,7 +78,7 @@ export default function ForgotPasswordPage() {
           </p>
           <div className="mt-8 space-y-3">
             <Link
-              href={buildAuthHref("/login", activeRedirect)}
+              href={buildAuthHref("/login", activeRedirect, undefined, activeLmsOrigin)}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-ink py-4 font-semibold text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
             >
               Back to Sign In
@@ -128,7 +140,7 @@ export default function ForgotPasswordPage() {
       <p className="mt-6 text-center text-sm text-ink-soft">
         Remember your password?{" "}
         <Link
-          href={buildAuthHref("/login", activeRedirect)}
+          href={buildAuthHref("/login", activeRedirect, undefined, activeLmsOrigin)}
           className="font-semibold text-gold-deep hover:underline"
         >
           Sign In

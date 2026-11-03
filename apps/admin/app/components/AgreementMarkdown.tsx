@@ -10,23 +10,22 @@ interface AgreementMarkdownProps {
  * Safely parses inline markdown (bold, italic, code, links) into React elements.
  * Never uses dangerouslySetInnerHTML to guarantee complete XSS safety.
  */
-const TOKEN_REGEX =
-  /(?:<a\s+(?:[^>]*?\s+)?href=["']([^"']*)["'][^>]*>(.*?)<\/a>|\[([^\]]+)\]\(([^)]+)\)|<\s*(?:strong|b)\s*>(.*?)<\s*\/\s*(?:strong|b)\s*>|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_|<\s*(?:em|i)\s*>(.*?)<\s*\/\s*(?:em|i)\s*>|<\s*(?:u|ins)\s*>(.*?)<\s*\/\s*(?:u|ins)\s*>|~~([^~]+)~~|<\s*(?:del|s)\s*>(.*?)<\s*\/\s*(?:del|s)\s*>|`([^`]+)`|<\s*code\s*>(.*?)<\s*\/\s*code\s*>|([•⁃‣]))/gi;
+const TOKEN_PATTERN =
+  "(?:<a\\s+(?:[^>]*?\\s+)?href=[\"']([^\"']*)[\"'][^>]*>(.*?)<\\/a>|\\[([^\\]]+)\\]\\(([^)]+)\\)|<\\s*(?:strong|b)\\s*>(.*?)<\\/\\s*(?:strong|b)\\s*>|\\*\\*([^*]+)\\*\\*|__([^_]+)__|\\*([^*]+)\\*|_([^_]+)_|<\\s*(?:em|i)\\s*>(.*?)<\\/\\s*(?:em|i)\\s*>|<\\s*(?:u|ins)\\s*>(.*?)<\\/\\s*(?:u|ins)\\s*>|~~([^~]+)~~|<\\s*(?:del|s)\\s*>(.*?)<\\/\\s*(?:del|s)\\s*>|`([^`]+)`|<\\s*code\\s*>(.*?)<\\/\\s*code\\s*>|([•⁃‣]))";
 
 function renderInline(text: string, lineKey: string | number, depth = 0): React.ReactNode[] {
   if (!text) return [];
   if (depth > 5) return [text];
 
+  const regex = new RegExp(TOKEN_PATTERN, "gi");
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   let tokenIdx = 0;
 
-  TOKEN_REGEX.lastIndex = 0;
-
-  while ((match = TOKEN_REGEX.exec(text)) !== null) {
+  while ((match = regex.exec(text)) !== null) {
     const matchStart = match.index;
-    const matchEnd = TOKEN_REGEX.lastIndex;
+    const matchEnd = regex.lastIndex;
 
     if (matchStart > lastIndex) {
       nodes.push(text.slice(lastIndex, matchStart));
@@ -151,6 +150,9 @@ function renderInline(text: string, lineKey: string | number, depth = 0): React.
     }
 
     lastIndex = matchEnd;
+    if (regex.lastIndex <= matchStart) {
+      regex.lastIndex = matchStart + 1;
+    }
   }
 
   if (lastIndex < text.length) {

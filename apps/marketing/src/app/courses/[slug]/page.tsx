@@ -197,6 +197,7 @@ export default async function CoursePage({ params }: Props) {
                 programId={course.programId}
                 slug={course.slug}
                 className="group mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-ink py-3.5 text-sm font-medium text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
+                activeClassName="group mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-gold py-3.5 text-sm font-bold text-ink shadow-sm transition-colors duration-200 hover:bg-ink hover:text-cream"
               >
                 Enrol Now
                 <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />

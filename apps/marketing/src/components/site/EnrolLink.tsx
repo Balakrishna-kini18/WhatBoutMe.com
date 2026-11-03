@@ -10,6 +10,30 @@ import {
   saveEnrollmentIntent,
 } from "@/lib/auth-redirect";
 
+function getResolvedActiveClassName(
+  className?: string,
+  activeClassName?: string
+): string {
+  if (activeClassName) return activeClassName;
+  if (!className) {
+    return "group inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-gold px-6 text-sm font-bold text-ink shadow-sm transition-all duration-200 hover:bg-ink hover:text-cream active:scale-[0.98]";
+  }
+
+  // If the passed className is already a button (has rounded or bg- or py-), ensure flex & nowrap safety
+  const isButton =
+    className.includes("rounded") ||
+    className.includes("bg-") ||
+    className.includes("py-");
+
+  if (isButton) {
+    const hasFlex = className.includes("flex");
+    return `${hasFlex ? "" : "inline-flex items-center justify-center gap-2 "}whitespace-nowrap ${className}`;
+  }
+
+  // If it was just a text link (e.g. underline text), promote it to a proper button UI
+  return "group inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-gold px-6 text-sm font-bold text-ink shadow-sm transition-all duration-200 hover:bg-ink hover:text-cream active:scale-[0.98]";
+}
+
 /**
  * Smart Enrollment CTA component.
  * - When already enrolled and active: suppresses "Enrol Now" and offers direct "Go to Course →" jump to LMS.
@@ -22,6 +46,8 @@ export default function EnrolLink({
   batchId,
   couponCode,
   className,
+  activeClassName,
+  wrapperClassName,
   children,
   showStatusBadge = true,
 }: {
@@ -29,81 +55,120 @@ export default function EnrolLink({
   slug?: string;
   batchId?: string;
   couponCode?: string;
-  className: string;
+  className?: string;
+  activeClassName?: string;
+  wrapperClassName?: string;
   children: ReactNode;
   showStatusBadge?: boolean;
 }) {
   const { isFullyActive, isPendingAgreement, isPendingPayment, enrolment } =
     useEnrolmentStatus(programId, slug);
 
+  const resolvedActiveClass = getResolvedActiveClassName(
+    className,
+    activeClassName
+  );
+
   // If already enrolled and active / completed: DO NOT SHOW ENROL NOW!
   // Route learner directly to the LMS learning path:
   if (isFullyActive) {
     const lmsCoursePath = `/programs/${programId}/steps`;
-    return (
-      <div className="flex flex-col gap-2.5 w-full">
-        {showStatusBadge && (
+    const buttonContent = (
+      <a
+        href={`${LMS_URL}${lmsCoursePath}`}
+        onClick={openPortal(lmsCoursePath)}
+        className={resolvedActiveClass}
+        title="Open course in Learner Portal"
+      >
+        <span>Go to Course</span>
+        <ArrowRight className="h-4 w-4 shrink-0 transition-transform duration-200 group-hover:translate-x-1" />
+      </a>
+    );
+
+    if (showStatusBadge) {
+      return (
+        <div className={wrapperClassName || "flex flex-col gap-2.5 w-full"}>
           <div className="flex items-center justify-center gap-2 rounded-2xl bg-amber-500/10 border border-amber-500/25 py-2.5 px-4 text-xs sm:text-sm font-semibold text-amber-900 shadow-sm">
             <CheckCircle2 className="h-4 w-4 text-amber-600 shrink-0" />
             <span className="truncate">
               Enrolled {enrolment?.batchName ? `• ${enrolment.batchName}` : ""}
             </span>
           </div>
-        )}
-        <a
-          href={`${LMS_URL}${lmsCoursePath}`}
-          onClick={openPortal(lmsCoursePath)}
-          className={className}
-          title="Open course in Learner Portal"
-        >
-          <span>Go to Course</span>
-          <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
-        </a>
-      </div>
+          {buttonContent}
+        </div>
+      );
+    }
+
+    return wrapperClassName ? (
+      <div className={wrapperClassName}>{buttonContent}</div>
+    ) : (
+      buttonContent
     );
   }
 
   // If enrolled but pending agreement:
   if (isPendingAgreement) {
     const agreementPath = `/agreement?programId=${programId}${enrolment?.enrolmentId ? `&enrolmentId=${enrolment.enrolmentId}` : ""}`;
-    return (
-      <div className="flex flex-col gap-2.5 w-full">
-        {showStatusBadge && (
+    const buttonContent = (
+      <a
+        href={`${LMS_URL}${agreementPath}`}
+        onClick={openPortal(agreementPath)}
+        className={resolvedActiveClass}
+        title="Complete Program Agreement"
+      >
+        <span>Complete Agreement</span>
+        <ArrowRight className="h-4 w-4 shrink-0 transition-transform duration-200 group-hover:translate-x-1" />
+      </a>
+    );
+
+    if (showStatusBadge) {
+      return (
+        <div className={wrapperClassName || "flex flex-col gap-2.5 w-full"}>
           <div className="flex items-center justify-center gap-2 rounded-2xl bg-amber-500/10 border border-amber-500/25 py-2 px-3 text-xs font-semibold text-amber-900">
             <span>Agreement Pending</span>
           </div>
-        )}
-        <a
-          href={`${LMS_URL}${agreementPath}`}
-          onClick={openPortal(agreementPath)}
-          className={className}
-        >
-          <span>Complete Agreement</span>
-          <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
-        </a>
-      </div>
+          {buttonContent}
+        </div>
+      );
+    }
+
+    return wrapperClassName ? (
+      <div className={wrapperClassName}>{buttonContent}</div>
+    ) : (
+      buttonContent
     );
   }
 
   // If enrolled but pending payment:
   if (isPendingPayment) {
     const checkoutPath = `/checkout?programId=${programId}${enrolment?.enrolmentId ? `&enrolmentId=${enrolment.enrolmentId}` : ""}`;
-    return (
-      <div className="flex flex-col gap-2.5 w-full">
-        {showStatusBadge && (
+    const buttonContent = (
+      <a
+        href={`${LMS_URL}${checkoutPath}`}
+        onClick={openPortal(checkoutPath)}
+        className={resolvedActiveClass}
+        title="Complete Course Payment"
+      >
+        <span>Complete Payment</span>
+        <ArrowRight className="h-4 w-4 shrink-0 transition-transform duration-200 group-hover:translate-x-1" />
+      </a>
+    );
+
+    if (showStatusBadge) {
+      return (
+        <div className={wrapperClassName || "flex flex-col gap-2.5 w-full"}>
           <div className="flex items-center justify-center gap-2 rounded-2xl bg-amber-500/10 border border-amber-500/25 py-2 px-3 text-xs font-semibold text-amber-900">
             <span>Payment Pending</span>
           </div>
-        )}
-        <a
-          href={`${LMS_URL}${checkoutPath}`}
-          onClick={openPortal(checkoutPath)}
-          className={className}
-        >
-          <span>Complete Payment</span>
-          <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
-        </a>
-      </div>
+          {buttonContent}
+        </div>
+      );
+    }
+
+    return wrapperClassName ? (
+      <div className={wrapperClassName}>{buttonContent}</div>
+    ) : (
+      buttonContent
     );
   }
 
@@ -130,11 +195,15 @@ export default function EnrolLink({
     })(e);
   };
 
+  const defaultUnenrolledClass =
+    className ||
+    "group inline-flex h-12 items-center justify-center gap-2 rounded-full border border-ink/20 bg-white px-6 text-sm font-semibold text-ink transition-colors duration-200 hover:border-ink hover:bg-ink hover:text-cream";
+
   return (
     <a
       href={enrolUrl(programId)}
       onClick={handleClick}
-      className={className}
+      className={defaultUnenrolledClass}
     >
       {children}
     </a>

@@ -14,6 +14,7 @@ export interface DiscoveryCallItem {
   courseTitle?: string;
   isJoinable: boolean;
   isLive: boolean;
+  isPendingAcceptance?: boolean;
 }
 
 export interface FilterDiscoveryCallsOptions {
@@ -103,6 +104,7 @@ export function filterUpcomingDiscoveryCalls(
         courseTitle: parsed.courseInquiry?.title,
         isJoinable,
         isLive,
+        isPendingAcceptance: !zoomUrl || !zoomUrl.startsWith("http"),
       };
     })
     .filter((item): item is DiscoveryCallItem => item !== null)

@@ -48,22 +48,24 @@ export default function FeaturedCourse({ course }: { course?: Course }) {
           <p className="mt-4 line-clamp-2 max-w-xl leading-relaxed text-ink-soft">{stripFormatting(course.body)}</p>
         )}
 
-        <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-3">
+        <div className="mt-6 flex flex-wrap items-center gap-3 sm:gap-4">
           <Link
             href={`/courses/${course.slug}`}
-            className="group inline-flex h-12 items-center gap-2 rounded-full bg-ink px-6 text-sm font-medium text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
+            className="group inline-flex h-12 items-center justify-center gap-2 rounded-full bg-ink px-6 text-sm font-medium text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
           >
-            View Details
-            <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
+            <span>View Details</span>
+            <ArrowRight className="h-4 w-4 shrink-0 transition-transform duration-200 group-hover:translate-x-1" />
           </Link>
           {course.programId && (
             <EnrolLink
               programId={course.programId}
               slug={course.slug}
               showStatusBadge={false}
-              className="text-sm font-semibold text-gold-deep underline-offset-4 transition-colors hover:underline"
+              className="group inline-flex h-12 items-center justify-center gap-2 rounded-full border border-ink/20 bg-white px-6 text-sm font-semibold text-ink shadow-xs transition-colors duration-200 hover:border-ink hover:bg-ink hover:text-cream"
+              activeClassName="group inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-full bg-gold px-6 text-sm font-bold text-ink shadow-sm transition-all duration-200 hover:bg-ink hover:text-cream active:scale-[0.98]"
             >
-              Enrol Now
+              <span>Enrol Now</span>
+              <ArrowRight className="h-4 w-4 shrink-0 transition-transform duration-200 group-hover:translate-x-1" />
             </EnrolLink>
           )}
         </div>

@@ -11,6 +11,7 @@ import {
   fetchOneOnOneRequests,
   approveOneOnOneRequest,
   rejectOneOnOneRequest,
+  acceptDiscoveryCall,
   type OneOnOneRequestItem,
 } from "../lib/api";
 import {
@@ -354,6 +355,16 @@ export default function MeetingsPage() {
       url.searchParams.delete("tab");
       url.searchParams.set("category", cat.toLowerCase());
       window.history.pushState({}, "", url.toString());
+    }
+  };
+
+  const handleAcceptDiscovery = async (sessionId: string) => {
+    try {
+      await acceptDiscoveryCall({ sessionId });
+      toastSuccess("Discovery Call accepted! Zoom room generated and confirmed invite sent to prospect.");
+      await load();
+    } catch (err: any) {
+      toastError(err?.message || "Failed to accept discovery call");
     }
   };
 
@@ -1785,7 +1796,23 @@ export default function MeetingsPage() {
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <div className={calStyles.actionBtnGroup}>
-                          {isDiscoveryCall(m) && m.status !== "CANCELLED" && (
+                          {isDiscoveryCall(m) && !m.joinUrl && m.status !== "CANCELLED" && (
+                            <button
+                              type="button"
+                              className={calStyles.tableActionBtn}
+                              style={{
+                                color: "#15803d",
+                                borderColor: "#bbf7d0",
+                                background: "#f0fdf4",
+                                fontWeight: 700,
+                              }}
+                              onClick={() => handleAcceptDiscovery(m.id)}
+                              title="Accept discovery call and generate Zoom meeting link"
+                            >
+                              Accept &amp; Generate Zoom
+                            </button>
+                          )}
+                          {isDiscoveryCall(m) && m.joinUrl && m.status !== "CANCELLED" && (
                             <button
                               type="button"
                               className={calStyles.tableActionBtn}

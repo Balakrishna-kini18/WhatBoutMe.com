@@ -32,7 +32,6 @@ export class CreateExamDto {
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(10)
   maxAttempts?: number;
 
   @IsOptional()

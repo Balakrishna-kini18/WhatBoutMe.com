@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, use, useCallback } from "react";
+import { useEffect, useState, useMemo, use, useCallback, useRef } from "react";
 import styles from "../../page.module.css";
 import batchStyles from "./BatchDetail.module.css";
 import Link from "next/link";
@@ -257,6 +257,47 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
   const [broadcastInApp, setBroadcastInApp] = useState(true);
   const [broadcastEmail, setBroadcastEmail] = useState(true);
   const [isSendingBroadcast, setIsSendingBroadcast] = useState(false);
+  const [broadcastAttachments, setBroadcastAttachments] = useState<
+    Array<{ name: string; size: number; type: string; base64: string }>
+  >([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAttachmentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const fileList = Array.from(files);
+    for (const file of fileList) {
+      if (file.size > 10 * 1024 * 1024) {
+        toastError(`File "${file.name}" exceeds the 10 MB limit.`);
+        continue;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result as string;
+        setBroadcastAttachments((prev) => [
+          ...prev,
+          {
+            name: file.name,
+            size: file.size,
+            type: file.type || "application/octet-stream",
+            base64,
+          },
+        ]);
+      };
+      reader.readAsDataURL(file);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const removeAttachment = (index: number) => {
+    setBroadcastAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
   const [broadcastHistory, setBroadcastHistory] = useState<Array<{
     id: string;
     title: string;
@@ -304,6 +345,25 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
   // Timezone options
   const tzOptions = useMemo(() => getTimezoneOptions(), []);
 
+  // Time format state (12h vs 24h), hydrated from localStorage
+  const [timeFormat, setTimeFormat] = useState<"12h" | "24h">("12h");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedFmt = localStorage.getItem("wbm_time_format");
+      if (savedFmt === "12h" || savedFmt === "24h") {
+        setTimeFormat(savedFmt);
+      }
+    }
+  }, []);
+
+  const handleTimeFormatToggle = (fmt: "12h" | "24h") => {
+    setTimeFormat(fmt);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("wbm_time_format", fmt);
+    }
+  };
+
   // Helper for 24-hr time to 12-hr display preview
   const format24To12 = useCallback((timeStr: string): string => {
     if (!timeStr || !timeStr.includes(":")) return "";
@@ -332,12 +392,17 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     const endH24 = Math.floor(totalMinutes / 60) % 24;
     const endM = totalMinutes % 60;
 
-    const period = endH24 >= 12 ? "PM" : "AM";
-    const displayH = endH24 % 12 === 0 ? 12 : endH24 % 12;
     const displayM = endM < 10 ? `0${endM}` : String(endM);
 
+    if (timeFormat === "24h") {
+      const displayH = endH24 < 10 ? `0${endH24}` : String(endH24);
+      return `${displayH}:${displayM}`;
+    }
+
+    const period = endH24 >= 12 ? "PM" : "AM";
+    const displayH = endH24 % 12 === 0 ? 12 : endH24 % 12;
     return `${displayH}:${displayM} ${period}`;
-  }, [sessionWallTime, sessionDurationMinutes]);
+  }, [sessionWallTime, sessionDurationMinutes, timeFormat]);
 
   // Initial Data Fetch
   const loadBatchData = useCallback(async () => {
@@ -907,6 +972,12 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
         title: broadcastTitle.trim(),
         message: broadcastMessage.trim(),
         channels: channels as ("IN_APP" | "PUSH" | "EMAIL")[],
+        attachments: broadcastAttachments.map((a) => ({
+          filename: a.name,
+          content: a.base64,
+          contentType: a.type,
+          size: a.size,
+        })),
       });
 
       const count = isIndividual ? 1 : (result?.recipientsCount ?? confirmedLearners.length);
@@ -932,6 +1003,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
 
       setBroadcastTitle("");
       setBroadcastMessage("");
+      setBroadcastAttachments([]);
     } catch (err: any) {
       toastError(err.message || "Failed to broadcast message.");
     } finally {
@@ -2602,15 +2674,12 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
           TAB 4: BROADCAST ANNOUNCEMENTS TO BATCH & INDIVIDUAL LEARNERS
           ───────────────────────────────────────────────────────────────────────── */}
       {activeTab === "broadcast" && (
-        <section className={styles.tableSection} style={{ padding: "2.5rem 1rem", display: "flex", justifyContent: "center" }}>
-          <div style={{ width: "100%", maxWidth: "620px", background: "var(--surface)", border: "1px solid var(--border-light)", borderRadius: "10px", padding: "1.75rem", boxShadow: "0 1px 4px rgba(0,0,0,0.03)" }}>
-            <div style={{ marginBottom: "1.5rem" }}>
-              <h2 style={{ fontSize: "1.25rem", fontWeight: 700, margin: "0 0 0.35rem", color: "var(--text-primary)" }}>
+        <section className={styles.tableSection} style={{ padding: "1.75rem 1.5rem" }}>
+          <div style={{ width: "100%", maxWidth: "780px" }}>
+            <div style={{ marginBottom: "1.25rem" }}>
+              <h2 style={{ fontSize: "1.25rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
                 Batch Announcement Dispatch
               </h2>
-              <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
-                Send official announcements to confirmed learners enrolled in <strong>{batch?.name}</strong>.
-              </p>
             </div>
 
             <form onSubmit={handleSendBroadcast} style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
@@ -2660,7 +2729,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                 <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Announcement Subject *</label>
                 <input
                   type="text"
-                  placeholder="e.g. Schedule Update: Live Session tomorrow at 7:30 PM GST"
+                  placeholder=""
                   value={broadcastTitle}
                   onChange={(e) => setBroadcastTitle(e.target.value)}
                   className={styles.formInput}
@@ -2671,7 +2740,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
               <div className={styles.formGroup}>
                 <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>Message Content *</label>
                 <textarea
-                  placeholder="Write your announcement details, workshop updates, or preparation instructions..."
+                  placeholder=""
                   value={broadcastMessage}
                   onChange={(e) => setBroadcastMessage(e.target.value)}
                   className={styles.formInput}
@@ -2679,6 +2748,90 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                   required
                   style={{ resize: "vertical" }}
                 />
+
+                {/* Gmail-style File Attachments Bar */}
+                <div style={{ marginTop: "8px" }}>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    onChange={handleAttachmentUpload}
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.webp,.txt"
+                    style={{ display: "none" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      background: "var(--bg-card-muted, #f8f6f0)",
+                      border: "1px solid var(--border-light, #e2dcd2)",
+                      borderRadius: "6px",
+                      padding: "6px 12px",
+                      fontSize: "0.82rem",
+                      fontWeight: 600,
+                      color: "var(--text-primary, #14110f)",
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                    </svg>
+                    <span>Attach Files (PDF, CSV, Excel, Images, Docs)</span>
+                  </button>
+
+                  {broadcastAttachments.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "10px" }}>
+                      {broadcastAttachments.map((att, idx) => (
+                        <div
+                          key={`${att.name}-${idx}`}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            background: "#ffffff",
+                            border: "1px solid var(--border-light, #e2dcd2)",
+                            borderRadius: "6px",
+                            padding: "5px 10px",
+                            fontSize: "0.8rem",
+                            boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <polyline points="14 2 14 8 20 8" />
+                          </svg>
+                          <span style={{ fontWeight: 600, maxWidth: "220px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {att.name}
+                          </span>
+                          <span style={{ color: "var(--text-muted, #78716c)", fontSize: "0.75rem" }}>
+                            ({formatFileSize(att.size)})
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removeAttachment(idx)}
+                            aria-label={`Remove ${att.name}`}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              color: "#dc2626",
+                              cursor: "pointer",
+                              padding: "2px",
+                              marginLeft: "4px",
+                              fontSize: "0.9rem",
+                              lineHeight: 1,
+                            }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div>
@@ -2731,11 +2884,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                     <span style={{ fontWeight: broadcastEmail ? 600 : 500 }}>Email Notification</span>
                   </label>
                 </div>
-                {broadcastInApp && broadcastEmail && (
-                  <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "6px" }}>
-                    Notice: Learners will receive an in-app notification advising them that a complete copy has been sent to their registered email.
-                  </div>
-                )}
+
               </div>
 
               <div style={{ paddingTop: "0.5rem" }}>
@@ -2921,20 +3070,61 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                     />
                   </div>
 
-                  {/* Clean 12-Hour AM/PM Start Time Picker */}
+                  {/* Clean 12-Hour / 24-Hour Start Time Picker */}
                   <div className={styles.formGroup}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
                       <label style={{ fontSize: "0.85rem", fontWeight: 600 }}>
                         Start Time *
                       </label>
-                      <span style={{ fontSize: "0.72rem", color: "var(--accent-primary)", fontWeight: 700 }}>
-                        {sessionWallTime ? `${format24To12(sessionWallTime)} (${sessionWallTime})` : ""}
-                      </span>
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+                        <span style={{ fontSize: "0.72rem", color: "var(--accent-primary, #c97a1e)", fontWeight: 700 }}>
+                          {sessionWallTime ? (timeFormat === "24h" ? sessionWallTime : `${format24To12(sessionWallTime)} (${sessionWallTime})`) : ""}
+                        </span>
+                        <div style={{ display: "inline-flex", background: "#f5ece1", padding: "1px", borderRadius: "5px", gap: "1px" }}>
+                          <button
+                            type="button"
+                            onClick={() => handleTimeFormatToggle("12h")}
+                            style={{
+                              border: "none",
+                              background: timeFormat === "12h" ? "#ffffff" : "transparent",
+                              color: timeFormat === "12h" ? "#14110f" : "#78716a",
+                              fontWeight: timeFormat === "12h" ? 700 : 500,
+                              fontSize: "0.68rem",
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              cursor: "pointer",
+                              boxShadow: timeFormat === "12h" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                            }}
+                            title="12-Hour AM/PM Format"
+                          >
+                            12h
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleTimeFormatToggle("24h")}
+                            style={{
+                              border: "none",
+                              background: timeFormat === "24h" ? "#ffffff" : "transparent",
+                              color: timeFormat === "24h" ? "#14110f" : "#78716a",
+                              fontWeight: timeFormat === "24h" ? 700 : 500,
+                              fontSize: "0.68rem",
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              cursor: "pointer",
+                              boxShadow: timeFormat === "24h" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                            }}
+                            title="24-Hour Military Format"
+                          >
+                            24h
+                          </button>
+                        </div>
+                      </div>
                     </div>
 
                     <TimePicker
                       value={sessionWallTime}
                       onChange={setSessionWallTime}
+                      format={timeFormat}
                       ariaLabel="Start time"
                     />
                   </div>
@@ -2996,7 +3186,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                       Session Window
                     </span>
                     <span style={{ fontWeight: 700, fontSize: "0.88rem", color: "var(--text-primary)" }}>
-                      {format24To12(sessionWallTime)} – {sessionEndTimeFormatted || "..."}
+                      {timeFormat === "24h" ? sessionWallTime : format24To12(sessionWallTime)} – {sessionEndTimeFormatted || "..."}
                     </span>
                   </div>
                   <div style={{ textAlign: "right" }}>

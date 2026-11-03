@@ -1,11 +1,13 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { API_BASE_URL, LMS_URL, loginUser, signupUser, sendSignupOtp as sendSignupOtpApi } from "./api";
+import { API_BASE_URL, LMS_URL, getLmsUrl, loginUser, signupUser, sendSignupOtp as sendSignupOtpApi } from "./api";
 import {
   buildAuthHref,
   consumeEnrollmentIntent,
+  extractLmsOriginParam,
   extractRedirectParam,
+  getStoredLmsOrigin,
   sanitizeReturnUrl,
   saveEnrollmentIntent,
 } from "./auth-redirect";
@@ -113,15 +115,16 @@ export function signOut() {
  * portal's /sso page stores it and removes it from the address bar.
  * Falls back to the plain portal address when nobody is signed in here.
  */
-export function portalUrl(path = "/") {
+export function portalUrl(path = "/", overrideLmsUrl?: string | null) {
   const token = localStorage.getItem(TOKEN_KEY);
   const user = localStorage.getItem(USER_KEY);
-  if (!token || !user) return `${LMS_URL}${path}`;
+  const lmsBase = getLmsUrl(overrideLmsUrl);
+  if (!token || !user) return `${lmsBase}${path}`;
 
   const handoff = new URLSearchParams({ token, user, next: path });
   const refresh = localStorage.getItem(REFRESH_KEY);
   if (refresh) handoff.set("refresh", refresh);
-  return `${LMS_URL}/sso#${handoff.toString()}`;
+  return `${lmsBase}/sso#${handoff.toString()}`;
 }
 
 /**
@@ -244,13 +247,18 @@ export function openPortal(
   {
     requirePurchase = true,
     preferSignupWhenSignedOut = false,
-  }: { requirePurchase?: boolean; preferSignupWhenSignedOut?: boolean } = {},
+    lmsOrigin,
+  }: {
+    requirePurchase?: boolean;
+    preferSignupWhenSignedOut?: boolean;
+    lmsOrigin?: string | null;
+  } = {},
 ) {
   return async (e: { preventDefault(): void }) => {
     e.preventDefault();
     if (!localStorage.getItem(USER_KEY)) {
       if (path && path !== "/") {
-        saveEnrollmentIntent({ returnUrl: path });
+        saveEnrollmentIntent({ returnUrl: path, lmsOrigin: lmsOrigin || undefined });
       }
       window.location.assign(
         preferSignupWhenSignedOut ? signupUrl(path) : loginUrl(path),
@@ -263,7 +271,7 @@ export function openPortal(
       // the session ended (signed in elsewhere, or expired): sign in again here
       signOut();
       if (path && path !== "/") {
-        saveEnrollmentIntent({ returnUrl: path });
+        saveEnrollmentIntent({ returnUrl: path, lmsOrigin: lmsOrigin || undefined });
       }
       window.location.assign(loginUrl(path));
       return;
@@ -273,7 +281,7 @@ export function openPortal(
       if (purchased === "signed-out") {
         signOut();
         if (path && path !== "/") {
-          saveEnrollmentIntent({ returnUrl: path });
+          saveEnrollmentIntent({ returnUrl: path, lmsOrigin: lmsOrigin || undefined });
         }
         window.location.assign(loginUrl(path));
         return;
@@ -283,7 +291,7 @@ export function openPortal(
         return;
       }
     }
-    window.location.assign(portalUrl(path));
+    window.location.assign(portalUrl(path, lmsOrigin));
   };
 }
 
@@ -292,11 +300,19 @@ export function openPortal(
  * here from it (`?redirect=/path`, `?returnTo=/path`, `?portal=/path`, or stored
  * 30-min enrollment intent). Returns false when there is nowhere to go.
  */
-export function continueToPortal(explicitRedirect?: string | null): boolean {
+export function continueToPortal(
+  explicitRedirect?: string | null,
+  explicitLmsOrigin?: string | null,
+): boolean {
   const search = typeof window !== "undefined" ? window.location.search : "";
   const fromParams = extractRedirectParam(search);
   const path = consumeEnrollmentIntent(explicitRedirect ?? fromParams, "");
   if (!path) return false;
+
+  const resolvedLmsOrigin =
+    explicitLmsOrigin ||
+    (typeof window !== "undefined" ? extractLmsOriginParam(search) || getStoredLmsOrigin() : null);
+
   // Only the portal's home needs a course first. Checkout/Agreement/Programs are how one is
   // bought, and My Courses and Profile are open to every signed-in learner
   // (My Courses shows an empty state with a way to explore).
@@ -308,7 +324,7 @@ export function continueToPortal(explicitRedirect?: string | null): boolean {
     "/programs",
     "/profile",
   ].some((p) => path === p || path.startsWith(`${p}/`) || path.startsWith(`${p}?`));
-  void openPortal(path, { requirePurchase: !open })({ preventDefault() {} });
+  void openPortal(path, { requirePurchase: !open, lmsOrigin: resolvedLmsOrigin })({ preventDefault() {} });
   return true;
 }
 

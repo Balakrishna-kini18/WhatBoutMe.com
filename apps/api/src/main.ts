@@ -20,7 +20,7 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule, { rawBody: true, bufferLogs: true });
   app.useLogger(app.get(Logger));
-  
+
   // Security
   // @ts-ignore - Ignore TS2349: This expression is not callable
   app.use(helmet());
@@ -36,14 +36,17 @@ async function bootstrap() {
       return callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
     exposedHeaders: ['Server-Timing', 'X-Prisma-Queries', 'Cache-Control'],
+    optionsSuccessStatus: 204,
+    maxAge: 86400,
   });
 
 
-  
+
   // Uploaded files: served publicly (images load from the website and the
   // portals, so other origins must be allowed to embed them), and received as
-  // a raw body by POST /uploads.
+  // a raw body by POST /uploads. fdsfdsfds
   app.use(
     '/uploads',
     (_req: express.Request, res: express.Response, next: express.NextFunction) => {

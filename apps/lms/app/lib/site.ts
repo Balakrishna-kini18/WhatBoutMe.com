@@ -23,6 +23,14 @@ export const toSite = (path = "") => (e: { preventDefault(): void }) => {
 /** Only paths inside the portal are carried, so the link cannot point elsewhere. */
 const portalPath = (path: string) => sanitizeReturnUrl(path, "/");
 
+/** Helper to retrieve the current LMS origin for handoff preservation */
+function getCurrentLmsOrigin(): string | null {
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin;
+  }
+  return null;
+}
+
 /** Website sign-in that returns to `path` in the portal afterwards. */
 export const siteLoginUrl = (path = "/", reason?: string) => {
   const safePath = portalPath(path);
@@ -30,8 +38,12 @@ export const siteLoginUrl = (path = "/", reason?: string) => {
     portal: safePath,
     redirect: safePath,
   });
+  const currentOrigin = getCurrentLmsOrigin();
+  if (currentOrigin) {
+    params.set("lms_origin", currentOrigin);
+  }
   if (reason) params.set("reason", reason);
-  return `${SITE_URL}/login?${params.toString()}`;
+  return `${getMarketingUrl()}/login?${params.toString()}`;
 };
 
 /** Website sign-up that returns to `path` in the portal afterwards. */
@@ -41,7 +53,11 @@ export const siteSignupUrl = (path = "/") => {
     portal: safePath,
     redirect: safePath,
   });
-  return `${SITE_URL}/signup?${params.toString()}`;
+  const currentOrigin = getCurrentLmsOrigin();
+  if (currentOrigin) {
+    params.set("lms_origin", currentOrigin);
+  }
+  return `${getMarketingUrl()}/signup?${params.toString()}`;
 };
 
 /**
@@ -53,6 +69,9 @@ export function signOutEverywhere(reason?: string) {
   localStorage.removeItem("refresh_token");
   localStorage.removeItem("user");
   clearEnrollmentIntent();
-  const url = `${SITE_URL}/login?signout=1${reason ? `&reason=${encodeURIComponent(reason)}` : ""}`;
+  const currentOrigin = getCurrentLmsOrigin();
+  const originParam = currentOrigin ? `&lms_origin=${encodeURIComponent(currentOrigin)}` : "";
+  const reasonParam = reason ? `&reason=${encodeURIComponent(reason)}` : "";
+  const url = `${getMarketingUrl()}/login?signout=1${reasonParam}${originParam}`;
   window.location.href = url;
 }

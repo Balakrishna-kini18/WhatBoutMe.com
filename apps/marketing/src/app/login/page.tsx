@@ -10,15 +10,18 @@ import { continueToPortal, signIn, signOut } from "@/lib/auth";
 import {
   buildAuthHref,
   clearEnrollmentIntent,
+  clearStoredLmsOrigin,
+  extractLmsOriginParam,
   extractRedirectParam,
   peekEnrollmentIntent,
   saveEnrollmentIntent,
+  saveLmsOrigin,
 } from "@/lib/auth-redirect";
 
 type Method = "email" | "mobile";
 
 // whether the visitor was sent here on the way to the LMS portal (?redirect=... / ?portal=...)
-const subscribe = () => () => {};
+const subscribe = () => () => { };
 const headingForPortal = () => {
   const params = new URLSearchParams(window.location.search);
   return Boolean(extractRedirectParam(params) || peekEnrollmentIntent());
@@ -44,9 +47,14 @@ export default function LoginPage() {
     const params = new URLSearchParams(window.location.search);
     const reason = params.get("reason");
     const redirectFromUrl = extractRedirectParam(params);
+    const lmsOriginFromUrl = extractLmsOriginParam(params);
+
+    if (lmsOriginFromUrl) {
+      saveLmsOrigin(lmsOriginFromUrl);
+    }
 
     if (redirectFromUrl) {
-      saveEnrollmentIntent({ returnUrl: redirectFromUrl });
+      saveEnrollmentIntent({ returnUrl: redirectFromUrl, lmsOrigin: lmsOriginFromUrl || undefined });
       setActiveRedirect(redirectFromUrl);
     } else {
       const stored = peekEnrollmentIntent();
@@ -66,10 +74,13 @@ export default function LoginPage() {
     } else if (params.has("signout")) {
       signOut();
       clearEnrollmentIntent();
+      if (lmsOriginFromUrl) {
+        saveLmsOrigin(lmsOriginFromUrl);
+      }
       setActiveRedirect(null);
       window.history.replaceState(null, "", "/login");
     } else if (localStorage.getItem("wbm_user")) {
-      continueToPortal(redirectFromUrl);
+      continueToPortal(redirectFromUrl, lmsOriginFromUrl);
     }
   }, []);
 
@@ -102,9 +113,8 @@ export default function LoginPage() {
         setMethod(value);
         setError("");
       }}
-      className={`flex-1 rounded-full py-2 text-sm font-medium transition-colors duration-200 ${
-        method === value ? "bg-white text-ink shadow-[0_1px_3px_rgba(20,17,15,0.12)]" : "text-ink-soft hover:text-ink"
-      }`}
+      className={`flex-1 rounded-full py-2 text-sm font-medium transition-colors duration-200 ${method === value ? "bg-white text-ink shadow-[0_1px_3px_rgba(20,17,15,0.12)]" : "text-ink-soft hover:text-ink"
+        }`}
     >
       {label}
     </button>

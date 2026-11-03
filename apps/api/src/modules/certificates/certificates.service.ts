@@ -103,6 +103,7 @@ export class CertificatesService {
           include: {
             user: { select: { id: true, name: true, email: true } },
             batch: { include: { program: true } },
+            program: { select: { id: true, title: true } },
           },
         },
       },

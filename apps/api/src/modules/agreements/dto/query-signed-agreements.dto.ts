@@ -42,6 +42,10 @@ export class QuerySignedAgreementsDto {
 
   @IsOptional()
   @IsString()
+  batchId?: string;
+
+  @IsOptional()
+  @IsString()
   enrolmentStatus?: string;
 
   @IsOptional()

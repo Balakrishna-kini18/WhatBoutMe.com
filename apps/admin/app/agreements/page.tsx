@@ -1,10 +1,19 @@
 "use client";
 
-import { useEffect, useState, FormEvent } from "react";
+import { useEffect, useState, useMemo, FormEvent } from "react";
 import styles from "../page.module.css";
 import Link from "next/link";
 import { API_URL, errorMessage } from "../lib/api";
-import { CustomSelect, StatusBadge, TableSkeleton, EmptyState, AgreementMarkdown } from "../components";
+import {
+  CustomSelect,
+  StatusBadge,
+  TableSkeleton,
+  EmptyState,
+  AgreementMarkdown,
+  Pagination,
+  SortIndicator,
+  type SortOrder,
+} from "../components";
 
 interface AgreementTemplate {
   id: string;
@@ -36,6 +45,22 @@ interface ProgramOption {
   slug: string;
 }
 
+type AgreementSortField = "title" | "program" | "version" | "signed" | "updatedAt" | "status";
+
+function getTemplateStatus(tpl: AgreementTemplate): "PUBLISHED" | "DRAFT" | "ARCHIVED" {
+  const publishedVersion = tpl.versions?.find((v) => v.status === "PUBLISHED");
+  const hasDraft = tpl.versions?.some((v) => v.status === "DRAFT");
+  return publishedVersion ? "PUBLISHED" : hasDraft ? "DRAFT" : "ARCHIVED";
+}
+
+function isTemplateSharedDefault(tpl: AgreementTemplate): boolean {
+  return (
+    /\[Shared Default\]/.test(tpl.description ?? "") ||
+    /standard|default|general|platform/i.test(tpl.title) ||
+    /default|shared/i.test(tpl.description || "")
+  );
+}
+
 export default function AdminAgreementsPage() {
   const [templates, setTemplates] = useState<AgreementTemplate[]>([]);
   const [programs, setPrograms] = useState<ProgramOption[]>([]);
@@ -43,6 +68,15 @@ export default function AdminAgreementsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Filters, Sorting & Pagination
+  const [searchQuery, setSearchQuery] = useState("");
+  const [programFilter, setProgramFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [sortField, setSortField] = useState<AgreementSortField>("updatedAt");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Create Template form states
   const [scopeType, setScopeType] = useState<"PROGRAM" | "SHARED_DEFAULT">("PROGRAM");
@@ -59,7 +93,10 @@ export default function AdminAgreementsPage() {
     fetchData();
   }, []);
 
-  // Lock background scroll and listen for Escape key when modal is open
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, programFilter, statusFilter]);
+
   useEffect(() => {
     if (!isModalOpen) return;
     const prevOverflow = document.body.style.overflow;
@@ -125,14 +162,12 @@ export default function AdminAgreementsPage() {
       return;
     }
 
-    // For shared default, link to first active program to satisfy foreign key constraint
     const targetProgramId = scopeType === "PROGRAM" ? selectedProgramId : programs[0]?.id;
     if (!targetProgramId) {
       setErrorMsg("At least one active program is required in the system to establish an agreement template.");
       return;
     }
 
-    // Embed [Shared Default] marker in description if shared default scope was chosen
     const resolvedDescription =
       scopeType === "SHARED_DEFAULT"
         ? [description.trim(), "[Shared Default]"].filter(Boolean).join(" ")
@@ -186,14 +221,118 @@ export default function AdminAgreementsPage() {
     setContentTab("edit");
   };
 
+  const handleSort = (field: AgreementSortField) => {
+    if (sortField === field) {
+      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortOrder("asc");
+    }
+  };
+
+  const programFilterOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    programs.forEach((p) => map.set(p.id, p.title));
+    templates.forEach((tpl) => {
+      if (tpl.program?.id && tpl.program?.title && !isTemplateSharedDefault(tpl)) {
+        map.set(tpl.program.id, tpl.program.title);
+      }
+    });
+    return [
+      { value: "ALL", label: "All Programs" },
+      { value: "SHARED_DEFAULT", label: "Shared Default" },
+      ...Array.from(map.entries()).map(([value, label]) => ({ value, label })),
+    ];
+  }, [programs, templates]);
+
+  const contextFilteredTemplates = useMemo(() => {
+    return templates.filter((tpl) => {
+      const isShared = isTemplateSharedDefault(tpl);
+      if (programFilter === "SHARED_DEFAULT" && !isShared) return false;
+      if (programFilter !== "ALL" && programFilter !== "SHARED_DEFAULT") {
+        if (isShared || tpl.programId !== programFilter) return false;
+      }
+
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase().trim();
+      const titleMatch = tpl.title.toLowerCase().includes(q);
+      const descMatch = (tpl.description || "").toLowerCase().includes(q);
+      const progMatch = (tpl.program?.title || "").toLowerCase().includes(q);
+      return titleMatch || descMatch || progMatch;
+    });
+  }, [templates, programFilter, searchQuery]);
+
+  const statusFilterOptions = useMemo(() => {
+    const counts = {
+      ALL: contextFilteredTemplates.length,
+      PUBLISHED: 0,
+      DRAFT: 0,
+      ARCHIVED: 0,
+    };
+    for (const tpl of contextFilteredTemplates) {
+      const st = getTemplateStatus(tpl);
+      counts[st]++;
+    }
+    return [
+      { value: "ALL", label: `All Statuses (${counts.ALL})` },
+      { value: "PUBLISHED", label: `Published (${counts.PUBLISHED})` },
+      { value: "DRAFT", label: `Draft (${counts.DRAFT})` },
+      { value: "ARCHIVED", label: `Archived (${counts.ARCHIVED})` },
+    ];
+  }, [contextFilteredTemplates]);
+
+  const filteredTemplates = useMemo(() => {
+    if (statusFilter === "ALL") return contextFilteredTemplates;
+    return contextFilteredTemplates.filter((tpl) => getTemplateStatus(tpl) === statusFilter);
+  }, [contextFilteredTemplates, statusFilter]);
+
+  const sortedTemplates = useMemo(() => {
+    return [...filteredTemplates].sort((a, b) => {
+      let cmp = 0;
+      if (sortField === "title") {
+        cmp = (a.title || "").localeCompare(b.title || "");
+      } else if (sortField === "program") {
+        const pA = isTemplateSharedDefault(a) ? "All Programs" : a.program?.title || "";
+        const pB = isTemplateSharedDefault(b) ? "All Programs" : b.program?.title || "";
+        cmp = pA.localeCompare(pB);
+      } else if (sortField === "version") {
+        const vA = a.versions?.find((v) => v.status === "PUBLISHED")?.version || a.versions?.[0]?.version || "";
+        const vB = b.versions?.find((v) => v.status === "PUBLISHED")?.version || b.versions?.[0]?.version || "";
+        cmp = vA.localeCompare(vB);
+      } else if (sortField === "signed") {
+        cmp = (a._count?.signedAgreements ?? 0) - (b._count?.signedAgreements ?? 0);
+      } else if (sortField === "updatedAt") {
+        cmp = new Date(a.updatedAt || a.createdAt || 0).getTime() - new Date(b.updatedAt || b.createdAt || 0).getTime();
+      } else if (sortField === "status") {
+        cmp = getTemplateStatus(a).localeCompare(getTemplateStatus(b));
+      }
+      return sortOrder === "asc" ? cmp : -cmp;
+    });
+  }, [filteredTemplates, sortField, sortOrder]);
+
+  const paginatedTemplates = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return sortedTemplates.slice(start, start + pageSize);
+  }, [sortedTemplates, page, pageSize]);
+
+  const hasActiveFilters = Boolean(
+    searchQuery.trim() || programFilter !== "ALL" || statusFilter !== "ALL"
+  );
+
+  const resetFilters = () => {
+    setSearchQuery("");
+    setProgramFilter("ALL");
+    setStatusFilter("ALL");
+    setPage(1);
+  };
+
   return (
-    <div className={styles.dashboard}>
-      <header className={styles.header}>
+    <div className={styles.dashboardContainer}>
+      <header className={styles.header} style={{ marginBottom: 0 }}>
         <div className={styles.headerText}>
-          <h1 className={styles.title}>Program Agreements</h1>
-          {/* <p className={styles.subtitle}>
-            Author, version, and manage legally binding curriculum agreements and review signed learner records.
-          </p> */}
+          <h1 className={styles.title} style={{ margin: 0 }}>
+            Agreements
+          </h1>
         </div>
         <div className={styles.headerActions}>
           <button
@@ -208,25 +347,14 @@ export default function AdminAgreementsPage() {
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
-            <span>Create Agreement Template</span>
+            <span>Create Agreement</span>
           </button>
         </div>
       </header>
 
       {errorMsg && (
-        <div style={{
-          backgroundColor: "#fef2f2",
-          border: "1px solid #fecaca",
-          color: "#991b1b",
-          padding: "12px 16px",
-          borderRadius: "8px",
-          marginBottom: "1.25rem",
-          display: "flex",
-          alignItems: "center",
-          gap: "10px",
-          fontSize: "0.88rem"
-        }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+        <div className={styles.alertError}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
             <circle cx="12" cy="12" r="10"></circle>
             <line x1="12" y1="8" x2="12" y2="12"></line>
             <line x1="12" y1="16" x2="12.01" y2="16"></line>
@@ -235,25 +363,91 @@ export default function AdminAgreementsPage() {
         </div>
       )}
 
-      {/* AGREEMENTS INDEX TABLE */}
       <section className={styles.tableSection}>
-        <div className={styles.sectionHeader} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <h2>Configured Agreements</h2>
-            {!isLoading && (
-              <span
+        {/* Search & Filters Toolbar */}
+        <div
+          className={styles.sectionHeader}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "0.75rem",
+          }}
+        >
+          {/* Left: Search */}
+          <div
+            className={styles.searchContainer}
+            style={{ minWidth: "240px", flex: "1 1 260px", maxWidth: "340px" }}
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              style={{ color: "var(--text-muted)", flexShrink: 0, marginRight: "0.45rem" }}
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search agreement or program..."
+              className={styles.searchInput}
+              aria-label="Search agreements"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
                 style={{
-                  fontSize: "0.76rem",
-                  fontWeight: 600,
-                  color: "var(--text-secondary)",
-                  background: "var(--bg-soft, #f7f3ec)",
-                  border: "1px solid var(--border-light, #e7decb)",
-                  padding: "2px 8px",
-                  borderRadius: "12px",
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                  padding: "0 2px",
+                  fontSize: "0.85rem",
+                  lineHeight: 1,
                 }}
+                aria-label="Clear search"
               >
-                {templates.length} {templates.length === 1 ? "agreement" : "agreements"}
-              </span>
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Right: Program & Status Dropdowns */}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+            <CustomSelect
+              ariaLabel="Filter agreements by program"
+              value={programFilter}
+              onChange={setProgramFilter}
+              options={programFilterOptions}
+              minWidth="185px"
+            />
+            <CustomSelect
+              ariaLabel="Filter agreements by status"
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={statusFilterOptions}
+              minWidth="165px"
+            />
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className={styles.secondaryBtnSmall}
+                style={{ height: "36px", padding: "0 0.85rem" }}
+              >
+                Reset
+              </button>
             )}
           </div>
         </div>
@@ -262,129 +456,124 @@ export default function AdminAgreementsPage() {
           <table className={styles.adminTable}>
             <thead>
               <tr>
-                <th>Agreement Name</th>
-                <th style={{ width: "220px" }}>Scope</th>
-                <th style={{ width: "90px" }}>Version</th>
-                <th style={{ width: "130px" }}>Status</th>
-                <th style={{ width: "100px" }}>Signed</th>
-                <th style={{ width: "120px" }}>Updated</th>
-                <th className={styles.alignRight} style={{ width: "120px" }}>Action</th>
+                <th
+                  onClick={() => handleSort("title")}
+                  style={{ cursor: "pointer", userSelect: "none" }}
+                >
+                  Agreement
+                  <SortIndicator active={sortField === "title"} order={sortOrder} />
+                </th>
+                <th
+                  onClick={() => handleSort("program")}
+                  style={{ cursor: "pointer", userSelect: "none" }}
+                >
+                  Program
+                  <SortIndicator active={sortField === "program"} order={sortOrder} />
+                </th>
+                <th
+                  onClick={() => handleSort("version")}
+                  style={{ cursor: "pointer", userSelect: "none" }}
+                >
+                  Version
+                  <SortIndicator active={sortField === "version"} order={sortOrder} />
+                </th>
+                <th
+                  onClick={() => handleSort("signed")}
+                  style={{ cursor: "pointer", userSelect: "none" }}
+                >
+                  Signed
+                  <SortIndicator active={sortField === "signed"} order={sortOrder} />
+                </th>
+                <th
+                  onClick={() => handleSort("updatedAt")}
+                  style={{ cursor: "pointer", userSelect: "none" }}
+                >
+                  Updated
+                  <SortIndicator active={sortField === "updatedAt"} order={sortOrder} />
+                </th>
+                <th
+                  onClick={() => handleSort("status")}
+                  style={{ cursor: "pointer", userSelect: "none" }}
+                >
+                  Status
+                  <SortIndicator active={sortField === "status"} order={sortOrder} />
+                </th>
+                <th className={styles.alignRight}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <TableSkeleton columns={7} rows={4} />
-              ) : templates.length === 0 ? (
+                <TableSkeleton columns={7} rows={5} />
+              ) : sortedTemplates.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ padding: "32px 16px" }}>
                     <EmptyState
                       icon="document"
-                      title="No agreement templates configured yet"
-                      description="Create legal consent waivers and digital workshop terms before enrolling learners."
-                      actionLabel="Create First Agreement Template"
-                      onAction={() => setIsModalOpen(true)}
+                      title={hasActiveFilters ? "No matching agreements" : "No agreements configured yet"}
+                      description={
+                        hasActiveFilters
+                          ? "Try adjusting your search or filter criteria."
+                          : "Create an agreement template to manage program terms and learner signatures."
+                      }
+                      actionLabel={hasActiveFilters ? "Reset Filters" : "Create Agreement"}
+                      onAction={hasActiveFilters ? resetFilters : () => setIsModalOpen(true)}
                     />
                   </td>
                 </tr>
               ) : (
-                templates.map((tpl) => {
+                paginatedTemplates.map((tpl) => {
                   const publishedVersion = tpl.versions?.find((v) => v.status === "PUBLISHED");
-                  const hasDraft = tpl.versions?.some((v) => v.status === "DRAFT");
-                  const status: "PUBLISHED" | "DRAFT" | "ARCHIVED" = publishedVersion
-                    ? "PUBLISHED"
-                    : hasDraft
-                    ? "DRAFT"
-                    : "ARCHIVED";
-
-                  // The create flow writes a `[Shared Default]` marker into the
-                  // description; that marker is authoritative. The heuristic on
-                  // the title is only a fallback for older rows.
-                  const isSharedDefault =
-                    /\[Shared Default\]/.test(tpl.description ?? "") ||
-                    /standard|default|general|platform/i.test(tpl.title) ||
-                    /default|shared/i.test(tpl.description || "");
-
+                  const status = getTemplateStatus(tpl);
+                  const isSharedDefault = isTemplateSharedDefault(tpl);
                   const currentVersionText = publishedVersion?.version || tpl.versions?.[0]?.version || "—";
                   const signedCount = tpl._count?.signedAgreements ?? 0;
-                  const updatedDate = new Date(tpl.updatedAt || tpl.createdAt).toLocaleDateString();
+                  const updatedDate = new Date(tpl.updatedAt || tpl.createdAt).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  });
                   const cleanDescription = (tpl.description ?? "").replace(/^\[Shared Default\]\s*/i, "").trim();
 
                   return (
                     <tr key={tpl.id}>
                       <td>
-                        <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{tpl.title}</span>
+                        <div className={styles.cellUserName}>{tpl.title}</div>
                         {cleanDescription && (
-                          <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "2px" }}>
+                          <div
+                            className={styles.cellUserEmail}
+                            style={{
+                              maxWidth: "300px",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                            title={cleanDescription}
+                          >
                             {cleanDescription}
                           </div>
                         )}
                       </td>
                       <td>
                         {isSharedDefault ? (
-                          <div style={{ display: "inline-flex", flexDirection: "column", gap: "2px" }}>
-                            <span
-                              style={{
-                                display: "inline-block",
-                                width: "fit-content",
-                                fontSize: "0.72rem",
-                                fontWeight: 600,
-                                color: "#92400e",
-                                background: "#fef3c7",
-                                border: "1px solid #fde68a",
-                                padding: "2px 8px",
-                                borderRadius: "4px",
-                                letterSpacing: "0.02em",
-                              }}
-                            >
-                              Shared Default
-                            </span>
-                            <span style={{ fontSize: "0.76rem", color: "var(--text-muted)" }}>
-                              All unassigned programs
-                            </span>
+                          <div>
+                            <div className={styles.cellUserName}>All Programs</div>
+                            <div className={styles.cellUserEmail}>Shared Default</div>
                           </div>
                         ) : (
-                          <div style={{ display: "inline-flex", flexDirection: "column", gap: "2px" }}>
-                            <span
-                              style={{
-                                display: "inline-block",
-                                width: "fit-content",
-                                fontSize: "0.72rem",
-                                fontWeight: 600,
-                                color: "var(--accent-primary, #b86b11)",
-                                background: "var(--bg-soft, #f7f3ec)",
-                                border: "1px solid #ebdccb",
-                                padding: "2px 8px",
-                                borderRadius: "4px",
-                                letterSpacing: "0.02em",
-                              }}
-                            >
-                              Program-specific
-                            </span>
-                            {tpl.program?.title && (
-                              <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", fontWeight: 500 }}>
-                                {tpl.program.title}
-                              </span>
-                            )}
-                          </div>
+                          <div className={styles.cellUserName}>{tpl.program?.title || "—"}</div>
                         )}
                       </td>
                       <td>
-                        <span style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>
-                          {currentVersionText}
-                        </span>
+                        <span className={styles.cellTextSecondary}>{currentVersionText}</span>
+                      </td>
+                      <td>
+                        <span className={styles.cellTextSecondary}>{signedCount}</span>
+                      </td>
+                      <td>
+                        <span className={styles.cellTextMuted}>{updatedDate}</span>
                       </td>
                       <td>
                         <StatusBadge status={status} />
-                      </td>
-                      <td>
-                        <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
-                          {signedCount} signed
-                        </span>
-                      </td>
-                      <td>
-                        <span style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-                          {updatedDate}
-                        </span>
                       </td>
                       <td className={styles.alignRight}>
                         <Link
@@ -393,13 +582,12 @@ export default function AdminAgreementsPage() {
                           style={{
                             display: "inline-flex",
                             alignItems: "center",
-                            gap: "6px",
+                            gap: "4px",
                             textDecoration: "none",
                             whiteSpace: "nowrap",
                           }}
                         >
-                          <span>Manage</span>
-                          <span aria-hidden="true">&rarr;</span>
+                          Manage
                         </Link>
                       </td>
                     </tr>
@@ -409,6 +597,18 @@ export default function AdminAgreementsPage() {
             </tbody>
           </table>
         </div>
+
+        <Pagination
+          currentPage={page}
+          pageSize={pageSize}
+          totalItems={sortedTemplates.length}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+          itemLabel="agreements"
+        />
       </section>
 
       {/* CREATE TEMPLATE MODAL */}
@@ -416,7 +616,7 @@ export default function AdminAgreementsPage() {
         <div className={styles.modalOverlay} onClick={() => setIsModalOpen(false)}>
           <div
             className={styles.modalContent}
-            style={{ maxWidth: "720px" }}
+            style={{ maxWidth: "700px" }}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -424,10 +624,7 @@ export default function AdminAgreementsPage() {
           >
             <div className={styles.modalHeader}>
               <div>
-                <h2 id="agreement-modal-title">Create Agreement Template</h2>
-                <p className={styles.modalIntro}>
-                  Establish legal terms and conditions required before program payment and access.
-                </p>
+                <h2 id="agreement-modal-title">Create Agreement</h2>
               </div>
               <button
                 type="button"
@@ -444,60 +641,58 @@ export default function AdminAgreementsPage() {
               style={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0, overflow: "hidden" }}
             >
               <div className={styles.modalBody}>
-                {/* 1. Explicit Scope Selector */}
+                {/* 1. Scope Selector */}
                 <div className={styles.formGroup}>
                   <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "0.35rem" }}>
-                    Agreement Scope <span style={{ color: "var(--status-error)" }}>*</span>
+                    Scope <span style={{ color: "var(--status-error)" }}>*</span>
                   </label>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
                     <button
                       type="button"
                       onClick={() => setScopeType("PROGRAM")}
                       style={{
-                        padding: "0.75rem 1rem",
+                        padding: "0.65rem 0.9rem",
                         borderRadius: "8px",
                         border: scopeType === "PROGRAM" ? "2px solid var(--accent-primary, #b86b11)" : "1px solid var(--border-light, #e7decb)",
                         background: scopeType === "PROGRAM" ? "var(--bg-soft, #f7f3ec)" : "#ffffff",
                         textAlign: "left",
                         cursor: "pointer",
-                        transition: "all 0.15s ease",
                       }}
                     >
-                      <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--text-primary)" }}>
+                      <div style={{ fontWeight: 600, fontSize: "0.84rem", color: "var(--text-primary)" }}>
                         Program-specific
                       </div>
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
-                        Assigned directly to a single curriculum
+                      <div style={{ fontSize: "0.74rem", color: "var(--text-muted)", marginTop: "2px" }}>
+                        Assigned to a single program
                       </div>
                     </button>
                     <button
                       type="button"
                       onClick={() => setScopeType("SHARED_DEFAULT")}
                       style={{
-                        padding: "0.75rem 1rem",
+                        padding: "0.65rem 0.9rem",
                         borderRadius: "8px",
                         border: scopeType === "SHARED_DEFAULT" ? "2px solid var(--accent-primary, #b86b11)" : "1px solid var(--border-light, #e7decb)",
                         background: scopeType === "SHARED_DEFAULT" ? "var(--bg-soft, #f7f3ec)" : "#ffffff",
                         textAlign: "left",
                         cursor: "pointer",
-                        transition: "all 0.15s ease",
                       }}
                     >
-                      <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--text-primary)" }}>
+                      <div style={{ fontWeight: 600, fontSize: "0.84rem", color: "var(--text-primary)" }}>
                         Shared default
                       </div>
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
-                        Platform fallback for unassigned programs
+                      <div style={{ fontSize: "0.74rem", color: "var(--text-muted)", marginTop: "2px" }}>
+                        Fallback for unassigned programs
                       </div>
                     </button>
                   </div>
                 </div>
 
-                {/* 2. Program Selector (Only when Program-specific scope is selected) */}
-                {scopeType === "PROGRAM" ? (
+                {/* 2. Program Selector */}
+                {scopeType === "PROGRAM" && (
                   <div className={styles.formGroup}>
                     <label>
-                      Select Program <span style={{ color: "var(--status-error)" }}>*</span>
+                      Program <span style={{ color: "var(--status-error)" }}>*</span>
                     </label>
                     <CustomSelect
                       value={selectedProgramId}
@@ -511,47 +706,17 @@ export default function AdminAgreementsPage() {
                         label: p.title,
                       }))}
                     />
-                    <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", margin: "4px 0 0" }}>
-                      Learners enrolling in this program will be required to sign this document before payment.
-                    </p>
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-                    <div style={{
-                      background: "var(--bg-soft, #f7f3ec)",
-                      border: "1px solid var(--border-light, #e7decb)",
-                      borderRadius: "8px",
-                      padding: "0.75rem 1rem",
-                      fontSize: "0.82rem",
-                      color: "var(--text-secondary)",
-                      lineHeight: 1.5,
-                    }}>
-                      Shared default agreements apply automatically as a platform fallback to any program that does not have its own program-specific terms.
-                    </div>
-                    {templates.some((t) => /\[Shared Default\]/.test(t.description ?? "")) && (
-                      <div style={{
-                        background: "#fffbeb",
-                        border: "1px solid #fde68a",
-                        borderRadius: "8px",
-                        padding: "0.7rem 1rem",
-                        fontSize: "0.78rem",
-                        color: "#92400e",
-                        lineHeight: 1.5,
-                      }}>
-                        A shared default agreement already exists. Review the existing one before publishing another.
-                      </div>
-                    )}
                   </div>
                 )}
 
                 {/* 3. Agreement Title */}
                 <div className={styles.formGroup}>
                   <label>
-                    Template Title <span style={{ color: "var(--status-error)" }}>*</span>
+                    Title <span style={{ color: "var(--status-error)" }}>*</span>
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. 11 Steps Standard Program Agreement"
+                    placeholder="e.g. Standard Program Agreement"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     required
@@ -563,7 +728,7 @@ export default function AdminAgreementsPage() {
                   <label>Description <span className={styles.optionalLabel}>(Optional)</span></label>
                   <input
                     type="text"
-                    placeholder="Brief administrative summary of what this agreement covers"
+                    placeholder="Brief administrative summary"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                   />
@@ -584,10 +749,10 @@ export default function AdminAgreementsPage() {
                     />
                   </div>
                   <div className={styles.formGroup}>
-                    <label>Changelog Note <span className={styles.optionalLabel}>(Optional)</span></label>
+                    <label>Changelog <span className={styles.optionalLabel}>(Optional)</span></label>
                     <input
                       type="text"
-                      placeholder="e.g. Initial terms and conditions release"
+                      placeholder="e.g. Initial terms release"
                       value={initialChangelog}
                       onChange={(e) => setInitialChangelog(e.target.value)}
                     />
@@ -598,7 +763,7 @@ export default function AdminAgreementsPage() {
                 <div className={styles.formGroup}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
                     <label style={{ margin: 0 }}>
-                      Agreement Terms &amp; Conditions <span style={{ color: "var(--status-error)" }}>*</span>
+                      Terms &amp; Conditions <span style={{ color: "var(--status-error)" }}>*</span>
                     </label>
                     <div style={{ display: "inline-flex", background: "var(--bg-soft, #f7f3ec)", padding: "2px", borderRadius: "6px", border: "1px solid var(--border-light, #e7decb)" }}>
                       <button
@@ -613,10 +778,9 @@ export default function AdminAgreementsPage() {
                           fontSize: "0.76rem",
                           fontWeight: 600,
                           cursor: "pointer",
-                          boxShadow: contentTab === "edit" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
                         }}
                       >
-                        Edit Markdown
+                        Edit
                       </button>
                       <button
                         type="button"
@@ -630,7 +794,6 @@ export default function AdminAgreementsPage() {
                           fontSize: "0.76rem",
                           fontWeight: 600,
                           cursor: "pointer",
-                          boxShadow: contentTab === "preview" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
                         }}
                       >
                         Preview
@@ -641,7 +804,7 @@ export default function AdminAgreementsPage() {
                   {contentTab === "edit" ? (
                     <textarea
                       rows={6}
-                      placeholder="Enter agreement terms in Markdown format (# Headings, - Bullets, **Bold**)..."
+                      placeholder="Enter agreement terms in Markdown format..."
                       value={initialContent}
                       onChange={(e) => setInitialContent(e.target.value)}
                       required
@@ -672,18 +835,15 @@ export default function AdminAgreementsPage() {
                         <AgreementMarkdown content={initialContent} />
                       ) : (
                         <p style={{ color: "var(--text-muted)", fontStyle: "italic", margin: 0 }}>
-                          No content entered yet. Switch to &ldquo;Edit Markdown&rdquo; to add agreement text.
+                          No content entered yet.
                         </p>
                       )}
                     </div>
                   )}
                 </div>
 
-                {/* 7. Publication Status Lifecycle */}
+                {/* 7. Publication Status */}
                 <div className={styles.formGroup}>
-                  <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "0.35rem" }}>
-                    Initial Lifecycle State
-                  </label>
                   <div style={{ display: "flex", gap: "1.5rem" }}>
                     <label style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontSize: "0.85rem", color: "var(--text-primary)" }}>
                       <input
@@ -693,7 +853,7 @@ export default function AdminAgreementsPage() {
                         onChange={() => setPublishImmediately(false)}
                         style={{ accentColor: "var(--accent-primary)" }}
                       />
-                      <span>Save as Draft (Review before publishing)</span>
+                      <span>Save as Draft</span>
                     </label>
                     <label style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", cursor: "pointer", fontSize: "0.85rem", color: "var(--text-primary)" }}>
                       <input
@@ -703,7 +863,7 @@ export default function AdminAgreementsPage() {
                         onChange={() => setPublishImmediately(true)}
                         style={{ accentColor: "var(--accent-primary)" }}
                       />
-                      <span>Publish Live (Activate immediately for learners)</span>
+                      <span>Publish Live</span>
                     </label>
                   </div>
                 </div>
@@ -722,13 +882,7 @@ export default function AdminAgreementsPage() {
                   className={styles.primaryBtn}
                   disabled={isSubmitting}
                 >
-                  {isSubmitting ? (
-                    <>
-                      <span className="spinner" /> Creating...
-                    </>
-                  ) : (
-                    "Create Agreement"
-                  )}
+                  {isSubmitting ? "Creating..." : "Create Agreement"}
                 </button>
               </div>
             </form>

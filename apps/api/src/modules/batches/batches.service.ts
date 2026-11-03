@@ -10,6 +10,10 @@ import { BatchStatus, Role, EnrolmentStatus, AgreementStatus, ContentStatus } fr
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 import {
+  isRegistrationDeadlinePassed,
+  getRegistrationDeadlineCutoff,
+} from '../../common/utils/deadline.util.js';
+import {
   CreateBatchDto,
   UpdateBatchDto,
   TransitionBatchStatusDto,
@@ -405,8 +409,8 @@ export class BatchesService {
       if (
         batch.status !== BatchStatus.COMPLETED &&
         batch.status !== BatchStatus.ARCHIVED &&
-        batch.capacity > 0 &&
-        !(batch.registrationDeadline && new Date(batch.registrationDeadline).getTime() < Date.now())
+        batch.capacity > 0
+
       ) {
         const waitlisted = await tx.enrolment.findMany({
           where: {
@@ -644,7 +648,7 @@ export class BatchesService {
 
     // If capacity was increased, automatically absorb waitlisted learners up to new capacity
     const effectiveDeadline = updated.registrationDeadline;
-    const isDeadlinePassed = effectiveDeadline && new Date(effectiveDeadline).getTime() < Date.now();
+    const isDeadlinePassed = isRegistrationDeadlinePassed(effectiveDeadline);
     const isBatchOpen = updated.status !== BatchStatus.COMPLETED && updated.status !== BatchStatus.ARCHIVED;
 
     // If capacity was increased, registration deadline has NOT passed, and batch is active/upcoming:
@@ -744,6 +748,8 @@ export class BatchesService {
       }).catch(() => null);
     }
 
+    await this.absorbWaitlistLearners().catch(() => {});
+
     return this.formatBatchResponse(updated);
   }
 
@@ -809,6 +815,8 @@ export class BatchesService {
     });
 
     await this.cacheHelper.invalidateNamespace('batches');
+    await this.absorbWaitlistLearners().catch(() => {});
+
     return this.formatBatchResponse(updated);
   }
 
@@ -1188,8 +1196,9 @@ export class BatchesService {
           programId,
           status: { in: [BatchStatus.ACTIVE, BatchStatus.UPCOMING] },
           OR: [
+            { status: BatchStatus.ACTIVE },
             { registrationDeadline: null },
-            { registrationDeadline: { gte: now } },
+            { registrationDeadline: { gte: getRegistrationDeadlineCutoff(now) } },
           ],
         },
         include: {
@@ -1213,6 +1222,7 @@ export class BatchesService {
       });
 
       for (const batch of openBatches) {
+        if (batch.status !== BatchStatus.ACTIVE && isRegistrationDeadlinePassed(batch.registrationDeadline, now)) continue;
         let currentCount = batch._count.enrolments;
         const availableSeats = batch.capacity - currentCount;
         if (availableSeats <= 0) continue;

@@ -12,24 +12,100 @@ import {
   type OneOnOneRequestItem,
 } from "../../lib/api";
 import { formatWhenInTz, localWallTimeToUtc, getSystemTimezone } from "../../lib/timezone";
-import { Modal, StatusBadge, TableSkeleton, EmptyState } from "../../components";
+import {
+  Modal,
+  StatusBadge,
+  TableSkeleton,
+  EmptyState,
+  CustomSelect,
+  Pagination,
+  SortIndicator,
+  DatePicker,
+  TimePicker,
+  useToast,
+  type SortOrder,
+} from "../../components";
+
+interface BatchOption {
+  id: string;
+  name: string;
+  programId?: string;
+  program?: {
+    id: string;
+    title: string;
+  };
+}
 
 interface CoachingApprovalsTabProps {
   onError: (msg: string) => void;
   onSuccess: (msg: string) => void;
   onPendingCountChange?: (count: number) => void;
+  onTotalCountChange?: (count: number) => void;
   batchId?: string;
+  onBatchChange?: (batchId: string) => void;
+  batches?: BatchOption[];
+}
+
+type CoachingSortField = "learner" | "program" | "requestedStart" | "status";
+
+function formatSessionSlotParts(start: string, end: string, timeZone: string): { date: string; time: string } {
+  if (!start) return { date: "TBD", time: "" };
+  const s = new Date(start);
+  if (isNaN(s.getTime())) return { date: "TBD", time: "" };
+  const tz = timeZone || "UTC";
+  try {
+    const dateFormatted = s.toLocaleDateString(undefined, {
+      timeZone: tz,
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+    const startTime = s.toLocaleTimeString(undefined, {
+      timeZone: tz,
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+    let timeFormatted = startTime;
+    if (end) {
+      const e = new Date(end);
+      if (!isNaN(e.getTime())) {
+        const endTime = e.toLocaleTimeString(undefined, {
+          timeZone: tz,
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+        });
+        timeFormatted = startTime + " – " + endTime;
+      }
+    }
+    return { date: dateFormatted, time: timeFormatted };
+  } catch {
+    return { date: s.toLocaleDateString(), time: s.toLocaleTimeString() };
+  }
 }
 
 export default function CoachingApprovalsTab({
   onError,
   onSuccess,
   onPendingCountChange,
-  batchId,
+  onTotalCountChange,
+  batchId = "",
+  onBatchChange,
+  batches = [],
 }: CoachingApprovalsTabProps) {
+  const { success: toastSuccess, error: toastError } = useToast();
   const [requests, setRequests] = useState<OneOnOneRequestItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("ALL");
+  const [search, setSearch] = useState<string>("");
+  const [programFilter, setProgramFilter] = useState<string>("ALL");
+
+  // Sorting & Pagination
+  const [sortField, setSortField] = useState<CoachingSortField>("requestedStart");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Approve Modal State
   const [approvingReq, setApprovingReq] = useState<OneOnOneRequestItem | null>(null);
@@ -37,6 +113,7 @@ export default function CoachingApprovalsTab({
   const [approvalStartTime, setApprovalStartTime] = useState("10:00");
   const [approvalEndTime, setApprovalEndTime] = useState("10:45");
   const [approvalNotes, setApprovalNotes] = useState("");
+  const [approvalMeetingLink, setApprovalMeetingLink] = useState("");
   const [submittingApproval, setSubmittingApproval] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
 
@@ -55,9 +132,11 @@ export default function CoachingApprovalsTab({
     setLoading(true);
     try {
       const data = await fetchOneOnOneRequests();
-      setRequests(data);
-      const pending = data.filter((r) => r.status === "PENDING_APPROVAL").length;
+      const safeData = Array.isArray(data) ? data : [];
+      setRequests(safeData);
+      const pending = safeData.filter((r) => r.status === "PENDING_APPROVAL").length;
       if (onPendingCountChange) onPendingCountChange(pending);
+      if (onTotalCountChange) onTotalCountChange(safeData.length);
     } catch (err: any) {
       console.error("Failed to load 1-on-1 requests:", err);
       onError(err.message || "Failed to load coaching requests");
@@ -70,32 +149,152 @@ export default function CoachingApprovalsTab({
     loadRequests();
   }, []);
 
-  const pendingCount = useMemo(() => {
+  useEffect(() => {
+    setPage(1);
+  }, [filter, search, programFilter, batchId]);
+
+  const handleSort = (field: CoachingSortField) => {
+    if (sortField === field) {
+      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortOrder("asc");
+    }
+  };
+
+  const programOptions = useMemo(() => {
+    const titles = new Set<string>();
+    for (const b of batches) {
+      if (b.program?.title) titles.add(b.program.title);
+    }
+    for (const r of requests) {
+      if (r.enrolment?.program?.title) titles.add(r.enrolment.program.title);
+    }
+    return [
+      { value: "ALL", label: "All Programs" },
+      ...Array.from(titles)
+        .sort((a, b) => a.localeCompare(b))
+        .map((t) => ({ value: t, label: t })),
+    ];
+  }, [batches, requests]);
+
+  const batchOptions = useMemo(() => {
+    return [
+      { value: "", label: "All Batches" },
+      { value: "UNASSIGNED", label: "Direct / No Batch" },
+      ...batches.map((b) => ({
+        value: b.id,
+        label: b.name,
+      })),
+    ];
+  }, [batches]);
+
+  const contextFilteredRequests = useMemo(() => {
     return requests.filter((r) => {
-      if (batchId) {
-        const reqBatchId = r.enrolment?.batch?.id || (r.enrolment as any)?.batchId;
+      const reqBatchId = r.enrolment?.batch?.id || (r.enrolment as any)?.batchId || "";
+      const reqBatchName = r.enrolment?.batch?.name || "";
+      const reqProgramTitle = r.enrolment?.program?.title || "";
+
+      if (batchId === "UNASSIGNED") {
+        if (reqBatchId) return false;
+      } else if (batchId) {
         if (reqBatchId !== batchId) return false;
       }
-      return r.status === "PENDING_APPROVAL";
-    }).length;
-  }, [requests, batchId]);
 
-  const filteredRequests = useMemo(() => {
-    return requests.filter((r) => {
-      if (batchId) {
-        const reqBatchId = r.enrolment?.batch?.id || (r.enrolment as any)?.batchId;
-        if (reqBatchId !== batchId) {
+      if (programFilter !== "ALL") {
+        if (reqProgramTitle.toLowerCase() !== programFilter.toLowerCase()) return false;
+      }
+
+      if (search.trim()) {
+        const q = search.toLowerCase().trim();
+        const matchesName = r.user?.name?.toLowerCase().includes(q);
+        const matchesEmail = r.user?.email?.toLowerCase().includes(q);
+        const matchesProg = reqProgramTitle.toLowerCase().includes(q);
+        const matchesBatch = reqBatchName.toLowerCase().includes(q);
+        const matchesNotes = r.notes?.toLowerCase().includes(q);
+        if (!matchesName && !matchesEmail && !matchesProg && !matchesBatch && !matchesNotes) {
           return false;
         }
       }
+
+      return true;
+    });
+  }, [requests, batchId, programFilter, search]);
+
+  const statusCounts = useMemo(() => {
+    const counts = {
+      ALL: contextFilteredRequests.length,
+      PENDING_APPROVAL: 0,
+      APPROVED: 0,
+      COMPLETED: 0,
+      REJECTED: 0,
+    };
+    for (const r of contextFilteredRequests) {
+      const isCompleted = Boolean(r.session?.id && (r.session as any)?.status === "COMPLETED");
+      if (r.status === "PENDING_APPROVAL") counts.PENDING_APPROVAL++;
+      if (r.status === "APPROVED" && !isCompleted) counts.APPROVED++;
+      if (isCompleted) counts.COMPLETED++;
+      if (r.status === "REJECTED" || r.status === "CANCELLED") counts.REJECTED++;
+    }
+    return counts;
+  }, [contextFilteredRequests]);
+
+  const statusFilterOptions = useMemo(() => {
+    return [
+      { value: "ALL", label: `All Statuses (${statusCounts.ALL})` },
+      { value: "PENDING_APPROVAL", label: `Pending (${statusCounts.PENDING_APPROVAL})` },
+      { value: "APPROVED", label: `Scheduled (${statusCounts.APPROVED})` },
+      { value: "COMPLETED", label: `Completed (${statusCounts.COMPLETED})` },
+      { value: "REJECTED", label: `Rejected (${statusCounts.REJECTED})` },
+    ];
+  }, [statusCounts]);
+
+  const filteredRequests = useMemo(() => {
+    return contextFilteredRequests.filter((r) => {
+      const isCompleted = Boolean(r.session?.id && (r.session as any)?.status === "COMPLETED");
       if (filter === "ALL") return true;
       if (filter === "PENDING_APPROVAL") return r.status === "PENDING_APPROVAL";
-      if (filter === "APPROVED") return r.status === "APPROVED";
-      if (filter === "COMPLETED") return r.session?.id && (r.session as any)?.status === "COMPLETED";
+      if (filter === "APPROVED") return r.status === "APPROVED" && !isCompleted;
+      if (filter === "COMPLETED") return isCompleted;
       if (filter === "REJECTED") return r.status === "REJECTED" || r.status === "CANCELLED";
       return true;
     });
-  }, [requests, filter, batchId]);
+  }, [contextFilteredRequests, filter]);
+
+  const sortedRequests = useMemo(() => {
+    return [...filteredRequests].sort((a, b) => {
+      let cmp = 0;
+      if (sortField === "learner") {
+        cmp = (a.user?.name || a.user?.email || "").localeCompare(b.user?.name || b.user?.email || "");
+      } else if (sortField === "program") {
+        cmp = (a.enrolment?.program?.title || "").localeCompare(b.enrolment?.program?.title || "");
+      } else if (sortField === "requestedStart") {
+        const tA = a.requestedStart ? new Date(a.requestedStart).getTime() : 0;
+        const tB = b.requestedStart ? new Date(b.requestedStart).getTime() : 0;
+        cmp = tA - tB;
+      } else if (sortField === "status") {
+        cmp = (a.status || "").localeCompare(b.status || "");
+      }
+      return sortOrder === "asc" ? cmp : -cmp;
+    });
+  }, [filteredRequests, sortField, sortOrder]);
+
+  const paginatedRequests = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return sortedRequests.slice(start, start + pageSize);
+  }, [sortedRequests, page, pageSize]);
+
+  const hasActiveFilters = Boolean(
+    filter !== "ALL" || search.trim() || programFilter !== "ALL" || batchId !== ""
+  );
+
+  const resetAllFilters = () => {
+    setFilter("ALL");
+    setSearch("");
+    setProgramFilter("ALL");
+    if (onBatchChange) onBatchChange("");
+    setPage(1);
+  };
 
   function handleOpenApprove(req: OneOnOneRequestItem) {
     setApprovingReq(req);
@@ -105,7 +304,6 @@ export default function CoachingApprovalsTab({
     const isPast = startD.getTime() < Date.now();
 
     if (isPast) {
-      // Slot in past! Cannot accept past time, default to tomorrow at 10:00 AM
       const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
       setApprovalDate(tomorrow.toISOString().split("T")[0] || "");
       setApprovalStartTime("10:00");
@@ -116,6 +314,7 @@ export default function CoachingApprovalsTab({
       setApprovalEndTime(endD.toTimeString().slice(0, 5) || "10:45");
     }
     setApprovalNotes(req.notes || "");
+    setApprovalMeetingLink(req.session?.joinUrl || "");
   }
 
   async function handleSubmitApproval(e: FormEvent) {
@@ -147,14 +346,17 @@ export default function CoachingApprovalsTab({
         startTime: start.toISOString(),
         endTime: end.toISOString(),
         notes: approvalNotes,
+        meetingLink: approvalMeetingLink.trim() || undefined,
       });
-      onSuccess(
-        `1-on-1 Coaching session for ${approvingReq.user?.name || "learner"} approved and scheduled on Admin Calendar!`
-      );
+      const msg = `1:1 Call for ${approvingReq.user?.name || "learner"} approved and scheduled.`;
+      onSuccess(msg);
+      toastSuccess(msg);
       setApprovingReq(null);
       await loadRequests();
     } catch (err: any) {
-      setApprovalError(err.message || "Failed to approve coaching request");
+      const msg = err.message || "Failed to approve coaching request";
+      setApprovalError(msg);
+      toastError(msg);
     } finally {
       setSubmittingApproval(false);
     }
@@ -167,12 +369,16 @@ export default function CoachingApprovalsTab({
     setSubmittingReject(true);
     try {
       await rejectOneOnOneRequest(rejectingReq.id, rejectReason.trim());
-      onSuccess(`1-on-1 coaching request rejected.`);
+      const msg = `1:1 Call request declined and learner notified.`;
+      onSuccess(msg);
+      toastSuccess(msg);
       setRejectingReq(null);
       setRejectReason("");
       await loadRequests();
     } catch (err: any) {
-      setRejectError(err.message || "Failed to reject coaching request");
+      const msg = err.message || "Failed to reject coaching request";
+      setRejectError(msg);
+      toastError(msg);
     } finally {
       setSubmittingReject(false);
     }
@@ -193,661 +399,528 @@ export default function CoachingApprovalsTab({
       if (!res.ok) {
         throw new Error(await errorMessage(res, "Failed to complete session"));
       }
-      onSuccess(
-        `1-on-1 Coaching session with ${learnerName} marked completed! Stage 5 (Mission Statement) unlocked.`
-      );
+      const msg = `1:1 Call with ${learnerName} marked completed.`;
+      onSuccess(msg);
+      toastSuccess(msg);
       await loadRequests();
     } catch (err: any) {
-      onError(err.message || "Failed to mark session completed");
+      const msg = err.message || "Failed to mark session completed";
+      onError(msg);
+      toastError(msg);
     } finally {
       setCompletingId(null);
     }
   }
 
   return (
-    <div>
-      {/* Toolbar & Filters */}
+    <section className={styles.tableSection}>
+      {/* Search & Filters Header */}
       <div
+        className={styles.sectionHeader}
         style={{
           display: "flex",
-          justifyContent: "space-between",
           alignItems: "center",
-          gap: "12px",
-          marginBottom: "1.25rem",
+          justifyContent: "space-between",
           flexWrap: "wrap",
+          gap: "0.75rem",
         }}
       >
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-          {["ALL", "PENDING_APPROVAL", "APPROVED", "COMPLETED", "REJECTED"].map((st) => (
+        {/* Left: Search Input */}
+        <div
+          className={styles.searchContainer}
+          style={{ minWidth: "240px", flex: "1 1 260px", maxWidth: "340px" }}
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            style={{ color: "var(--text-muted)", flexShrink: 0, marginRight: "0.45rem" }}
+          >
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search learner, email, or batch..."
+            className={styles.searchInput}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search 1:1 call requests"
+          />
+          {search && (
             <button
-              key={st}
               type="button"
-              onClick={() => setFilter(st)}
+              onClick={() => setSearch("")}
               style={{
-                padding: "6px 14px",
-                borderRadius: "20px",
-                border: "1px solid",
-                borderColor: filter === st ? "#b8860b" : "var(--border-light)",
-                background: filter === st ? "#b8860b" : "var(--bg-card)",
-                color: filter === st ? "#ffffff" : "var(--text-secondary)",
-                fontSize: "0.82rem",
-                fontWeight: 600,
+                background: "none",
+                border: "none",
+                color: "var(--text-muted)",
                 cursor: "pointer",
-                transition: "all 0.15s ease",
+                padding: "0 2px",
+                fontSize: "0.85rem",
+                lineHeight: 1,
               }}
+              aria-label="Clear search"
             >
-              {st === "ALL"
-                ? `All (${requests.length})`
-                : st === "PENDING_APPROVAL"
-                ? `Pending Approval (${pendingCount})`
-                : st === "APPROVED"
-                ? `Scheduled (${requests.filter((r) => r.status === "APPROVED").length})`
-                : st === "COMPLETED"
-                ? `Completed (${requests.filter((r) => (r.session as any)?.status === "COMPLETED").length})`
-                : `Rejected (${requests.filter((r) => r.status === "REJECTED" || r.status === "CANCELLED").length})`}
+              ✕
             </button>
-          ))}
+          )}
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <Link
-            href="/meetings"
-            style={{
-              padding: "6px 12px",
-              borderRadius: 6,
-              background: "#ffffff",
-              border: "1px solid #e7e0d6",
-              color: "#44403c",
-              fontSize: "0.82rem",
-              fontWeight: 600,
-              textDecoration: "none",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-            }}
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+        {/* Right: Status, Program & Batch Filters */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+          <CustomSelect
+            value={filter}
+            onChange={(val) => setFilter(val)}
+            options={statusFilterOptions}
+            minWidth="170px"
+            ariaLabel="Filter by Status"
+          />
+          <CustomSelect
+            value={programFilter}
+            onChange={(val) => setProgramFilter(val)}
+            options={programOptions}
+            minWidth="175px"
+            ariaLabel="Filter by Program"
+          />
+          {onBatchChange && (
+            <CustomSelect
+              value={batchId}
+              onChange={(val) => onBatchChange(val)}
+              options={batchOptions}
+              minWidth="175px"
+              ariaLabel="Filter by Batch"
+            />
+          )}
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={resetAllFilters}
+              className={styles.secondaryBtnSmall}
+              style={{ height: "36px", padding: "0 0.85rem" }}
             >
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-              <line x1="16" y1="2" x2="16" y2="6" />
-              <line x1="8" y1="2" x2="8" y2="6" />
-              <line x1="3" y1="10" x2="21" y2="10" />
-            </svg>
-            <span>Open Admin Calendar &rarr;</span>
-          </Link>
-          <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
-            {filteredRequests.length} request{filteredRequests.length === 1 ? "" : "s"} shown
-          </div>
+              Reset
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Main Table */}
-      <section className={styles.tableCard}>
-        <div className={styles.tableWrapper}>
-          <table className={styles.table}>
-            <thead>
+      <div className={styles.tableWrapper}>
+        <table className={styles.adminTable}>
+          <thead>
+            <tr>
+              <th
+                onClick={() => handleSort("learner")}
+                style={{ cursor: "pointer", userSelect: "none" }}
+              >
+                Learner
+                <SortIndicator active={sortField === "learner"} order={sortOrder} />
+              </th>
+              <th
+                onClick={() => handleSort("program")}
+                style={{ cursor: "pointer", userSelect: "none" }}
+              >
+                Program &amp; Batch
+                <SortIndicator active={sortField === "program"} order={sortOrder} />
+              </th>
+              <th
+                onClick={() => handleSort("requestedStart")}
+                style={{ cursor: "pointer", userSelect: "none" }}
+              >
+                Session Slot
+                <SortIndicator active={sortField === "requestedStart"} order={sortOrder} />
+              </th>
+              <th>Notes</th>
+              <th
+                onClick={() => handleSort("status")}
+                style={{ cursor: "pointer", userSelect: "none" }}
+              >
+                Status
+                <SortIndicator active={sortField === "status"} order={sortOrder} />
+              </th>
+              <th className={styles.alignRight}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <TableSkeleton rows={5} columns={6} />
+            ) : paginatedRequests.length === 0 ? (
               <tr>
-                <th>Learner</th>
-                <th>Program &amp; Batch</th>
-                <th>Requested Slot</th>
-                <th>Breakthroughs &amp; Reflections</th>
-                <th>Status</th>
-                <th>Calendar Meeting</th>
-                <th className={styles.alignRight}>Actions</th>
+                <td colSpan={6} style={{ padding: "36px 16px" }}>
+                  <EmptyState
+                    icon="calendar"
+                    title={hasActiveFilters ? "No 1:1 calls match your filters" : "No 1:1 call requests yet"}
+                    description={
+                      hasActiveFilters
+                        ? "Try clearing your search or switching the active filter."
+                        : "When learners reach Stage 4 and request their 1:1 call, their requests will appear here."
+                    }
+                    actionLabel={hasActiveFilters ? "Reset Filters" : undefined}
+                    onAction={hasActiveFilters ? resetAllFilters : undefined}
+                  />
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <TableSkeleton rows={4} columns={7} />
-              ) : filteredRequests.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className={styles.emptyState}>
-                    <EmptyState
-                      title="No Coaching Requests"
-                      description="No 1-on-1 coaching call requests found for this filter."
-                    />
-                  </td>
-                </tr>
-              ) : (
-                filteredRequests.map((req) => {
-                  const isPending = req.status === "PENDING_APPROVAL";
-                  const isApproved = req.status === "APPROVED";
-                  const isCompleted =
-                    req.session?.id && (req.session as any)?.status === "COMPLETED";
+            ) : (
+              paginatedRequests.map((req) => {
+                const isPending = req.status === "PENDING_APPROVAL";
+                const isApproved = req.status === "APPROVED";
+                const isCompleted = Boolean(
+                  req.session?.id && (req.session as any)?.status === "COMPLETED"
+                );
 
-                  const startFormatted = formatWhenInTz(
-                    req.requestedStart,
-                    req.requestedEnd,
-                    displayTimezone
-                  );
+                const slotStart = req.session?.startTime || req.requestedStart;
+                const slotEnd = req.session?.endTime || req.requestedEnd;
+                const { date: slotDate, time: slotTime } = formatSessionSlotParts(slotStart, slotEnd, displayTimezone);
+                const hostMeetingUrl = (req.session as any)?.hostUrl || req.session?.joinUrl;
 
-                  const sessionDate = req.session?.startTime
-                    ? req.session.startTime.split("T")[0]
-                    : req.requestedStart.split("T")[0];
-
-                  return (
-                    <tr key={req.id}>
-                      {/* Learner */}
-                      <td>
-                        <strong className={styles.cellTextPrimary}>
-                          {req.user?.name || "Learner"}
-                        </strong>
-                        <div className={styles.cellTextMuted}>{req.user?.email}</div>
-                        {req.user?.phone && (
-                          <div style={{ fontSize: "0.75rem", color: "#a8a29e" }}>
-                            {req.user.phone}
-                          </div>
+                return (
+                  <tr key={req.id}>
+                    {/* Learner */}
+                    <td>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                        {req.user?.id ? (
+                          <Link
+                            href={`/users/${req.user.id}`}
+                            className={styles.cohortLink}
+                            style={{ fontSize: "0.875rem" }}
+                          >
+                            {req.user.name || "Learner"}
+                          </Link>
+                        ) : (
+                          <span className={styles.cellUserName}>
+                            {req.user?.name || "Learner"}
+                          </span>
                         )}
-                      </td>
+                        {req.user?.email && (
+                          <span className={styles.cellUserEmail}>{req.user.email}</span>
+                        )}
+                      </div>
+                    </td>
 
-                      {/* Program & Batch */}
-                      <td>
-                        <span className={styles.cellText}>
-                          {req.enrolment?.program?.title || "Program"}
+                    {/* Program & Batch */}
+                    <td>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                        <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.85rem" }}>
+                          {req.enrolment?.program?.title || "11 Steps Programme"}
                         </span>
-                        {req.enrolment?.batch?.name && (
-                          <div className={styles.cellTextMuted}>
-                            Batch: {req.enrolment.batch.name}
-                          </div>
-                        )}
-                      </td>
+                        <span className={styles.cellTextMuted}>
+                          {req.enrolment?.batch?.name || "Direct Enrolment"}
+                        </span>
+                      </div>
+                    </td>
 
-                      {/* Requested Slot */}
-                      <td>
-                        <div style={{ fontWeight: 600, color: "#1c1917", fontSize: "0.85rem" }}>
-                          {startFormatted}
-                        </div>
-                        {isPending && new Date(req.requestedStart).getTime() < Date.now() && (
-                          <div style={{ color: "#dc2626", fontSize: "0.74rem", fontWeight: 700, marginTop: 2, display: "inline-flex", alignItems: "center", gap: "3px" }}>
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                              <line x1="12" y1="9" x2="12" y2="13" />
-                              <line x1="12" y1="17" x2="12.01" y2="17" />
-                            </svg>
-                            <span>Slot Elapsed</span>
-                          </div>
+                    {/* Session Slot */}
+                    <td>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                        <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.84rem" }}>
+                          {slotDate}
+                        </span>
+                        {slotTime && (
+                          <span style={{ fontSize: "0.76rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                            {slotTime}
+                          </span>
                         )}
-                        <div style={{ fontSize: "0.75rem", color: "#78716a" }}>
-                          TZ: {req.learnerTimezone || displayTimezone}
-                        </div>
-                      </td>
-
-                      {/* Notes / Questions */}
-                      <td>
-                        {req.notes ? (
-                          <div
+                        {hostMeetingUrl && !isCompleted && (
+                          <a
+                            href={hostMeetingUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             style={{
-                              fontSize: "0.82rem",
-                              color: "#44403c",
-                              maxWidth: 240,
-                              whiteSpace: "pre-wrap",
-                              lineHeight: 1.35,
+                              fontSize: "0.76rem",
+                              color: "var(--accent-primary, #c97a1e)",
+                              fontWeight: 600,
+                              textDecoration: "none",
+                              marginTop: "2px",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "3px",
                             }}
                           >
-                            {req.notes}
-                          </div>
-                        ) : (
-                          <span style={{ color: "#a8a29e", fontSize: "0.82rem" }}>
-                            No notes provided
-                          </span>
+                            Start Call (Host) &nearr;
+                          </a>
                         )}
-                      </td>
+                      </div>
+                    </td>
 
-                      {/* Status */}
-                      <td>
-                        <StatusBadge
-                          status={
-                            isCompleted ? "COMPLETED" : req.status
-                          }
-                        />
-                      </td>
-
-                      {/* Meeting Session Info */}
-                      <td>
-                        {req.session ? (
-                          <div>
-                            <div style={{ fontSize: "0.82rem", fontWeight: 600, color: "#14110f" }}>
-                              {req.session.startTime
-                                ? formatWhenInTz(
-                                    req.session.startTime,
-                                    req.session.endTime,
-                                    displayTimezone
-                                  )
-                                : "Scheduled"}
-                            </div>
-                            {req.session.hostTrainer?.name && (
-                              <div style={{ fontSize: "0.75rem", color: "#78716a" }}>
-                                Host: {req.session.hostTrainer.name}
-                              </div>
-                            )}
-                            {req.session.joinUrl && (
-                              <div style={{ marginTop: 2 }}>
-                                <a
-                                  href={req.session.joinUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  style={{
-                                    fontSize: "0.75rem",
-                                    color: "#0284c7",
-                                    fontWeight: 600,
-                                    textDecoration: "underline",
-                                  }}
-                                >
-                                  Join Zoom Call &rarr;
-                                </a>
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <span style={{ color: "#a8a29e", fontSize: "0.82rem" }}>
-                            Awaiting confirmation
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Actions */}
-                      <td className={styles.alignRight}>
+                    {/* Notes */}
+                    <td>
+                      {req.notes ? (
                         <div
                           style={{
-                            display: "flex",
-                            justifyContent: "flex-end",
-                            gap: "8px",
-                            flexWrap: "wrap",
+                            fontSize: "0.8125rem",
+                            color: "var(--text-secondary)",
+                            maxWidth: 220,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
                           }}
+                          title={req.notes}
                         >
-                          {isPending && (
-                            <>
-                              <button
-                                type="button"
-                                className={styles.primaryBtn}
-                                style={{
-                                  padding: "6px 12px",
-                                  fontSize: "0.82rem",
-                                  background: new Date(req.requestedStart).getTime() < Date.now() ? "#d97706" : undefined,
-                                  borderColor: new Date(req.requestedStart).getTime() < Date.now() ? "#b45309" : undefined,
-                                }}
-                                onClick={() => handleOpenApprove(req)}
-                              >
-                                {new Date(req.requestedStart).getTime() < Date.now()
-                                  ? "Reschedule & Approve"
-                                  : "Approve & Schedule"}
-                              </button>
-                              <button
-                                type="button"
-                                className={styles.dangerBtnSmall}
-                                style={{ padding: "6px 10px", fontSize: "0.82rem" }}
-                                onClick={() => {
-                                  setRejectingReq(req);
-                                  setRejectReason("");
-                                }}
-                              >
-                                Reject
-                              </button>
-                            </>
-                          )}
+                          {req.notes}
+                        </div>
+                      ) : (
+                        <span className={styles.cellTextMuted}>—</span>
+                      )}
+                    </td>
 
-                          {isApproved && (
-                            <>
-                              <Link
-                                href={`/meetings?date=${sessionDate}&sessionId=${req.sessionId || ""}`}
-                                className={styles.secondaryBtn}
-                                style={{
-                                  padding: "6px 12px",
-                                  fontSize: "0.82rem",
-                                  textDecoration: "none",
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: 4,
-                                }}
-                              >
-                                <span>View on Calendar</span>
-                                <span aria-hidden="true">&rarr;</span>
-                              </Link>
+                    {/* Status */}
+                    <td>
+                      <StatusBadge status={isCompleted ? "COMPLETED" : req.status} />
+                    </td>
 
-                              {req.sessionId && !isCompleted && (
-                                <button
-                                  type="button"
-                                  className={styles.primaryBtn}
-                                  style={{
-                                    padding: "6px 12px",
-                                    fontSize: "0.82rem",
-                                    background: "#15803d",
-                                    borderColor: "#15803d",
-                                  }}
-                                  onClick={() =>
-                                    handleMarkCompleted(req.sessionId!, req.user?.name || "learner")
-                                  }
-                                  disabled={completingId === req.sessionId}
-                                >
-                                  {completingId === req.sessionId
-                                    ? "Marking..."
-                                    : "Mark Completed (Unlock Stage 5)"}
-                                </button>
-                              )}
-                            </>
-                          )}
-
-                          {isCompleted && (
-                            <span
+                    {/* Actions */}
+                    <td className={styles.alignRight}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "flex-end",
+                          gap: "6px",
+                          alignItems: "center",
+                        }}
+                      >
+                        {isPending && (
+                          <>
+                            <button
+                              type="button"
+                              className={styles.primaryBtnSmall}
+                              onClick={() => handleOpenApprove(req)}
+                            >
+                              Schedule
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRejectingReq(req);
+                                setRejectReason("");
+                                setRejectError(null);
+                              }}
                               style={{
-                                color: "#166534",
-                                background: "#dcfce7",
-                                padding: "4px 8px",
-                                borderRadius: 6,
+                                background: "#ffffff",
+                                color: "#dc2626",
+                                border: "1px solid #fca5a5",
+                                padding: "0.35rem 0.65rem",
+                                borderRadius: "6px",
+                                fontWeight: 600,
                                 fontSize: "0.78rem",
-                                fontWeight: 700,
+                                cursor: "pointer",
+                                transition: "all 0.15s ease",
+                              }}
+                              onMouseEnter={(e) => {
+                                (e.currentTarget as HTMLElement).style.background = "#fef2f2";
+                                (e.currentTarget as HTMLElement).style.borderColor = "#f87171";
+                              }}
+                              onMouseLeave={(e) => {
+                                (e.currentTarget as HTMLElement).style.background = "#ffffff";
+                                (e.currentTarget as HTMLElement).style.borderColor = "#fca5a5";
                               }}
                             >
-                              Stage 5 Unlocked
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+                              Decline
+                            </button>
+                          </>
+                        )}
 
-      {/* APPROVE & SCHEDULE MODAL */}
-      {approvingReq && (
-        <Modal
-          isOpen={true}
-          onClose={() => setApprovingReq(null)}
-          title="Approve & Schedule 1-on-1 Coaching Slot"
-          subtitle={`Confirm coaching time with ${approvingReq.user?.name || "the learner"}. This automatically generates a Zoom link and blocks the calendar.`}
-        >
-          <form onSubmit={handleSubmitApproval}>
-            <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginTop: "10px" }}>
-              {approvalError && (
-                <div
-                  style={{
-                    background: "#fef2f2",
-                    border: "1px solid #fecaca",
-                    color: "#991b1b",
-                    padding: "8px 12px",
-                    borderRadius: 6,
-                    fontSize: "0.85rem",
-                  }}
-                >
-                  {approvalError}
-                </div>
-              )}
+                        {isApproved && req.sessionId && !isCompleted && (
+                          <button
+                            type="button"
+                            className={styles.primaryBtnSmall}
+                            disabled={completingId === req.sessionId}
+                            onClick={() =>
+                              handleMarkCompleted(req.sessionId!, req.user?.name || "Learner")
+                            }
+                          >
+                            {completingId === req.sessionId ? "Saving..." : "Mark Completed"}
+                          </button>
+                        )}
 
-              <div
+                        {(!isPending && (!isApproved || isCompleted || !req.sessionId)) && (
+                          <Link
+                            href={req.user?.id ? `/users/${req.user.id}` : "#"}
+                            className={styles.secondaryBtnSmall}
+                          >
+                            View
+                          </Link>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <Pagination
+        currentPage={page}
+        totalItems={sortedRequests.length}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(s) => {
+          setPageSize(s);
+          setPage(1);
+        }}
+        itemLabel="1:1 calls"
+      />
+
+      {/* Approve & Schedule Modal */}
+      <Modal
+        isOpen={Boolean(approvingReq)}
+        onClose={() => setApprovingReq(null)}
+        title="Schedule 1:1 Call"
+        subtitle={
+          approvingReq
+            ? `Learner: ${approvingReq.user?.name || "Learner"} (${approvingReq.user?.email || ""})`
+            : ""
+        }
+        maxWidth="560px"
+      >
+        {approvingReq && (
+          <form onSubmit={handleSubmitApproval} className={styles.modalForm}>
+            {approvalError && <div className={styles.alertError}>{approvalError}</div>}
+
+            <div className={styles.formGroup}>
+              <label>Session Date *</label>
+              <DatePicker
+                value={approvalDate}
+                onChange={(val) => setApprovalDate(val)}
+                placeholder="Select session date"
+              />
+            </div>
+
+            <div className={styles.formRow} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div className={styles.formGroup}>
+                <label>Start Time ({displayTimezone}) *</label>
+                <TimePicker
+                  value={approvalStartTime}
+                  onChange={(val) => setApprovalStartTime(val)}
+                />
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>End Time ({displayTimezone}) *</label>
+                <TimePicker
+                  value={approvalEndTime}
+                  onChange={(val) => setApprovalEndTime(val)}
+                />
+              </div>
+            </div>
+
+            <div className={styles.formGroup}>
+              <label htmlFor="coaching-meeting-link">Custom Meeting Link (Optional)</label>
+              <input
+                id="coaching-meeting-link"
+                type="url"
+                value={approvalMeetingLink}
+                onChange={(e) => setApprovalMeetingLink(e.target.value)}
+                placeholder="e.g. https://meet.google.com/... (Leave blank to auto-generate Zoom)"
+                className={styles.modalInput}
+                style={{ width: "100%", padding: "8px 12px", border: "1px solid var(--border-light, #ece4d7)", borderRadius: "8px", fontSize: "0.85rem", boxSizing: "border-box" }}
+              />
+              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "4px", display: "block" }}>
+                Leave blank to automatically provision an official Zoom room with Host and Guest links.
+              </span>
+            </div>
+
+            <div className={styles.formGroup}>
+              <label htmlFor="coaching-notes">Agenda / Notes (Optional)</label>
+              <textarea
+                id="coaching-notes"
+                rows={3}
+                value={approvalNotes}
+                onChange={(e) => setApprovalNotes(e.target.value)}
+                placeholder="Session notes or focus areas..."
+              />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "1.25rem" }}>
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={() => setApprovingReq(null)}
+                disabled={submittingApproval}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className={styles.primaryBtn}
+                disabled={submittingApproval}
+              >
+                {submittingApproval ? "Scheduling..." : "Confirm & Schedule"}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* Reject Request Modal */}
+      <Modal
+        isOpen={Boolean(rejectingReq)}
+        onClose={() => setRejectingReq(null)}
+        title="Decline 1:1 Call Request"
+        subtitle={
+          rejectingReq
+            ? `Notify ${rejectingReq.user?.name || "learner"} to choose an alternative slot`
+            : ""
+        }
+        maxWidth="480px"
+      >
+        {rejectingReq && (
+          <form onSubmit={handleSubmitReject} className={styles.modalForm}>
+            {rejectError && <div className={styles.alertError}>{rejectError}</div>}
+
+            <div className={styles.formGroup}>
+              <label htmlFor="reject-reason">Reason / Suggested Alternative Times *</label>
+              <textarea
+                id="reject-reason"
+                rows={3}
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="e.g. Please request a slot on Thursday between 2:00 PM and 5:00 PM."
+                required
+              />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "1.25rem" }}>
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={() => setRejectingReq(null)}
+                disabled={submittingReject}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submittingReject || !rejectReason.trim()}
                 style={{
-                  background: "#fdfbf7",
-                  padding: "10px 14px",
-                  borderRadius: 8,
-                  border: "1px solid #f0ebe4",
+                  background: "#dc2626",
+                  border: "1px solid #dc2626",
+                  color: "#ffffff",
+                  padding: "0.55rem 1.15rem",
+                  borderRadius: "8px",
+                  fontWeight: 600,
                   fontSize: "0.85rem",
+                  cursor: submittingReject || !rejectReason.trim() ? "not-allowed" : "pointer",
+                  opacity: submittingReject || !rejectReason.trim() ? 0.65 : 1,
+                  transition: "all 0.18s ease",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.45rem",
                 }}
               >
-                <div>
-                  <strong>Learner:</strong> {approvingReq.user?.name} ({approvingReq.user?.email})
-                </div>
-                <div>
-                  <strong>Program:</strong> {approvingReq.enrolment?.program?.title}
-                </div>
-                <div>
-                  <strong>Requested Slot:</strong>{" "}
-                  {formatWhenInTz(approvingReq.requestedStart, approvingReq.requestedEnd, displayTimezone)}{" "}
-                  ({approvingReq.learnerTimezone || displayTimezone})
-                </div>
-                {approvingReq.notes && (
-                  <div style={{ marginTop: 4 }}>
-                    <strong>Reflections / Questions:</strong> {approvingReq.notes}
-                  </div>
-                )}
-                {new Date(approvingReq.requestedStart).getTime() < Date.now() && (
-                  <div
-                    style={{
-                      marginTop: 8,
-                      padding: "8px 12px",
-                      background: "#fef2f2",
-                      border: "1px solid #fecaca",
-                      borderRadius: 6,
-                      color: "#991b1b",
-                      fontSize: "0.82rem",
-                      fontWeight: 600,
-                      display: "flex",
-                      alignItems: "flex-start",
-                      gap: "0.45rem",
-                    }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: "2px" }} aria-hidden="true">
-                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                      <line x1="12" y1="9" x2="12" y2="13" />
-                      <line x1="12" y1="17" x2="12.01" y2="17" />
-                    </svg>
-                    <div>
-                      The learner&apos;s requested slot has already passed! You cannot accept a past time.
-                      Please select an upcoming date and time below to schedule this session.
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "0.82rem",
-                    fontWeight: 600,
-                    color: "var(--text-secondary)",
-                    marginBottom: 4,
-                  }}
-                >
-                  Session Date <span style={{ color: "#dc2626" }}>*</span>
-                </label>
-                <input
-                  type="date"
-                  value={approvalDate}
-                  min={new Date().toISOString().split("T")[0]}
-                  onChange={(e) => setApprovalDate(e.target.value)}
-                  required
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    borderRadius: 6,
-                    border: "1px solid var(--border-light)",
-                    fontSize: "0.88rem",
-                  }}
-                />
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                <div>
-                  <label
-                    style={{
-                      display: "block",
-                      fontSize: "0.82rem",
-                      fontWeight: 600,
-                      color: "var(--text-secondary)",
-                      marginBottom: 4,
-                    }}
-                  >
-                    Start Time <span style={{ color: "#dc2626" }}>*</span>
-                  </label>
-                  <input
-                    type="time"
-                    value={approvalStartTime}
-                    onChange={(e) => setApprovalStartTime(e.target.value)}
-                    required
-                    style={{
-                      width: "100%",
-                      padding: "8px 12px",
-                      borderRadius: 6,
-                      border: "1px solid var(--border-light)",
-                      fontSize: "0.88rem",
-                    }}
-                  />
-                </div>
-                <div>
-                  <label
-                    style={{
-                      display: "block",
-                      fontSize: "0.82rem",
-                      fontWeight: 600,
-                      color: "var(--text-secondary)",
-                      marginBottom: 4,
-                    }}
-                  >
-                    End Time <span style={{ color: "#dc2626" }}>*</span>
-                  </label>
-                  <input
-                    type="time"
-                    value={approvalEndTime}
-                    onChange={(e) => setApprovalEndTime(e.target.value)}
-                    required
-                    style={{
-                      width: "100%",
-                      padding: "8px 12px",
-                      borderRadius: 6,
-                      border: "1px solid var(--border-light)",
-                      fontSize: "0.88rem",
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "0.82rem",
-                    fontWeight: 600,
-                    color: "var(--text-secondary)",
-                    marginBottom: 4,
-                  }}
-                >
-                  Notes &amp; Agenda
-                </label>
-                <textarea
-                  value={approvalNotes}
-                  onChange={(e) => setApprovalNotes(e.target.value)}
-                  rows={3}
-                  placeholder="Coaching focus: review core breakthroughs, mission statement preparation..."
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    borderRadius: 6,
-                    border: "1px solid var(--border-light)",
-                    fontSize: "0.88rem",
-                    resize: "vertical",
-                  }}
-                />
-              </div>
-
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "10px" }}>
-                <button
-                  type="button"
-                  className={styles.secondaryBtn}
-                  onClick={() => setApprovingReq(null)}
-                  disabled={submittingApproval}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className={styles.primaryBtn}
-                  disabled={submittingApproval}
-                >
-                  {submittingApproval ? "Scheduling..." : "Approve & Schedule on Calendar"}
-                </button>
-              </div>
+                {submittingReject ? "Declining..." : "Decline Request"}
+              </button>
             </div>
           </form>
-        </Modal>
-      )}
-
-      {/* REJECT MODAL */}
-      {rejectingReq && (
-        <Modal
-          isOpen={true}
-          onClose={() => setRejectingReq(null)}
-          title="Decline 1-on-1 Coaching Request"
-          subtitle={`Notify ${rejectingReq.user?.name || "the learner"} to choose an alternative time slot.`}
-        >
-          <form onSubmit={handleSubmitReject}>
-            <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginTop: "10px" }}>
-              {rejectError && (
-                <div
-                  style={{
-                    background: "#fef2f2",
-                    border: "1px solid #fecaca",
-                    color: "#991b1b",
-                    padding: "8px 12px",
-                    borderRadius: 6,
-                    fontSize: "0.85rem",
-                  }}
-                >
-                  {rejectError}
-                </div>
-              )}
-
-              <div>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: "0.82rem",
-                    fontWeight: 600,
-                    color: "var(--text-secondary)",
-                    marginBottom: 4,
-                  }}
-                >
-                  Reason for Declining <span style={{ color: "#dc2626" }}>*</span>
-                </label>
-                <textarea
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                  rows={4}
-                  required
-                  placeholder="e.g., Roweena has a prior batch workshop commitment at this time. Please request a slot on Tuesday afternoon."
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    borderRadius: 6,
-                    border: "1px solid var(--border-light)",
-                    fontSize: "0.88rem",
-                    resize: "vertical",
-                  }}
-                />
-              </div>
-
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "10px" }}>
-                <button
-                  type="button"
-                  className={styles.secondaryBtn}
-                  onClick={() => setRejectingReq(null)}
-                  disabled={submittingReject}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className={styles.dangerBtnSmall}
-                  style={{ padding: "8px 16px", fontSize: "0.88rem" }}
-                  disabled={submittingReject || !rejectReason.trim()}
-                >
-                  {submittingReject ? "Declining..." : "Decline Request"}
-                </button>
-              </div>
-            </div>
-          </form>
-        </Modal>
-      )}
-    </div>
+        )}
+      </Modal>
+    </section>
   );
 }

@@ -22,6 +22,7 @@ import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 import { EmailService } from '../email/email.service.js';
 import { CouponsService } from '../coupons/coupons.service.js';
 import { InvoicePdfService } from '../invoices/invoice-pdf.service.js';
+import { isRegistrationDeadlinePassed } from '../../common/utils/deadline.util.js';
 
 export function getCurrencySymbol(currency: string): string {
   switch (currency.toUpperCase()) {
@@ -339,9 +340,9 @@ export class PaymentsService {
         const occupied = batch?._count?.enrolments ?? 0;
         const capacity = batch?.capacity ?? 50;
         const isFull = occupied >= capacity;
-        const isDeadlinePassed = batch?.registrationDeadline
-          ? new Date() > new Date(batch.registrationDeadline)
-          : false;
+        const isDeadlinePassed = isRegistrationDeadlinePassed(batch?.registrationDeadline);
+
+
 
         if (isFull || isDeadlinePassed) {
           targetEnrolmentStatus = EnrolmentStatus.WAITLIST;

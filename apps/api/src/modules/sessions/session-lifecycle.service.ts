@@ -131,21 +131,34 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
       }
 
       // ── Step 2: Transition ACTIVE / SCHEDULED -> COMPLETED ─────────────────
-      // End time has passed (plus 5-minute safety grace to avoid cutting off active attendees)
-      const completionThreshold = new Date(now.getTime() - 5 * 60 * 1000);
+      // Check any session whose scheduled endTime has arrived.
+      // If the live Zoom call is still actively running ('started'), allow up to 2 hours overtime;
+      // otherwise (call ended on Zoom or non-live), immediately transition to COMPLETED.
+      const hardOvertimeCutoff = new Date(now.getTime() - 2 * 60 * 60 * 1000);
 
-      const sessionsToComplete = (await this.prisma.session.findMany({
+      const candidateSessionsToComplete = (await this.prisma.session.findMany({
         where: {
           status: { in: [SessionStatus.ACTIVE, SessionStatus.SCHEDULED] },
-          endTime: { lte: completionThreshold },
+          endTime: { lte: now },
         },
         include: {
           hostTrainer: { select: { id: true, email: true, name: true } },
         },
       })) || [];
 
-      for (const s of sessionsToComplete) {
+      for (const s of candidateSessionsToComplete) {
         try {
+          const meetingId = (s as any).providerMeetingId || (s as any).zoomMeetingId;
+          const isWithinOvertimeGrace = new Date(s.endTime).getTime() > hardOvertimeCutoff.getTime();
+
+          if (isWithinOvertimeGrace && meetingId && this.meetingProvider && typeof this.meetingProvider.getMeetingStatus === 'function') {
+            const liveStatus = await this.meetingProvider.getMeetingStatus(meetingId);
+            if (liveStatus === 'started') {
+              // Host and learners are still actively in the Zoom call during overtime — keep ACTIVE
+              continue;
+            }
+          }
+
           await this.prisma.session.update({
             where: { id: s.id },
             data: { status: SessionStatus.COMPLETED },

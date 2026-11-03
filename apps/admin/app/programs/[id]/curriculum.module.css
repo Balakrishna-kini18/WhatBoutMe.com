@@ -931,11 +931,11 @@
   white-space: nowrap;
   font-size: 0.82rem;
   font-weight: 700;
-  color: var(--accent-primary, #c97a1e);
-  background: var(--accent-highlight, #f6edde);
-  border: 1px solid #ebdcc8;
-  height: 38px;
-  padding: 0 1rem;
+  color: var(--accent-primary, #b86b11);
+  background: #fff8ef;
+  border: 1px solid #fed7aa;
+  height: 36px;
+  padding: 0 0.9rem;
   border-radius: 9999px;
   flex-shrink: 0;
   box-sizing: border-box;
@@ -1991,7 +1991,14 @@
   border-bottom: 2px solid #ece6dd;
   margin-bottom: 2rem;
   overflow-x: auto;
-  padding-bottom: 2px;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding-bottom: 0;
+}
+
+.programTabBar::-webkit-scrollbar {
+  display: none;
 }
 
 .programTabBtn {
@@ -2004,8 +2011,8 @@
   color: #78716a;
   background: transparent;
   border: none;
-  border-bottom: 3px solid transparent;
-  margin-bottom: -4px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
@@ -2562,10 +2569,24 @@
   border-color: #ece6dd;
 }
 
+.actionIconBtnDanger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #78716a;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
 .actionIconBtnDanger:hover {
-  background: #fee2e2;
+  background: #fef2f2;
   color: #dc2626;
-  border-color: #fca5a5;
+  border-color: #fecaca;
 }
 
 /* Screen 3: Dedicated 2-Column Pricing & Access Grid */

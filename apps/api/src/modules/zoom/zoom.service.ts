@@ -162,22 +162,39 @@ export class ZoomMeetingProvider implements IMeetingProvider {
       settings: {
         host_video: true,
         participant_video: true,
-        join_before_host: false,
+        join_before_host: true,
         mute_upon_entry: true,
         watermark: false,
         use_pmi: false,
         approval_type: 0, // Automatically approve
         audio: 'both',
         auto_recording: 'cloud', // Automatically record to cloud for LMS fetching
-        waiting_room: true,
+        waiting_room: false,
         ...(params.alternativeHosts || process.env.ZOOM_ALTERNATIVE_HOSTS
           ? { alternative_hosts: params.alternativeHosts || process.env.ZOOM_ALTERNATIVE_HOSTS }
           : {}),
       },
     };
 
-    // Create a meeting for the master account (me)
-    const data = await this.zoomApiRequest('/users/me/meetings', 'POST', payload);
+    // If hostEmail is provided, try creating under that trainer's Zoom user first (enables simultaneous multi-trainer hosting & trainer host name),
+    // and gracefully fall back to the master account (/users/me/meetings) if that trainer email is not a Zoom account member.
+    let data: any;
+    if (params.hostEmail && params.hostEmail.includes('@')) {
+      try {
+        data = await this.zoomApiRequest(
+          `/users/${encodeURIComponent(params.hostEmail.trim().toLowerCase())}/meetings`,
+          'POST',
+          payload,
+        );
+      } catch (hostErr: any) {
+        this.logger.warn(
+          `Trainer email ${params.hostEmail} is not a registered Zoom host user (${hostErr.message}); falling back to master Zoom account (/users/me/meetings).`,
+        );
+        data = await this.zoomApiRequest('/users/me/meetings', 'POST', payload);
+      }
+    } else {
+      data = await this.zoomApiRequest('/users/me/meetings', 'POST', payload);
+    }
 
     return {
       id: data.id.toString(),
@@ -213,6 +230,16 @@ export class ZoomMeetingProvider implements IMeetingProvider {
     }
   }
 
+  async getMeetingStatus(meetingId: string): Promise<string | null> {
+    try {
+      const data = await this.zoomApiRequest(`/meetings/${encodeURIComponent(meetingId)}`, 'GET');
+      return typeof data?.status === 'string' ? data.status.toLowerCase() : null;
+    } catch (error: any) {
+      this.logger.warn(`Could not fetch status for Zoom meeting ${meetingId}: ${error.message}`);
+      return null;
+    }
+  }
+
   async getRecording(externalMeetingId: string): Promise<{ recordingUrl: string } | null> {
     const url = await this.getRecordingUrl(externalMeetingId);
     return url ? { recordingUrl: url } : null;
@@ -221,12 +248,15 @@ export class ZoomMeetingProvider implements IMeetingProvider {
   // D2-031: Implement getRecordingUrl querying Zoom Cloud Recording API
   async getRecordingUrl(meetingId: string): Promise<string | null> {
     try {
-      const data = await this.zoomApiRequest(`/meetings/${meetingId}/recordings`, 'GET');
+      const data = await this.zoomApiRequest(`/meetings/${encodeURIComponent(meetingId)}/recordings`, 'GET');
       
       const mp4File = data.recording_files?.find((file: any) => file.file_type === 'MP4');
       
-      if (mp4File && mp4File.play_url) {
-        return mp4File.play_url;
+      if (mp4File && (mp4File.play_url || mp4File.download_url)) {
+        return mp4File.play_url || mp4File.download_url;
+      }
+      if (typeof data?.share_url === 'string' && data.share_url.trim().length > 0) {
+        return data.share_url.trim();
       }
       return null;
     } catch (error: any) {
@@ -235,18 +265,12 @@ export class ZoomMeetingProvider implements IMeetingProvider {
     }
   }
 
-  // D2-032: Implement getParticipantReport querying Zoom Reports API
+  // D2-032: Implement getParticipantReport querying Zoom Reports API with /past_meetings fallback
   async getParticipantReport(meetingId: string): Promise<any[]> {
-    try {
-      const data = await this.zoomApiRequest(`/report/meetings/${meetingId}/participants`, 'GET');
-      
-      if (!data.participants || !Array.isArray(data.participants)) {
-        return [];
-      }
-
-      return data.participants.map((p: any) => {
-        const joinDate = new Date(p.join_time);
-        const leaveDate = new Date(p.leave_time);
+    const mapParticipants = (list: any[]) =>
+      list.map((p: any) => {
+        const joinDate = p.join_time ? new Date(p.join_time) : new Date();
+        const leaveDate = p.leave_time ? new Date(p.leave_time) : joinDate;
         const email = p.user_email?.includes('@') ? p.user_email.trim().toLowerCase() : undefined;
         const name = p.name || p.user_name || undefined;
         return {
@@ -257,12 +281,28 @@ export class ZoomMeetingProvider implements IMeetingProvider {
           leaveTime: leaveDate,
           joinTimeUtc: joinDate,
           leaveTimeUtc: leaveDate,
-          durationMinutes: Math.round(p.duration / 60),
+          durationMinutes: typeof p.duration === 'number' ? Math.max(1, Math.round(p.duration / 60)) : 0,
           rawPayload: p,
         };
       });
+
+    try {
+      const data = await this.zoomApiRequest(`/report/meetings/${encodeURIComponent(meetingId)}/participants?page_size=300`, 'GET');
+      if (Array.isArray(data?.participants) && data.participants.length > 0) {
+        return mapParticipants(data.participants);
+      }
     } catch (error: any) {
-      this.logger.warn(`Could not fetch participants for meeting ${meetingId}. Error: ${error.message}`);
+      this.logger.warn(`Zoom /report/meetings/${meetingId}/participants unavailable (${error.message}), trying /past_meetings fallback...`);
+    }
+
+    try {
+      const fallbackData = await this.zoomApiRequest(`/past_meetings/${encodeURIComponent(meetingId)}/participants?page_size=300`, 'GET');
+      if (Array.isArray(fallbackData?.participants)) {
+        return mapParticipants(fallbackData.participants);
+      }
+      return [];
+    } catch (fallbackErr: any) {
+      this.logger.warn(`Could not fetch participants for meeting ${meetingId}. Error: ${fallbackErr.message}`);
       return [];
     }
   }

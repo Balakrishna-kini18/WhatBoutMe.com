@@ -4,7 +4,7 @@ import React, { useState, useRef } from "react";
 import Image from "next/image";
 import styles from "../curriculum.module.css";
 import { uploadFile, cachedFetch, API_URL } from "../../../lib/api";
-import { CustomSelect, AgreementMarkdown, InputDialog } from "../../../components";
+import { CustomSelect, AgreementMarkdown, InputDialog, MediaPreviewModal, MediaPreviewConfig } from "../../../components";
 import { parseCourseInfo, sanitizeCleanSummary } from "../../courseInfo";
 
 interface Step1CourseSetupProps {
@@ -98,6 +98,7 @@ export default function Step1CourseSetup({
     return Array.from(list);
   });
   const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
+  const [previewModal, setPreviewModal] = useState<MediaPreviewConfig | null>(null);
 
   React.useEffect(() => {
     let isCancelled = false;
@@ -139,6 +140,18 @@ export default function Step1CourseSetup({
 
   const [hasCertificate, setHasCertificate] = useState<boolean>(
     programData?.hasCertificate !== false
+  );
+  const [attendanceThreshold, setAttendanceThreshold] = useState<number>(
+    typeof programData?.attendanceThreshold === "number" ? programData.attendanceThreshold : 80
+  );
+  const [requireExam, setRequireExam] = useState<boolean>(
+    programData?.requireExam !== false
+  );
+  const [requireCoaching, setRequireCoaching] = useState<boolean>(
+    programData?.requireCoaching !== false
+  );
+  const [requireMissionStatement, setRequireMissionStatement] = useState<boolean>(
+    programData?.requireMissionStatement !== false
   );
 
   // Currency & Multi-pricing preservation
@@ -360,12 +373,12 @@ export default function Step1CourseSetup({
       earlyBirdCurrency,
       earlyBirdDeadline,
       hasCertificate,
-      requireExam: programData?.requireExam !== false,
-      requireCoaching: programData?.requireCoaching !== false,
-      requireMissionStatement: programData?.requireMissionStatement !== false,
+      requireExam,
+      requireCoaching,
+      requireMissionStatement,
       sequentialProgressionEnabled: programData?.sequentialProgressionEnabled !== false,
-      attendanceRequired: programData?.attendanceRequired !== false,
-      attendanceThreshold: programData?.attendanceThreshold ?? 80,
+      attendanceRequired: attendanceThreshold > 0,
+      attendanceThreshold: attendanceThreshold || 80,
       faqs: cleanedFaqs,
     });
   };
@@ -451,9 +464,9 @@ export default function Step1CourseSetup({
           </div>
 
           {/* 2-Column Grid: Left = Details, Right = 16:9 Cover Banner */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr minmax(240px, 320px)", gap: "1.5rem", alignItems: "start" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 230px", gap: "1.5rem", alignItems: "start" }}>
             {/* Left: Fields */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "1.1rem" }}>
               {/* Program Title */}
               <div>
                 <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "#44403c", marginBottom: "5px" }}>
@@ -481,7 +494,7 @@ export default function Step1CourseSetup({
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
                 <div>
                   <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "#44403c", marginBottom: "5px" }}>
-                    Price (USD)
+                    Program Price ($ USD) <span style={{ color: "var(--status-error, #dc2626)" }}>*</span>
                   </label>
                   <input
                     type="number"
@@ -546,62 +559,6 @@ export default function Step1CourseSetup({
                     }))}
                   />
                 </div>
-              </div>
-
-              {/* Certificate Checkbox */}
-              <div
-                style={{
-                  background: hasCertificate ? "#fefaf4" : "#faf8f5",
-                  border: hasCertificate ? "1.5px solid #ebd9c4" : "1px solid #e7decb",
-                  borderRadius: "10px",
-                  padding: "0.85rem 1rem",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: "0.75rem",
-                  transition: "all 0.15s ease",
-                }}
-              >
-                <label
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.65rem",
-                    cursor: "pointer",
-                    fontSize: "0.84rem",
-                    fontWeight: 600,
-                    color: "var(--text-primary, #14110f)",
-                    userSelect: "none",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={hasCertificate}
-                    onChange={(e) => setHasCertificate(e.target.checked)}
-                    style={{
-                      accentColor: "var(--accent-primary, #c97a1e)",
-                      width: 17,
-                      height: 17,
-                      cursor: "pointer",
-                    }}
-                  />
-                  <span>Issue Certificate of Completion upon course completion</span>
-                </label>
-
-                <span
-                  style={{
-                    fontSize: "0.72rem",
-                    fontWeight: 700,
-                    color: hasCertificate ? "#15803d" : "#78716a",
-                    background: hasCertificate ? "#ecfdf5" : "#f5ece1",
-                    border: `1px solid ${hasCertificate ? "#bbf7d0" : "#e7decb"}`,
-                    padding: "2px 8px",
-                    borderRadius: "9999px",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {hasCertificate ? "Enabled" : "Disabled"}
-                </span>
               </div>
             </div>
 
@@ -695,11 +652,11 @@ export default function Step1CourseSetup({
                       style={{
                         position: "absolute",
                         inset: 0,
-                        background: "linear-gradient(180deg, rgba(20, 17, 15, 0.2) 0%, rgba(20, 17, 15, 0.75) 100%)",
+                        background: "linear-gradient(180deg, rgba(20, 17, 15, 0.25) 0%, rgba(20, 17, 15, 0.8) 100%)",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        gap: "0.5rem",
+                        gap: "0.4rem",
                         opacity: 0,
                         transition: "opacity 0.2s ease",
                         zIndex: 3,
@@ -711,15 +668,49 @@ export default function Step1CourseSetup({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
+                          setPreviewModal({
+                            isOpen: true,
+                            type: "IMAGE",
+                            title: title || "Course Cover Banner",
+                            src: thumbnailUrl,
+                          });
+                        }}
+                        style={{
+                          background: "#ffffff",
+                          color: "#14110f",
+                          border: "none",
+                          padding: "0.35rem 0.65rem",
+                          borderRadius: "6px",
+                          fontSize: "0.74rem",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "3px",
+                        }}
+                        title="Preview full size banner"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                          <circle cx="12" cy="12" r="3" />
+                        </svg>
+                        <span>Preview</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
                           fileInputRef.current?.click();
                         }}
                         style={{
                           background: "#ffffff",
                           color: "#14110f",
                           border: "none",
-                          padding: "0.35rem 0.75rem",
+                          padding: "0.35rem 0.65rem",
                           borderRadius: "6px",
-                          fontSize: "0.76rem",
+                          fontSize: "0.74rem",
                           fontWeight: 600,
                           cursor: "pointer",
                           boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
@@ -735,9 +726,9 @@ export default function Step1CourseSetup({
                           background: "rgba(220, 38, 38, 0.9)",
                           color: "#ffffff",
                           border: "none",
-                          padding: "0.35rem 0.75rem",
+                          padding: "0.35rem 0.65rem",
                           borderRadius: "6px",
-                          fontSize: "0.76rem",
+                          fontSize: "0.74rem",
                           fontWeight: 600,
                           cursor: "pointer",
                           boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
@@ -778,11 +769,11 @@ export default function Step1CourseSetup({
               </div>
 
               {/* Direct Image URL input for pasting links */}
-              <div style={{ position: "relative", marginTop: "8px", width: "100%" }}>
+              <div style={{ position: "relative", marginTop: "6px", width: "100%" }}>
                 <div
                   style={{
                     position: "absolute",
-                    left: "9px",
+                    left: "8px",
                     top: "50%",
                     transform: "translateY(-50%)",
                     color: "#a8a29e",
@@ -792,7 +783,7 @@ export default function Step1CourseSetup({
                   }}
                   aria-hidden="true"
                 >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
                     <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
                   </svg>
@@ -804,9 +795,9 @@ export default function Step1CourseSetup({
                   onChange={(e) => setThumbnailUrl(e.target.value)}
                   style={{
                     width: "100%",
-                    padding: "0.45rem 1.8rem 0.45rem 1.8rem",
-                    fontSize: "0.78rem",
-                    borderRadius: "7px",
+                    padding: "0.32rem 1.6rem 0.32rem 1.6rem",
+                    fontSize: "0.74rem",
+                    borderRadius: "6px",
                     border: "1px solid var(--border-light, #e7decb)",
                     background: "#faf8f5",
                     color: "var(--text-primary, #14110f)",
@@ -851,7 +842,7 @@ export default function Step1CourseSetup({
         </section>
 
         {/* ===================================================================
-            SECTION 2: Descriptions (Short Note & Long Note)
+            SECTION 2: Course Descriptions (Short Note & Long Note)
             =================================================================== */}
         <section
           style={{
@@ -1355,6 +1346,290 @@ export default function Step1CourseSetup({
         </section>
 
         {/* ===================================================================
+            SECTION 4: Completion & Certification Requirements
+            =================================================================== */}
+        <section
+          style={{
+            background: "#ffffff",
+            border: "1px solid var(--border-light, #e7decb)",
+            borderRadius: "14px",
+            padding: "1.35rem 1.5rem",
+            boxShadow: "0 1px 3px rgba(20, 17, 15, 0.02)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", marginBottom: "1.25rem", borderBottom: "1px solid #f5ede4", paddingBottom: "0.75rem" }}>
+            <div
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 7,
+                background: "#fdf8f0",
+                border: "1px solid #ebd9c4",
+                color: "var(--accent-primary, #c97a1e)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+              aria-hidden="true"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                <polyline points="9 12 11 14 15 10" />
+              </svg>
+            </div>
+            <h2 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary, #14110f)", margin: 0, lineHeight: 1.2 }}>
+              Completion &amp; Certification Requirements
+            </h2>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            {/* Live Session Attendance Direct Numeric Input */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.75rem",
+                padding: "0.75rem 1rem",
+                background: "#faf8f5",
+                border: "1px solid var(--border-light, #e7decb)",
+                borderRadius: "10px",
+                width: "fit-content",
+              }}
+            >
+              <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary, #14110f)" }}>
+                Live Session Attendance:
+              </span>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={attendanceThreshold}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    setAttendanceThreshold(isNaN(val) ? 0 : Math.min(100, Math.max(0, val)));
+                  }}
+                  style={{
+                    width: "56px",
+                    padding: "0.35rem 0.5rem",
+                    fontSize: "0.9rem",
+                    fontWeight: 700,
+                    textAlign: "center",
+                    color: "var(--text-primary, #14110f)",
+                    background: "#ffffff",
+                    border: "1px solid #d4c8b8",
+                    borderRadius: "6px",
+                    outline: "none",
+                  }}
+                />
+                <span style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--text-secondary, #4a443d)" }}>%</span>
+              </div>
+            </div>
+
+            {/* 4 Toggles in a 2x2 Grid (1 row 2 toggles) */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+              {/* 1. Require Final Examination */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "0.85rem 1rem",
+                  background: requireExam ? "#fdfbf7" : "#faf8f5",
+                  border: requireExam ? "1px solid #e7decb" : "1px solid #f0eae1",
+                  borderRadius: "10px",
+                }}
+              >
+                <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary, #14110f)" }}>
+                  Require Final Examination
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={requireExam}
+                  onClick={() => setRequireExam(!requireExam)}
+                  style={{
+                    position: "relative",
+                    width: "42px",
+                    height: "24px",
+                    background: requireExam ? "var(--accent-primary, #c97a1e)" : "#d6cebf",
+                    borderRadius: "9999px",
+                    border: "none",
+                    cursor: "pointer",
+                    transition: "background-color 0.2s ease",
+                    padding: 0,
+                    flexShrink: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: "2px",
+                      left: requireExam ? "20px" : "2px",
+                      width: "20px",
+                      height: "20px",
+                      background: "#ffffff",
+                      borderRadius: "50%",
+                      transition: "left 0.2s ease",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                    }}
+                  />
+                </button>
+              </div>
+
+              {/* 2. Require 1:1 Call */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "0.85rem 1rem",
+                  background: requireCoaching ? "#fdfbf7" : "#faf8f5",
+                  border: requireCoaching ? "1px solid #e7decb" : "1px solid #f0eae1",
+                  borderRadius: "10px",
+                }}
+              >
+                <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary, #14110f)" }}>
+                  Require 1:1 Call
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={requireCoaching}
+                  onClick={() => setRequireCoaching(!requireCoaching)}
+                  style={{
+                    position: "relative",
+                    width: "42px",
+                    height: "24px",
+                    background: requireCoaching ? "var(--accent-primary, #c97a1e)" : "#d6cebf",
+                    borderRadius: "9999px",
+                    border: "none",
+                    cursor: "pointer",
+                    transition: "background-color 0.2s ease",
+                    padding: 0,
+                    flexShrink: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: "2px",
+                      left: requireCoaching ? "20px" : "2px",
+                      width: "20px",
+                      height: "20px",
+                      background: "#ffffff",
+                      borderRadius: "50%",
+                      transition: "left 0.2s ease",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                    }}
+                  />
+                </button>
+              </div>
+
+              {/* 3. Require Mission Statement */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "0.85rem 1rem",
+                  background: requireMissionStatement ? "#fdfbf7" : "#faf8f5",
+                  border: requireMissionStatement ? "1px solid #e7decb" : "1px solid #f0eae1",
+                  borderRadius: "10px",
+                }}
+              >
+                <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary, #14110f)" }}>
+                  Require Mission Statement
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={requireMissionStatement}
+                  onClick={() => setRequireMissionStatement(!requireMissionStatement)}
+                  style={{
+                    position: "relative",
+                    width: "42px",
+                    height: "24px",
+                    background: requireMissionStatement ? "var(--accent-primary, #c97a1e)" : "#d6cebf",
+                    borderRadius: "9999px",
+                    border: "none",
+                    cursor: "pointer",
+                    transition: "background-color 0.2s ease",
+                    padding: 0,
+                    flexShrink: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: "2px",
+                      left: requireMissionStatement ? "20px" : "2px",
+                      width: "20px",
+                      height: "20px",
+                      background: "#ffffff",
+                      borderRadius: "50%",
+                      transition: "left 0.2s ease",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                    }}
+                  />
+                </button>
+              </div>
+
+              {/* 4. Issue Certificate of Completion */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "0.85rem 1rem",
+                  background: hasCertificate ? "#fdfbf7" : "#faf8f5",
+                  border: hasCertificate ? "1px solid #e7decb" : "1px solid #f0eae1",
+                  borderRadius: "10px",
+                }}
+              >
+                <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary, #14110f)" }}>
+                  Issue Certificate of Completion upon course completion
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={hasCertificate}
+                  onClick={() => setHasCertificate(!hasCertificate)}
+                  style={{
+                    position: "relative",
+                    width: "42px",
+                    height: "24px",
+                    background: hasCertificate ? "var(--accent-primary, #c97a1e)" : "#d6cebf",
+                    borderRadius: "9999px",
+                    border: "none",
+                    cursor: "pointer",
+                    transition: "background-color 0.2s ease",
+                    padding: 0,
+                    flexShrink: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: "2px",
+                      left: hasCertificate ? "20px" : "2px",
+                      width: "20px",
+                      height: "20px",
+                      background: "#ffffff",
+                      borderRadius: "50%",
+                      transition: "left 0.2s ease",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                    }}
+                  />
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        
+        {/* ===================================================================
             BOTTOM ACTION BAR
             =================================================================== */}
         <div
@@ -1401,17 +1676,17 @@ export default function Step1CourseSetup({
               </>
             ) : (
               <>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                  <polyline points="17 21 17 13 7 13 7 21" />
-                  <polyline points="7 3 7 8 15 8" />
-                </svg>
-                <span>Save Program Details</span>
+                <span>Save Program Details &amp; Continue &rarr;</span>
               </>
             )}
           </button>
         </div>
       </form>
+
+      <MediaPreviewModal
+        config={previewModal}
+        onClose={() => setPreviewModal(null)}
+      />
 
       <InputDialog
         isOpen={isAddCategoryOpen}

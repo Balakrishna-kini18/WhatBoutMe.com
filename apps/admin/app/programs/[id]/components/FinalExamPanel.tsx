@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import styles from "../curriculum.module.css";
 import {
   ExamConfig,
   ExamQuestionItem,
@@ -10,19 +11,13 @@ import {
   updateExam,
   publishExam,
   createExamQuestion,
-  bulkCreateExamQuestions,
   updateExamQuestion,
   deleteExamQuestion,
+  uploadFile,
 } from "../../../lib/api";
 import { useToast } from "../../../components/Toast";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
-import StatusBadge from "../../../components/StatusBadge";
-import { validateQuestionInput } from "./finalExamLogic";
-import MarkdownQuestionImportModal from "./MarkdownQuestionImportModal";
-import {
-  ParsedMarkdownQuestion,
-  generateSampleQuestionsMarkdown,
-} from "../../../lib/markdown-question-parser";
+import MediaPreviewModal, { type MediaPreviewConfig } from "../../../components/MediaPreviewModal";
 
 interface FinalExamPanelProps {
   programId: string;
@@ -31,53 +26,60 @@ interface FinalExamPanelProps {
   onToggleRequireExam?: (required: boolean) => Promise<void> | void;
 }
 
-const DEFAULT_OPTIONS: ExamQuestionOption[] = [
+interface OptionDraft {
+  id?: string;
+  text: string;
+  imageUrl?: string;
+  isCorrect: boolean;
+  order?: number;
+}
+
+const DEFAULT_OPTIONS: OptionDraft[] = [
   { text: "", isCorrect: true, order: 1 },
   { text: "", isCorrect: false, order: 2 },
   { text: "", isCorrect: false, order: 3 },
   { text: "", isCorrect: false, order: 4 },
 ];
 
-export default function FinalExamPanel({ programId, programTitle }: FinalExamPanelProps) {
-  const { success, error, info } = useToast();
+export default function FinalExamPanel({
+  programId,
+  programTitle,
+}: FinalExamPanelProps) {
+  const { success, error } = useToast();
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [publishing, setPublishing] = useState(false);
-  const [seedingPool, setSeedingPool] = useState(false);
+  const [savingAll, setSavingAll] = useState(false);
+
+  // Exam Configuration State
   const [exam, setExam] = useState<ExamConfig | null>(null);
+  const [title, setTitle] = useState("");
+  const [passMark, setPassMark] = useState(80);
+  const [timeLimitMin, setTimeLimitMin] = useState(90);
+  const [questionCount, setQuestionCount] = useState(50);
+  const [shuffleQuestions, setShuffleQuestions] = useState(true);
+
+  // Question Pool State
   const [questions, setQuestions] = useState<ExamQuestionItem[]>([]);
-  const [fallbackStepPoolCount, setFallbackStepPoolCount] = useState<number>(0);
-  const [activeSubTab, setActiveSubTab] = useState<"QUESTIONS" | "SETTINGS">("QUESTIONS");
+  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
 
-  // Filter & Search state
-  const [searchQuery, setSearchQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState<string>("ALL");
-
-  // Question Editor Modal / Drawer state
-  const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [editingQuestion, setEditingQuestion] = useState<ExamQuestionItem | null>(null);
+  // Active Question Composer Form State
   const [qText, setQText] = useState("");
   const [qType, setQType] = useState<"MULTIPLE_CHOICE" | "MULTI_SELECT" | "SHORT_ANSWER">("MULTIPLE_CHOICE");
   const [qPoints, setQPoints] = useState(1);
   const [qImageUrl, setQImageUrl] = useState("");
+  const [qPromptUploading, setQPromptUploading] = useState(false);
+  const promptFileInputRef = useRef<HTMLInputElement>(null);
+
   const [qExplanation, setQExplanation] = useState("");
-  const [qOptions, setQOptions] = useState<ExamQuestionOption[]>(DEFAULT_OPTIONS);
+  const [qMinCharacters, setQMinCharacters] = useState(10);
+  const [qOptions, setQOptions] = useState<OptionDraft[]>(DEFAULT_OPTIONS);
+  const [optionUploadingIdx, setOptionUploadingIdx] = useState<number | null>(null);
+
   const [savingQuestion, setSavingQuestion] = useState(false);
-
-  // Delete confirmation state
   const [questionToDelete, setQuestionToDelete] = useState<ExamQuestionItem | null>(null);
-  const [showPublishConfirm, setShowPublishConfirm] = useState(false);
-  const [isMarkdownModalOpen, setIsMarkdownModalOpen] = useState(false);
+  const [isDeletingQuestion, setIsDeletingQuestion] = useState(false);
 
-  // Exam Settings Form state
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [questionCount, setQuestionCount] = useState(50);
-  const [passMark, setPassMark] = useState(75);
-  const [timeLimitMin, setTimeLimitMin] = useState(90);
-  const [maxAttempts, setMaxAttempts] = useState(3);
-  const [cooldownHours, setCooldownHours] = useState(24);
-  const [shuffleQuestions, setShuffleQuestions] = useState(true);
+  // Preview Modal State
+  const [previewConfig, setPreviewConfig] = useState<MediaPreviewConfig | null>(null);
 
   const loadExamData = useCallback(async () => {
     setLoading(true);
@@ -85,20 +87,20 @@ export default function FinalExamPanel({ programId, programTitle }: FinalExamPan
       const data = await fetchProgramExamQuestions(programId);
       if (data?.exam) {
         setExam(data.exam);
-        setTitle(data.exam.title || `${programTitle || "Program"} — Final Comprehensive Examination`);
-        setDescription(
-          data.exam.description ||
-            "50-Mark Final Certification Exam (50 questions randomly shuffled from a 70-question pool)."
-        );
+        setTitle(data.exam.title || (programTitle ? `${programTitle} Final Examination` : "Final Comprehensive Examination"));
         setQuestionCount(data.exam.questionCount ?? 50);
-        setPassMark(data.exam.passMark ?? 75);
+        const loadedPassMark = data.exam.passMark;
+        setPassMark(loadedPassMark && loadedPassMark !== 75 && loadedPassMark > 0 ? loadedPassMark : 80);
         setTimeLimitMin(data.exam.timeLimitMin ?? 90);
-        setMaxAttempts(data.exam.maxAttempts ?? 3);
-        setCooldownHours(data.exam.cooldownHours ?? 24);
         setShuffleQuestions(data.exam.shuffleQuestions ?? true);
+      } else {
+        setTitle(programTitle ? `${programTitle} Final Examination` : "Final Comprehensive Examination");
+        setPassMark(80);
+        setTimeLimitMin(90);
+        setQuestionCount(50);
+        setShuffleQuestions(true);
       }
       setQuestions(Array.isArray(data?.questions) ? data.questions : []);
-      setFallbackStepPoolCount(data?.fallbackStepPoolCount ?? 0);
     } catch (err: any) {
       error(err.message || "Failed to load Final Exam data");
     } finally {
@@ -110,115 +112,177 @@ export default function FinalExamPanel({ programId, programTitle }: FinalExamPan
     loadExamData();
   }, [loadExamData]);
 
-  const handleSaveConfig = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const ensureExamEntity = async (): Promise<string> => {
+    if (exam?.id) {
+      return exam.id;
+    }
+    const created = await createExam({
+      programId,
+      title: title.trim() || (programTitle ? `${programTitle} Final Examination` : "Final Comprehensive Examination"),
+      description: "",
+      questionCount: Number(questionCount) || 50,
+      passMark: Number(passMark) || 80,
+      timeLimitMin: Number(timeLimitMin) || 90,
+      maxAttempts: 999,
+      cooldownHours: 0,
+      shuffleQuestions,
+    });
+    setExam(created);
+    return created.id;
+  };
+
+  const handleSaveFinalExam = async () => {
     if (!title.trim()) {
-      error("Exam title is required");
+      error("Exam title is required.");
       return;
     }
-    setSaving(true);
+    setSavingAll(true);
     try {
-      const payload = {
+      const activeExamId = await ensureExamEntity();
+      const updated = await updateExam(activeExamId, {
         title: title.trim(),
-        description: description.trim(),
         questionCount: Number(questionCount) || 50,
-        passMark: Number(passMark) || 75,
+        passMark: Number(passMark) || 80,
         timeLimitMin: Number(timeLimitMin) || 90,
-        maxAttempts: Number(maxAttempts) || 3,
-        cooldownHours: Number(cooldownHours) ?? 24,
+        maxAttempts: 999,
+        cooldownHours: 0,
         shuffleQuestions,
-      };
-      if (exam?.id) {
-        const updated = await updateExam(exam.id, payload);
-        setExam(updated);
-        success("Final exam configuration saved");
-      } else {
-        const created = await createExam({
-          programId,
-          ...payload,
-        });
-        setExam(created);
-        success("Final exam created");
+      });
+      setExam(updated);
+
+      if (updated.status !== "PUBLISHED" && questions.length > 0) {
+        const published = await publishExam(activeExamId);
+        setExam(published);
       }
+
+      success("Final Exam saved successfully.");
     } catch (err: any) {
-      error(err.message || "Failed to save exam settings");
+      error(err.message || "Failed to save final exam.");
     } finally {
-      setSaving(false);
+      setSavingAll(false);
     }
   };
 
-  const openNewQuestionModal = () => {
-    setEditingQuestion(null);
+  const handleResetToNewQuestion = () => {
+    setEditingQuestionId(null);
     setQText("");
-    setQType("MULTIPLE_CHOICE");
-    setQPoints(1);
     setQImageUrl("");
     setQExplanation("");
+    setQPoints(1);
+    setQType("MULTIPLE_CHOICE");
+    setQMinCharacters(10);
     setQOptions([
       { text: "", isCorrect: true, order: 1 },
       { text: "", isCorrect: false, order: 2 },
       { text: "", isCorrect: false, order: 3 },
       { text: "", isCorrect: false, order: 4 },
     ]);
-    setIsEditorOpen(true);
   };
 
-  const openEditQuestionModal = (q: ExamQuestionItem) => {
-    setEditingQuestion(q);
+  const handleSelectQuestionForEdit = (q: ExamQuestionItem) => {
+    setEditingQuestionId(q.id);
     setQText(q.text || "");
+    setQImageUrl(q.imageUrl || "");
     setQType(
       q.type === "MULTI_SELECT"
         ? "MULTI_SELECT"
         : q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX"
-          ? "SHORT_ANSWER"
-          : "MULTIPLE_CHOICE"
+        ? "SHORT_ANSWER"
+        : "MULTIPLE_CHOICE"
     );
     setQPoints(q.points || 1);
-    setQImageUrl(q.imageUrl || "");
     setQExplanation(q.explanation || "");
-    setQOptions(
-      q.options && q.options.length > 0
-        ? q.options.map((o, idx) => ({
-            id: o.id,
-            text: o.text,
-            imageUrl: o.imageUrl || null,
-            isCorrect: Boolean(o.isCorrect),
-            order: o.order ?? idx + 1,
-          }))
-        : [
-            { text: "", isCorrect: true, order: 1 },
-            { text: "", isCorrect: false, order: 2 },
-            { text: "", isCorrect: false, order: 3 },
-            { text: "", isCorrect: false, order: 4 },
-          ]
-    );
-    setIsEditorOpen(true);
+    if (q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX") {
+      setQMinCharacters(q.minCharacters || 10);
+    } else {
+      setQOptions(
+        q.options && q.options.length > 0
+          ? q.options.map((o, idx) => ({
+              id: o.id,
+              text: o.text || "",
+              imageUrl: o.imageUrl || "",
+              isCorrect: Boolean(o.isCorrect),
+              order: o.order ?? idx + 1,
+            }))
+          : [
+              { text: "", isCorrect: true, order: 1 },
+              { text: "", isCorrect: false, order: 2 },
+              { text: "", isCorrect: false, order: 3 },
+              { text: "", isCorrect: false, order: 4 },
+            ]
+      );
+    }
   };
 
-  const handleOptionChange = (index: number, field: keyof ExamQuestionOption, value: any) => {
-    setQOptions((prev) => {
-      const next = [...prev];
-      if (field === "isCorrect" && qType === "MULTIPLE_CHOICE") {
-        return next.map((opt, idx) => ({
-          ...opt,
-          isCorrect: idx === index,
-        }));
+  const handleSelectKind = (kind: "MULTIPLE_CHOICE" | "MULTI_SELECT" | "SHORT_ANSWER") => {
+    setQType(kind);
+    if (kind !== "SHORT_ANSWER" && qOptions.length < 2) {
+      setQOptions([
+        { text: "", isCorrect: true, order: 1 },
+        { text: "", isCorrect: false, order: 2 },
+        { text: "", isCorrect: false, order: 3 },
+        { text: "", isCorrect: false, order: 4 },
+      ]);
+    }
+  };
+
+  const handlePromptImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setQPromptUploading(true);
+    try {
+      let url = "";
+      try {
+        url = await uploadFile(file);
+      } catch {
+        url = await new Promise((res, rej) => {
+          const reader = new FileReader();
+          reader.onload = () => res(reader.result as string);
+          reader.onerror = rej;
+          reader.readAsDataURL(file);
+        });
       }
-      const current = next[index];
-      if (!current) return next;
-      const updated: ExamQuestionOption = {
-        id: current.id,
-        text: field === "text" ? String(value) : current.text,
-        imageUrl: field === "imageUrl" ? (value || null) : (current.imageUrl || null),
-        isCorrect: field === "isCorrect" ? Boolean(value) : Boolean(current.isCorrect),
-        order: field === "order" ? Number(value) : current.order,
-      };
-      next[index] = updated;
-      return next;
-    });
+      setQImageUrl(url);
+      success("Question image uploaded.");
+    } catch (err: any) {
+      error(err.message || "Failed to upload question image");
+    } finally {
+      setQPromptUploading(false);
+    }
+  };
+
+  const handleOptionImageFile = async (idx: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setOptionUploadingIdx(idx);
+    try {
+      let url = "";
+      try {
+        url = await uploadFile(file);
+      } catch {
+        url = await new Promise((res, rej) => {
+          const reader = new FileReader();
+          reader.onload = () => res(reader.result as string);
+          reader.onerror = rej;
+          reader.readAsDataURL(file);
+        });
+      }
+      setQOptions((prev) =>
+        prev.map((o, i) => (i === idx ? { ...o, imageUrl: url } : o))
+      );
+      success(`Option ${idx + 1} image attached.`);
+    } catch (err: any) {
+      error(err.message || "Failed to upload option image");
+    } finally {
+      setOptionUploadingIdx(null);
+    }
   };
 
   const handleAddOption = () => {
+    if (qOptions.length >= 8) {
+      error("Maximum 8 options permitted per question.");
+      return;
+    }
     setQOptions((prev) => [
       ...prev,
       { text: "", isCorrect: false, order: prev.length + 1 },
@@ -227,1245 +291,962 @@ export default function FinalExamPanel({ programId, programTitle }: FinalExamPan
 
   const handleRemoveOption = (index: number) => {
     if (qOptions.length <= 2) {
-      error("At least 2 answer options are required");
+      error("At least 2 options are required.");
       return;
     }
-    setQOptions((prev) => {
-      const filtered = prev.filter((_, idx) => idx !== index);
-      if (!filtered.some((o) => o.isCorrect) && filtered.length > 0 && filtered[0]) {
-        filtered[0].isCorrect = true;
-      }
-      return filtered.map((o, idx) => ({ ...o, order: idx + 1 }));
-    });
+    const removedWasCorrect = qOptions[index]?.isCorrect;
+    const remaining = qOptions.filter((_, idx) => idx !== index);
+    if (removedWasCorrect && !remaining.some((o) => o.isCorrect)) {
+      if (remaining[0]) remaining[0].isCorrect = true;
+    }
+    setQOptions(remaining.map((o, idx) => ({ ...o, order: idx + 1 })));
   };
 
   const handleSaveQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!exam?.id) {
-      error("Exam record not initialized yet");
+    if (!qText.trim()) {
+      error("Please enter a question statement.");
       return;
     }
-    const validation = validateQuestionInput({
-      text: qText,
-      type: qType,
-      points: qPoints,
-      options: qOptions.map((o, idx) => ({ ...o, order: o.order ?? idx })),
-    });
-    if (!validation.isValid) {
-      error(validation.error || "Please check question details");
-      return;
+
+    let validOpts: OptionDraft[] = [];
+
+    if (qType !== "SHORT_ANSWER") {
+      validOpts = qOptions.filter((o) => o.text.trim().length > 0 || Boolean(o.imageUrl));
+      if (validOpts.length < 2) {
+        error("Choice questions require at least 2 non-empty choices.");
+        return;
+      }
+      if (!validOpts.some((o) => o.isCorrect)) {
+        error("Please designate at least one option as the correct answer.");
+        return;
+      }
+      if (qType === "MULTIPLE_CHOICE") {
+        const correctCount = validOpts.filter((o) => o.isCorrect).length;
+        if (correctCount !== 1) {
+          error("Single choice questions must have exactly one correct answer.");
+          return;
+        }
+      }
     }
 
     setSavingQuestion(true);
     try {
+      const activeExamId = await ensureExamEntity();
+
       const payload: Partial<ExamQuestionItem> = {
         text: qText.trim(),
         type: qType,
+        imageUrl: qImageUrl || null,
         points: Number(qPoints) || 1,
-        imageUrl: qImageUrl.trim() || null,
         explanation: qExplanation.trim() || null,
-        options:
-          qType === "SHORT_ANSWER"
-            ? []
-            : qOptions
-                .filter((o) => o.text.trim().length > 0)
-                .map((o, idx) => ({
-                  text: o.text.trim(),
-                  imageUrl: o.imageUrl || null,
-                  isCorrect: Boolean(o.isCorrect),
-                  order: idx + 1,
-                })),
+        minCharacters: qType === "SHORT_ANSWER" ? Number(qMinCharacters) || 10 : undefined,
+        options: qType === "SHORT_ANSWER" ? [] : validOpts.map((o, idx) => ({
+          text: o.text.trim(),
+          imageUrl: o.imageUrl || null,
+          isCorrect: Boolean(o.isCorrect),
+          order: idx + 1,
+        })),
       };
 
-      if (editingQuestion) {
-        const updated = await updateExamQuestion(exam.id, editingQuestion.id, payload);
-        setQuestions((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
-        success("Exam question updated");
+      if (editingQuestionId) {
+        const updated = await updateExamQuestion(activeExamId, editingQuestionId, payload);
+        setQuestions((prev) =>
+          prev.map((q) => (q.id === editingQuestionId ? { ...q, ...updated, ...payload } : q))
+        );
+        success("Question updated successfully.");
       } else {
-        const created = await createExamQuestion(exam.id, payload);
+        const created = await createExamQuestion(activeExamId, payload);
         setQuestions((prev) => [...prev, created]);
-        success("Question added to Final Exam pool");
+        success("Question added to exam.");
       }
-      setIsEditorOpen(false);
+
+      handleResetToNewQuestion();
     } catch (err: any) {
-      error(err.message || "Failed to save exam question");
+      error(err.message || "Failed to save question.");
     } finally {
       setSavingQuestion(false);
     }
   };
 
-  const handleConfirmDeleteQuestion = async () => {
-    if (!exam?.id || !questionToDelete) return;
+  const confirmDeleteQuestion = async () => {
+    if (!questionToDelete || !exam?.id) return;
+    setIsDeletingQuestion(true);
     try {
       await deleteExamQuestion(exam.id, questionToDelete.id);
       setQuestions((prev) => prev.filter((q) => q.id !== questionToDelete.id));
-      success("Question removed from Final Exam pool");
-    } catch (err: any) {
-      error(err.message || "Failed to delete question");
-    } finally {
+      if (editingQuestionId === questionToDelete.id) {
+        handleResetToNewQuestion();
+      }
+      success("Question deleted.");
       setQuestionToDelete(null);
-    }
-  };
-
-  const handleSeedUpTo70Questions = async () => {
-    if (!exam?.id) return;
-    const needed = Math.max(0, 70 - questions.length);
-    if (needed === 0) {
-      success("Pool already has 70 or more questions!");
-      return;
-    }
-
-    setSeedingPool(true);
-    try {
-      const topics = [
-        "Self-Awareness & Core Identity Foundations",
-        "Emotional Regulation & Trigger Mapping",
-        "Limiting Beliefs & Cognitive Reframing",
-        "Boundary Architecture & Assertive Communication",
-        "Inner Child Healing & Forgiveness Practice",
-        "Values Alignment & Decision Frameworks",
-        "Resilience Under Pressure & Mindfulness",
-        "Authentic Relationships & Empathy",
-        "Purpose Discovery & Vision Crafting",
-        "Habit Loops & Behavioral Transformation",
-        "Personal Leadership & Mission Integration",
-      ];
-
-      const startIdx = questions.length + 1;
-      const generatedBatch: Array<Partial<ExamQuestionItem>> = Array.from({ length: needed }, (_, i) => {
-        const num = startIdx + i;
-        const topic = topics[i % topics.length];
-        return {
-          text: `[Final Exam Q${num}] In the context of ${topic}, which practice best demonstrates mastery of the core principle taught in "${programTitle || "this program"}"?`,
-          type: "MULTIPLE_CHOICE",
-          points: 1,
-          explanation: `Review the ${topic} module for the foundational framework behind this assessment item.`,
-          options: [
-            {
-              text: `Consciously applying the structured reflection and action protocol for ${topic}`,
-              isCorrect: true,
-              order: 1,
-            },
-            {
-              text: "Reacting automatically without pausing to evaluate underlying triggers",
-              isCorrect: false,
-              order: 2,
-            },
-            {
-              text: "Avoiding self-reflection until external circumstances change on their own",
-              isCorrect: false,
-              order: 3,
-            },
-            {
-              text: "Suppressing feedback and bypassing the daily integration exercises",
-              isCorrect: false,
-              order: 4,
-            },
-          ],
-        };
-      });
-
-      const res = await bulkCreateExamQuestions(exam.id, generatedBatch);
-      setQuestions((prev) => [...prev, ...(res.questions || [])]);
-      success(
-        `Added ${res.createdCount} exam questions! Pool now has ${questions.length + res.createdCount} questions (50 randomly shuffled per exam).`
-      );
     } catch (err: any) {
-      error(err.message || "Failed to populate 70-question pool");
+      error(err.message || "Could not delete question.");
     } finally {
-      setSeedingPool(false);
+      setIsDeletingQuestion(false);
     }
   };
 
-  const handleMarkdownImport = async (
-    parsedQuestions: ParsedMarkdownQuestion[],
-    replaceExisting: boolean
-  ) => {
-    if (!exam?.id) {
-      throw new Error("Exam record is not initialized yet.");
-    }
-    const batchPayload: Array<Partial<ExamQuestionItem>> = parsedQuestions.map((q) => ({
-      text: q.text,
-      type: q.type,
-      points: q.points || 1,
-      explanation: q.explanation || null,
-      imageUrl: q.imageUrl || null,
-      options: q.options,
-    }));
-
-    const res = await bulkCreateExamQuestions(exam.id, batchPayload, replaceExisting);
-    if (replaceExisting) {
-      setQuestions(res.questions || []);
-      success(
-        `Replaced pool with ${res.createdCount} questions from Markdown (.md)!`
-      );
-    } else {
-      setQuestions((prev) => [...prev, ...(res.questions || [])]);
-      success(
-        `Imported ${res.createdCount} questions from Markdown (.md)! Pool now has ${questions.length + res.createdCount} questions.`
-      );
-    }
+  const handleOpenPreview = () => {
+    setPreviewConfig({
+      isOpen: true,
+      type: "QUIZ",
+      title: title.trim() || (programTitle ? `${programTitle} Final Examination` : "Final Comprehensive Examination"),
+      quizData: {
+        title: title.trim() || (programTitle ? `${programTitle} Final Examination` : "Final Comprehensive Examination"),
+        passingScore: passMark || 80,
+        quizPlacement: "AFTER_VIDEO",
+        questions: questions.map((q) => ({
+          ...q,
+          prompt: q.text,
+        })),
+      },
+    });
   };
 
-  const handleDownloadQuickMdTemplate = () => {
-    const safeSlug = (programTitle || "program")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "");
-    const content = generateSampleQuestionsMarkdown(70, programTitle || "11 Steps to U");
-    const blob = new Blob([content], { type: "text/markdown;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${safeSlug}-70-exam-questions-template.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    info("Downloaded 70-question Markdown (.md) template!");
-  };
+  const editingIndex = questions.findIndex((q) => q.id === editingQuestionId);
+  const editingQuestion = editingIndex >= 0 ? questions[editingIndex] : null;
+  const editingQuestionNum = editingIndex >= 0 ? editingIndex + 1 : null;
+  const nextQuestionNum = questions.length + 1;
 
-  const handlePublish = async () => {
-    if (!exam?.id) return;
-    setPublishing(true);
-    setShowPublishConfirm(false);
-    try {
-      const published = await publishExam(exam.id);
-      setExam(published);
-      success("Final Exam published! Learners can now take the 50-mark shuffled exam.");
-    } catch (err: any) {
-      error(err.message || "Failed to publish exam");
-    } finally {
-      setPublishing(false);
-    }
-  };
-
-  if (loading) {
+    if (loading) {
     return (
-      <div
-        style={{
-          padding: "2.5rem",
-          background: "#ffffff",
-          border: "1px solid #ece6dd",
-          borderRadius: 16,
-          textAlign: "center",
-          color: "#78716a",
-        }}
-      >
-        Loading Final Exam Configuration...
-      </div>
-    );
-  }
+      <section className={styles.cardSurface} style={{ paddingBottom: "1.75rem" }}>
+        {/* Header Skeleton */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+          <div className="skeleton" style={{ height: 26, width: 200, borderRadius: 6 }} />
+          <div className="skeleton" style={{ height: 32, width: 140, borderRadius: 6 }} />
+        </div>
 
-  const canPublish = Boolean(exam?.id) && questions.length > 0;
-
-  const filteredQuestions = questions.filter((q) => {
-    const matchesSearch =
-      !searchQuery.trim() ||
-      q.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      q.options?.some((o) => o.text.toLowerCase().includes(searchQuery.toLowerCase()));
-    const matchesType = typeFilter === "ALL" || q.type === typeFilter;
-    return matchesSearch && matchesType;
-  });
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-      {/* Top Hero Banner */}
-      <div
-        style={{
-          background: "#ffffff",
-          border: "1px solid #ece6dd",
-          borderRadius: 16,
-          padding: "1.5rem 1.75rem",
-          boxShadow: "0 2px 8px rgba(20, 17, 15, 0.04)",
-        }}
-      >
+        {/* Parameters Bar Skeleton */}
         <div
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            flexWrap: "wrap",
+            background: "#faf7f2",
+            border: "1px solid #ece6dd",
+            borderRadius: 12,
+            padding: "1.1rem 1.25rem",
+            marginBottom: "1.5rem",
+            display: "grid",
+            gridTemplateColumns: "1.5fr 1fr 1fr",
             gap: "1rem",
           }}
         >
-          <div>
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.4rem",
-                fontSize: "0.75rem",
-                fontWeight: 800,
-                textTransform: "uppercase",
-                letterSpacing: "0.06em",
-                color: "#c97a1e",
-                background: "#fef3c7",
-                padding: "0.25rem 0.65rem",
-                borderRadius: 999,
-                marginBottom: "0.5rem",
-              }}
-            >
-              FINAL EXAMINATION BUILDER
-            </div>
-            <h2 style={{ fontSize: "1.35rem", fontWeight: 800, margin: "0 0 0.35rem", color: "#14110f" }}>
-              {title || "Final Comprehensive Examination"}
-            </h2>
-            <p style={{ margin: 0, fontSize: "0.9rem", color: "#6b655e", maxWidth: 680 }}>
-              Create and manage examination questions for learners after completing curriculum steps.
-            </p>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", flexWrap: "wrap" }}>
-            <StatusBadge status={exam?.status || "DRAFT"} />
-            {exam?.status !== "PUBLISHED" ? (
-              <button
-                type="button"
-                disabled={!canPublish || publishing}
-                onClick={() => setShowPublishConfirm(true)}
-                style={{
-                  padding: "0.6rem 1.15rem",
-                  borderRadius: 10,
-                  border: "none",
-                  background: canPublish ? "#15803d" : "#d6d3d1",
-                  color: "#ffffff",
-                  fontWeight: 700,
-                  fontSize: "0.86rem",
-                  cursor: canPublish ? "pointer" : "not-allowed",
-                }}
-              >
-                {publishing ? "Publishing..." : "Publish Final Exam"}
-              </button>
-            ) : (
-              <span
-                style={{
-                  fontSize: "0.82rem",
-                  fontWeight: 700,
-                  color: "#15803d",
-                  background: "#dcfce7",
-                  padding: "0.45rem 0.85rem",
-                  borderRadius: 8,
-                }}
-              >
-                ✓ Live in Learner Portal
-              </span>
-            )}
-          </div>
+          <div className="skeleton" style={{ height: 40, borderRadius: 8 }} />
+          <div className="skeleton" style={{ height: 40, borderRadius: 8 }} />
+          <div className="skeleton" style={{ height: 40, borderRadius: 8 }} />
         </div>
 
-        {/* 70-Question Pool Progress & Action Bar */}
-        <div
-          style={{
-            marginTop: "1.25rem",
-            padding: "0.95rem 1.25rem",
-            borderRadius: 12,
-            background: "#faf6f0",
-            border: "1px solid #ece4d7",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: "0.85rem",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 800, fontSize: "0.92rem", color: "#14110f" }}>
-              Dedicated Exam Pool: {questions.length} / 70 Questions
-            </span>
+        {/* 2-Column Questions Skeleton */}
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 1fr) minmax(400px, 1.4fr)", gap: "1.5rem" }}>
+          {/* Question Bubbles Skeleton */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignContent: "flex-start" }}>
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+              <div key={n} className="skeleton" style={{ width: 44, height: 44, borderRadius: "50%" }} />
+            ))}
+          </div>
+
+          {/* Question Composer Skeleton */}
+          <div style={{ background: "#ffffff", border: "1px solid #ece4d7", borderRadius: 12, padding: "1.25rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <div className="skeleton" style={{ height: 20, width: 160, borderRadius: 6 }} />
+            <div className="skeleton" style={{ height: 80, width: "100%", borderRadius: 8 }} />
+            <div className="skeleton" style={{ height: 40, width: "100%", borderRadius: 8 }} />
+            <div className="skeleton" style={{ height: 40, width: "100%", borderRadius: 8 }} />
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className={styles.cardSurface} style={{ paddingBottom: "1.75rem" }}>
+      {/* Top Header Area */}
+      <div
+        className={styles.cardHeaderArea}
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: "1rem",
+          marginBottom: "1.25rem",
+        }}
+      >
+        <div>
+          <h2 className={styles.stepTitle}>Final Exam Builder</h2>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+          {/* Comprehensive Preview Exam Button */}
+          <button
+            type="button"
+            onClick={handleOpenPreview}
+            style={{
+              padding: "0.45rem 1rem",
+              borderRadius: 8,
+              border: "1px solid #fed7aa",
+              background: "#fff8ef",
+              color: "#b86b11",
+              fontWeight: 700,
+              fontSize: "0.82rem",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            <span>Preview Exam ({questions.length})</span>
+          </button>
+
+          {exam?.status === "PUBLISHED" && (
             <span
               style={{
-                fontSize: "0.78rem",
-                fontWeight: 700,
-                padding: "0.2rem 0.65rem",
-                borderRadius: 999,
-                background: questions.length >= 70 ? "#dcfce7" : questions.length >= questionCount ? "#fef3c7" : "#fee2e2",
-                color: questions.length >= 70 ? "#166534" : questions.length >= questionCount ? "#92400e" : "#991b1b",
-              }}
-            >
-              {questions.length >= 70
-                ? `✓ 70-Question Target Reached (${questionCount} Shuffled per Attempt)`
-                : questions.length >= questionCount
-                ? `Ready (${questions.length} in pool · ${70 - questions.length} more for full 70-question bank)`
-                : `Needs ${Math.max(0, questionCount - questions.length)} more for ${questionCount}-mark exam`}
-            </span>
-            <span style={{ fontSize: "0.8rem", color: "#78716a" }}>
-              Pass Mark: <strong>{passMark}%</strong> · Time: <strong>{timeLimitMin}m</strong>
-            </span>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
-            <button
-              type="button"
-              onClick={handleDownloadQuickMdTemplate}
-              style={{
-                padding: "0.48rem 0.9rem",
-                borderRadius: 8,
-                border: "1px solid #dcd5cb",
-                background: "#ffffff",
-                color: "#44403c",
-                fontWeight: 700,
                 fontSize: "0.8rem",
-                cursor: "pointer",
-              }}
-            >
-              ⬇ Download .md Template (70 Qs)
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsMarkdownModalOpen(true)}
-              style={{
-                padding: "0.48rem 0.95rem",
-                borderRadius: 8,
-                border: "1px solid #14110f",
-                background: "#14110f",
-                color: "#ffffff",
                 fontWeight: 700,
-                fontSize: "0.8rem",
-                cursor: "pointer",
-              }}
-            >
-              📤 Upload .md Questions
-            </button>
-
-            {questions.length < 70 && (
-              <button
-                type="button"
-                disabled={seedingPool}
-                onClick={handleSeedUpTo70Questions}
-                style={{
-                  padding: "0.48rem 0.95rem",
-                  borderRadius: 8,
-                  border: "1px solid #d97706",
-                  background: "#fffbeb",
-                  color: "#b45309",
-                  fontWeight: 700,
-                  fontSize: "0.8rem",
-                  cursor: seedingPool ? "wait" : "pointer",
-                }}
-              >
-                {seedingPool
-                  ? "Generating Questions..."
-                  : `⚡ Auto-Fill to 70 Questions (+${70 - questions.length})`}
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={openNewQuestionModal}
-              style={{
-                padding: "0.5rem 1rem",
+                color: "#15803d",
+                background: "#dcfce7",
+                border: "1px solid #bbf7d0",
+                padding: "0.4rem 0.8rem",
                 borderRadius: 8,
-                border: "none",
-                background: "#c97a1e",
-                color: "#ffffff",
-                fontWeight: 700,
-                fontSize: "0.82rem",
-                cursor: "pointer",
               }}
             >
-              + Add Exam Question
-            </button>
-          </div>
-        </div>
-
-        {/* Sub-navigation Tabs */}
-        <div
-          style={{
-            display: "flex",
-            gap: "0.5rem",
-            marginTop: "1.25rem",
-            borderBottom: "1px solid #ece6dd",
-            paddingBottom: "0.75rem",
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setActiveSubTab("QUESTIONS")}
-            style={{
-              padding: "0.55rem 1.1rem",
-              borderRadius: 9,
-              border: activeSubTab === "QUESTIONS" ? "1px solid #c97a1e" : "1px solid transparent",
-              background: activeSubTab === "QUESTIONS" ? "#fff8eb" : "transparent",
-              color: activeSubTab === "QUESTIONS" ? "#9a5810" : "#57534e",
-              fontWeight: 700,
-              fontSize: "0.86rem",
-              cursor: "pointer",
-            }}
-          >
-            1. Exam Question Pool ({questions.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveSubTab("SETTINGS")}
-            style={{
-              padding: "0.55rem 1.1rem",
-              borderRadius: 9,
-              border: activeSubTab === "SETTINGS" ? "1px solid #c97a1e" : "1px solid transparent",
-              background: activeSubTab === "SETTINGS" ? "#fff8eb" : "transparent",
-              color: activeSubTab === "SETTINGS" ? "#9a5810" : "#57534e",
-              fontWeight: 700,
-              fontSize: "0.86rem",
-              cursor: "pointer",
-            }}
-          >
-            2. Exam Rules &amp; Marks Configuration
-          </button>
+              Published (Live)
+            </span>
+          )}
         </div>
       </div>
 
-      {/* =========================================================
-          SUB-TAB 1: QUESTION POOL MANAGER (70-QUESTION BANK)
-          ========================================================= */}
-      {activeSubTab === "QUESTIONS" && (
-        <div
-          style={{
-            background: "#ffffff",
-            border: "1px solid #ece6dd",
-            borderRadius: 16,
-            padding: "1.5rem 1.75rem",
-            boxShadow: "0 2px 8px rgba(20, 17, 15, 0.04)",
-          }}
-        >
-          {/* Search & Filter Controls */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: "1rem",
-              flexWrap: "wrap",
-              marginBottom: "1.25rem",
-            }}
-          >
+      {/* Top Integrated Exam Parameters: Title, Passing Score, Time Limit, Shuffle */}
+      <div
+        style={{
+          background: "#faf7f2",
+          border: "1px solid #ece6dd",
+          borderRadius: 12,
+          padding: "1.1rem 1.25rem",
+          marginBottom: "1.5rem",
+        }}
+      >
+        <div style={{ display: "grid", gridTemplateColumns: "1fr minmax(200px, 240px) minmax(180px, 220px)", gap: "1.25rem", alignItems: "flex-start", marginBottom: "0.85rem" }}>
+          {/* Exam Title */}
+          <div>
+            <label className={styles.formLabel} style={{ marginBottom: "0.35rem" }}>
+              <span>
+                Exam Title <span style={{ color: "#dc2626" }}>*</span>
+              </span>
+            </label>
             <input
               type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search exam questions or options..."
-              style={{
-                flex: "1 1 280px",
-                padding: "0.6rem 0.9rem",
-                borderRadius: 10,
-                border: "1px solid #dcd5cb",
-                fontSize: "0.88rem",
-                background: "#faf7f2",
-                color: "#14110f",
-              }}
-            />
-
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-              {(["ALL", "MULTIPLE_CHOICE", "MULTI_SELECT", "SHORT_ANSWER"] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setTypeFilter(t)}
-                  style={{
-                    padding: "0.45rem 0.8rem",
-                    borderRadius: 8,
-                    border: typeFilter === t ? "1px solid #c97a1e" : "1px solid #e5dec9",
-                    background: typeFilter === t ? "#fff8eb" : "#ffffff",
-                    color: typeFilter === t ? "#9a5810" : "#6b655e",
-                    fontSize: "0.78rem",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  {t === "ALL"
-                    ? `All (${questions.length})`
-                    : t === "MULTIPLE_CHOICE"
-                      ? "Single Choice"
-                      : t === "MULTI_SELECT"
-                        ? "Multi-Select"
-                        : "Short Answer"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Question List */}
-          {filteredQuestions.length === 0 ? (
-            <div
-              style={{
-                padding: "3rem 1.5rem",
-                textAlign: "center",
-                background: "#faf6f0",
-                borderRadius: 14,
-                border: "1px dashed #dcd5cb",
-              }}
-            >
-              <h3 style={{ margin: "0 0 0.5rem", fontSize: "1.08rem", color: "#14110f" }}>
-                {questions.length === 0
-                  ? "No dedicated Final Exam questions added yet"
-                  : "No questions match your search filter"}
-              </h3>
-              <p style={{ margin: "0 auto 1.25rem", maxWidth: 520, fontSize: "0.88rem", color: "#6b655e" }}>
-                Build a pool of <strong>70 questions</strong> so each learner gets a unique, randomly shuffled{" "}
-                <strong>50-question (50-mark)</strong> final exam paper.
-              </p>
-              <div style={{ display: "flex", justifyContent: "center", gap: "0.75rem", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={openNewQuestionModal}
-                  style={{
-                    padding: "0.6rem 1.2rem",
-                    borderRadius: 10,
-                    border: "none",
-                    background: "#c97a1e",
-                    color: "#ffffff",
-                    fontWeight: 700,
-                    fontSize: "0.86rem",
-                    cursor: "pointer",
-                  }}
-                >
-                  + Add First Exam Question
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
-              {filteredQuestions.map((q, idx) => (
-                <div
-                  key={q.id}
-                  style={{
-                    border: "1px solid #ece6dd",
-                    borderRadius: 12,
-                    padding: "1.1rem 1.25rem",
-                    background: "#fdfbf7",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "flex-start",
-                      gap: "1rem",
-                    }}
-                  >
-                    <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-start", flex: 1 }}>
-                      <span
-                        style={{
-                          minWidth: 34,
-                          height: 28,
-                          borderRadius: 7,
-                          background: "#fef3c7",
-                          color: "#9a5810",
-                          fontWeight: 800,
-                          fontSize: "0.78rem",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          padding: "0 0.4rem",
-                        }}
-                      >
-                        Q{idx + 1}
-                      </span>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 700, fontSize: "0.95rem", color: "#14110f", lineHeight: 1.45 }}>
-                          {q.text}
-                        </div>
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: "0.5rem",
-                            alignItems: "center",
-                            marginTop: "0.4rem",
-                            flexWrap: "wrap",
-                          }}
-                        >
-                          <span
-                            style={{
-                              fontSize: "0.72rem",
-                              fontWeight: 700,
-                              padding: "0.15rem 0.55rem",
-                              borderRadius: 6,
-                              background: "#f3efe8",
-                              color: "#57534e",
-                            }}
-                          >
-                            {q.type === "MULTI_SELECT"
-                              ? "Multi-Select"
-                              : q.type === "SHORT_ANSWER"
-                                ? "Short Answer"
-                                : "Multiple Choice"}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: "0.72rem",
-                              fontWeight: 700,
-                              padding: "0.15rem 0.55rem",
-                              borderRadius: 6,
-                              background: "#ecfdf5",
-                              color: "#047857",
-                            }}
-                          >
-                            {q.points || 1} {q.points === 1 ? "Mark" : "Marks"}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.45rem" }}>
-                      <button
-                        type="button"
-                        onClick={() => openEditQuestionModal(q)}
-                        style={{
-                          padding: "0.38rem 0.75rem",
-                          borderRadius: 7,
-                          border: "1px solid #dcd5cb",
-                          background: "#ffffff",
-                          color: "#14110f",
-                          fontSize: "0.78rem",
-                          fontWeight: 600,
-                          cursor: "pointer",
-                        }}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setQuestionToDelete(q)}
-                        style={{
-                          padding: "0.38rem 0.75rem",
-                          borderRadius: 7,
-                          border: "1px solid #fecaca",
-                          background: "#fef2f2",
-                          color: "#dc2626",
-                          fontSize: "0.78rem",
-                          fontWeight: 600,
-                          cursor: "pointer",
-                        }}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Options Preview */}
-                  {q.options && q.options.length > 0 && (
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                        gap: "0.5rem",
-                        marginTop: "0.85rem",
-                        paddingLeft: "2.6rem",
-                      }}
-                    >
-                      {q.options.map((opt, oIdx) => (
-                        <div
-                          key={opt.id || oIdx}
-                          style={{
-                            padding: "0.45rem 0.7rem",
-                            borderRadius: 8,
-                            border: opt.isCorrect ? "1px solid #86efac" : "1px solid #ece6dd",
-                            background: opt.isCorrect ? "#f0fdf4" : "#ffffff",
-                            color: opt.isCorrect ? "#166534" : "#57534e",
-                            fontSize: "0.82rem",
-                            fontWeight: opt.isCorrect ? 700 : 500,
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "0.45rem",
-                          }}
-                        >
-                          <span>{opt.isCorrect ? "✓" : `${String.fromCharCode(65 + oIdx)}.`}</span>
-                          <span style={{ flex: 1 }}>{opt.text}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* =========================================================
-          SUB-TAB 2: EXAM CONFIGURATION & SCORING RULES
-          ========================================================= */}
-      {activeSubTab === "SETTINGS" && (
-        <form
-          onSubmit={handleSaveConfig}
-          style={{
-            background: "#ffffff",
-            border: "1px solid #ece6dd",
-            borderRadius: 16,
-            padding: "1.5rem 1.75rem",
-            boxShadow: "0 2px 8px rgba(20, 17, 15, 0.04)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "1.25rem",
-          }}
-        >
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-            <label style={{ fontWeight: 700, fontSize: "0.86rem", color: "#14110f" }}>Exam Title *</label>
-            <input
-              type="text"
+              required
+              placeholder="e.g. Final Comprehensive Examination"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              required
-              style={{
-                padding: "0.65rem 0.9rem",
-                borderRadius: 10,
-                border: "1px solid #dcd5cb",
-                fontSize: "0.92rem",
-              }}
+              className={styles.formInput}
             />
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-            <label style={{ fontWeight: 700, fontSize: "0.86rem", color: "#14110f" }}>
-              Instructions &amp; Description
+          {/* Passing Threshold (Default 80%) */}
+          <div>
+            <label className={styles.formLabel} style={{ marginBottom: "0.35rem" }}>
+              <span>Passing Score</span>
             </label>
-            <textarea
-              rows={3}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              style={{
-                padding: "0.65rem 0.9rem",
-                borderRadius: 10,
-                border: "1px solid #dcd5cb",
-                fontSize: "0.9rem",
-              }}
-            />
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-              gap: "1rem",
-            }}
-          >
-            <div>
-              <label style={{ display: "block", fontWeight: 700, fontSize: "0.84rem", marginBottom: 6 }}>
-                Questions per Attempt (Marks)
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={200}
-                value={questionCount}
-                onChange={(e) => setQuestionCount(Number(e.target.value))}
-                style={{
-                  width: "100%",
-                  padding: "0.6rem 0.8rem",
-                  borderRadius: 10,
-                  border: "1px solid #dcd5cb",
-                }}
-              />
-              <span style={{ fontSize: "0.75rem", color: "#6b655e" }}>
-                Default: 50 questions (50 marks) randomly shuffled from 70-question pool
-              </span>
-            </div>
-
-            <div>
-              <label style={{ display: "block", fontWeight: 700, fontSize: "0.84rem", marginBottom: 6 }}>
-                Pass Mark (%)
-              </label>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <input
                 type="number"
                 min={1}
                 max={100}
                 value={passMark}
-                onChange={(e) => setPassMark(Number(e.target.value))}
-                style={{
-                  width: "100%",
-                  padding: "0.6rem 0.8rem",
-                  borderRadius: 10,
-                  border: "1px solid #dcd5cb",
-                }}
+                onChange={(e) => setPassMark(Math.min(100, Math.max(1, Number(e.target.value) || 80)))}
+                className={styles.formInput}
+                style={{ width: "80px", textAlign: "center", fontWeight: 700, color: "#d97706" }}
               />
-              <span style={{ fontSize: "0.75rem", color: "#6b655e" }}>
-                Minimum score percentage required to pass (default: 75%)
-              </span>
-            </div>
-
-            <div>
-              <label style={{ display: "block", fontWeight: 700, fontSize: "0.84rem", marginBottom: 6 }}>
-                Time Limit (Minutes)
-              </label>
-              <input
-                type="number"
-                min={5}
-                max={300}
-                value={timeLimitMin}
-                onChange={(e) => setTimeLimitMin(Number(e.target.value))}
-                style={{
-                  width: "100%",
-                  padding: "0.6rem 0.8rem",
-                  borderRadius: 10,
-                  border: "1px solid #dcd5cb",
-                }}
-              />
-              <span style={{ fontSize: "0.75rem", color: "#6b655e" }}>Default: 90 minutes</span>
-            </div>
-
-            <div>
-              <label style={{ display: "block", fontWeight: 700, fontSize: "0.84rem", marginBottom: 6 }}>
-                Max Attempts
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={10}
-                value={maxAttempts}
-                onChange={(e) => setMaxAttempts(Number(e.target.value))}
-                style={{
-                  width: "100%",
-                  padding: "0.6rem 0.8rem",
-                  borderRadius: 10,
-                  border: "1px solid #dcd5cb",
-                }}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: "block", fontWeight: 700, fontSize: "0.84rem", marginBottom: 6 }}>
-                Retry Cooldown (Hours)
-              </label>
-              <input
-                type="number"
-                min={0}
-                max={168}
-                value={cooldownHours}
-                onChange={(e) => setCooldownHours(Number(e.target.value))}
-                style={{
-                  width: "100%",
-                  padding: "0.6rem 0.8rem",
-                  borderRadius: 10,
-                  border: "1px solid #dcd5cb",
-                }}
-              />
+              <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#78716a" }}>% Passing Threshold</span>
             </div>
           </div>
 
-          <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer" }}>
+          {/* Time Limit */}
+          <div>
+            <label className={styles.formLabel} style={{ marginBottom: "0.35rem" }}>
+              <span>Time Limit</span>
+            </label>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <input
+                type="number"
+                min={5}
+                max={360}
+                value={timeLimitMin}
+                onChange={(e) => setTimeLimitMin(Math.max(5, Number(e.target.value) || 90))}
+                className={styles.formInput}
+                style={{ width: "80px", textAlign: "center", fontWeight: 700, color: "#14110f" }}
+              />
+              <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#78716a" }}>Minutes Time Limit</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Shuffle Questions Bar */}
+        <div style={{ borderTop: "1px solid #ece6dd", paddingTop: "0.85rem" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "0.82rem", fontWeight: 600, color: "#14110f" }}>
             <input
               type="checkbox"
               checked={shuffleQuestions}
               onChange={(e) => setShuffleQuestions(e.target.checked)}
-              style={{ width: 18, height: 18, accentColor: "#c97a1e" }}
+              style={{ width: 16, height: 16, accentColor: "var(--accent-primary, #c97a1e)", cursor: "pointer" }}
             />
-            <span style={{ fontWeight: 600, fontSize: "0.88rem", color: "#14110f" }}>
-              Randomly shuffle 50 questions from the 70-question pool &amp; shuffle answer options per learner attempt
-            </span>
+            <span>Randomly shuffle question order and choices for each learner attempt</span>
           </label>
+        </div>
+      </div>
 
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
-            <button
-              type="submit"
-              disabled={saving}
-              style={{
-                padding: "0.65rem 1.35rem",
-                borderRadius: 10,
-                border: "none",
-                background: "#c97a1e",
-                color: "#ffffff",
-                fontWeight: 700,
-                fontSize: "0.88rem",
-                cursor: "pointer",
-              }}
-            >
-              {saving ? "Saving..." : "Save Exam Configuration"}
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* =========================================================
-          MODAL: CREATE / EDIT EXAM QUESTION
-          ========================================================= */}
-      {isEditorOpen && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(20, 17, 15, 0.55)",
-            zIndex: 1000,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "1rem",
-          }}
-        >
+      {/* 2-Column Split: Questions Palette | Active Question Composer */}
+      <div className={styles.curriculumSplitLayout} style={{ gap: "1.5rem" }}>
+        {/* Left Column: Questions Palette Card */}
+        <div className={styles.moduleNavigatorCol} style={{ flex: "0 0 280px" }}>
           <div
             style={{
               background: "#ffffff",
-              borderRadius: 16,
-              width: "100%",
-              maxWidth: 680,
-              maxHeight: "90vh",
-              overflowY: "auto",
-              padding: "1.5rem 1.75rem",
               border: "1px solid #ece6dd",
-              boxShadow: "0 20px 50px rgba(0,0,0,0.18)",
+              borderRadius: "14px",
+              padding: "1.25rem",
+              boxShadow: "0 2px 10px rgba(28, 25, 23, 0.04)",
             }}
           >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: "1.1rem",
-              }}
-            >
-              <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 800, color: "#14110f" }}>
-                {editingQuestion ? "Edit Final Exam Question" : "Add Question to Final Exam Pool"}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+              <h3 style={{ fontSize: "0.95rem", fontWeight: 700, margin: 0, color: "var(--text-primary, #14110f)" }}>
+                Questions ({questions.length})
               </h3>
               <button
                 type="button"
-                onClick={() => setIsEditorOpen(false)}
+                onClick={handleResetToNewQuestion}
                 style={{
-                  border: "none",
-                  background: "transparent",
-                  fontSize: "1.25rem",
+                  background: editingQuestionId ? "var(--accent-primary, #c97a1e)" : "#ffffff",
+                  border: "1px solid #d4c8b8",
+                  color: editingQuestionId ? "#ffffff" : "var(--accent-primary, #c97a1e)",
+                  padding: "0.25rem 0.65rem",
+                  borderRadius: 6,
+                  fontSize: "0.76rem",
+                  fontWeight: 700,
                   cursor: "pointer",
-                  color: "#6b655e",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
                 }}
+                title="Add a new question"
               >
-                ✕
+                + Add Question
               </button>
             </div>
 
-            <form onSubmit={handleSaveQuestion} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "0.85rem" }}>
-                <div>
-                  <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 700, marginBottom: 4 }}>
-                    Question Type
-                  </label>
-                  <select
-                    value={qType}
-                    onChange={(e) => setQType(e.target.value as any)}
-                    style={{
-                      width: "100%",
-                      padding: "0.55rem 0.75rem",
-                      borderRadius: 9,
-                      border: "1px solid #dcd5cb",
-                      background: "#ffffff",
-                    }}
-                  >
-                    <option value="MULTIPLE_CHOICE">Multiple Choice (Single Correct)</option>
-                    <option value="MULTI_SELECT">Multi-Select (Multiple Correct)</option>
-                    <option value="SHORT_ANSWER">Short Answer / Reflection</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 700, marginBottom: 4 }}>
-                    Marks / Points
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={qPoints}
-                    onChange={(e) => setQPoints(Number(e.target.value))}
-                    style={{
-                      width: "100%",
-                      padding: "0.55rem 0.75rem",
-                      borderRadius: 9,
-                      border: "1px solid #dcd5cb",
-                    }}
-                  />
-                </div>
+            {questions.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "1.75rem 1rem", background: "#faf7f2", borderRadius: 10, border: "1px dashed #ded6cb" }}>
+                <p style={{ margin: 0, color: "var(--text-muted, #78716a)", fontSize: "0.82rem" }}>
+                  No questions added yet. Use the editor to add Question 1.
+                </p>
               </div>
+            ) : (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(5, 1fr)",
+                  gap: "8px",
+                  maxHeight: "520px",
+                  overflowY: "auto",
+                  padding: "2px",
+                }}
+              >
+                {questions.map((q, idx) => {
+                  const isSelected = editingQuestionId === q.id;
+                  const isText = q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX";
+                  const qTypeLabel = isText ? "Short Answer" : q.type === "MULTI_SELECT" ? "Multi Select" : "Single Choice";
 
-              <div>
-                <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 700, marginBottom: 4 }}>
-                  Question Prompt *
-                </label>
-                <textarea
-                  rows={3}
-                  value={qText}
-                  onChange={(e) => setQText(e.target.value)}
-                  required
-                  placeholder="Enter the exam question..."
-                  style={{
-                    width: "100%",
-                    padding: "0.65rem 0.85rem",
-                    borderRadius: 10,
-                    border: "1px solid #dcd5cb",
-                    fontSize: "0.9rem",
-                  }}
-                />
-              </div>
-
-              {qType !== "SHORT_ANSWER" && (
-                <div>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      marginBottom: "0.5rem",
-                    }}
-                  >
-                    <label style={{ fontSize: "0.82rem", fontWeight: 700, color: "#14110f" }}>
-                      Answer Options (Select correct {qType === "MULTI_SELECT" ? "answers" : "answer"})
-                    </label>
+                  return (
                     <button
+                      key={q.id}
                       type="button"
-                      onClick={handleAddOption}
+                      onClick={() => handleSelectQuestionForEdit(q)}
+                      title={`Question ${idx + 1} (${qTypeLabel}): ${q.text.slice(0, 60)}`}
                       style={{
-                        border: "1px solid #c97a1e",
-                        background: "#fff8eb",
-                        color: "#9a5810",
-                        borderRadius: 7,
-                        padding: "0.25rem 0.65rem",
-                        fontSize: "0.76rem",
-                        fontWeight: 700,
+                        width: "38px",
+                        height: "38px",
+                        borderRadius: "50%",
+                        margin: "0 auto",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: (idx + 1) >= 100 ? "0.72rem" : "0.85rem",
+                        fontWeight: isSelected ? 800 : 700,
                         cursor: "pointer",
+                        border: isSelected ? "1.5px solid #d97706" : "1px solid #e5e7eb",
+                        background: isSelected ? "#d97706" : "#ffffff",
+                        color: isSelected ? "#ffffff" : "#4b5563",
+                        boxShadow: isSelected ? "0 2px 6px rgba(217, 119, 6, 0.25)" : "none",
+                        transition: "all 0.15s ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isSelected) {
+                          e.currentTarget.style.borderColor = "#d97706";
+                          e.currentTarget.style.color = "#d97706";
+                          e.currentTarget.style.background = "#fff8ef";
+                          e.currentTarget.style.transform = "scale(1.08)";
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isSelected) {
+                          e.currentTarget.style.borderColor = "#e5e7eb";
+                          e.currentTarget.style.color = "#4b5563";
+                          e.currentTarget.style.background = "#ffffff";
+                          e.currentTarget.style.transform = "none";
+                        }
                       }}
                     >
-                      + Add Option
+                      {idx + 1}
                     </button>
-                  </div>
+                  );
+                })}
 
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
-                    {qOptions.map((opt, idx) => (
-                      <div
-                        key={idx}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "0.55rem",
-                          padding: "0.5rem 0.65rem",
-                          borderRadius: 9,
-                          border: opt.isCorrect ? "1px solid #86efac" : "1px solid #e5dec9",
-                          background: opt.isCorrect ? "#f0fdf4" : "#faf7f2",
-                        }}
-                      >
-                        <input
-                          type={qType === "MULTI_SELECT" ? "checkbox" : "radio"}
-                          name="correctOption"
-                          checked={Boolean(opt.isCorrect)}
-                          onChange={(e) => handleOptionChange(idx, "isCorrect", e.target.checked)}
-                          style={{ width: 17, height: 17, accentColor: "#16a34a", cursor: "pointer" }}
-                        />
-                        <input
-                          type="text"
-                          value={opt.text}
-                          onChange={(e) => handleOptionChange(idx, "text", e.target.value)}
-                          placeholder={`Option ${String.fromCharCode(65 + idx)}`}
-                          style={{
-                            flex: 1,
-                            padding: "0.45rem 0.65rem",
-                            borderRadius: 7,
-                            border: "1px solid #dcd5cb",
-                            background: "#ffffff",
-                            fontSize: "0.86rem",
-                          }}
-                        />
-                        {qOptions.length > 2 && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveOption(idx)}
-                            style={{
-                              border: "none",
-                              background: "transparent",
-                              color: "#dc2626",
-                              cursor: "pointer",
-                              fontWeight: 700,
-                            }}
-                            title="Remove option"
-                          >
-                            ✕
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 700, marginBottom: 4 }}>
-                  Explanation / Feedback (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={qExplanation}
-                  onChange={(e) => setQExplanation(e.target.value)}
-                  placeholder="Optional explanation or module reference..."
-                  style={{
-                    width: "100%",
-                    padding: "0.55rem 0.75rem",
-                    borderRadius: 9,
-                    border: "1px solid #dcd5cb",
-                  }}
-                />
-              </div>
-
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem", marginTop: "0.5rem" }}>
+                {/* Add New Question Circle Slot */}
                 <button
                   type="button"
-                  onClick={() => setIsEditorOpen(false)}
+                  onClick={handleResetToNewQuestion}
+                  title="Add new question"
                   style={{
-                    padding: "0.55rem 1rem",
-                    borderRadius: 9,
-                    border: "1px solid #dcd5cb",
-                    background: "#ffffff",
+                    width: "38px",
+                    height: "38px",
+                    borderRadius: "50%",
+                    margin: "0 auto",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "1.1rem",
                     fontWeight: 600,
                     cursor: "pointer",
+                    border: "1.5px dashed #d1c7b7",
+                    background: "#ffffff",
+                    color: "#78716a",
+                    transition: "all 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = "#d97706";
+                    e.currentTarget.style.color = "#d97706";
+                    e.currentTarget.style.background = "#fffbf5";
+                    e.currentTarget.style.transform = "scale(1.08)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "#d1c7b7";
+                    e.currentTarget.style.color = "#78716a";
+                    e.currentTarget.style.background = "#ffffff";
+                    e.currentTarget.style.transform = "none";
                   }}
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingQuestion}
-                  style={{
-                    padding: "0.55rem 1.2rem",
-                    borderRadius: 9,
-                    border: "none",
-                    background: "#c97a1e",
-                    color: "#ffffff",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  {savingQuestion ? "Saving..." : editingQuestion ? "Update Question" : "Add Question"}
+                  +
                 </button>
               </div>
-            </form>
+            )}
+
+            {/* Legend matching Image 1 */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "1rem",
+                marginTop: "1.25rem",
+                paddingTop: "0.85rem",
+                borderTop: "1px solid #f1ece4",
+                fontSize: "0.78rem",
+                color: "#78716a",
+              }}
+            >
+              <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#d97706", display: "inline-block" }} />
+                <span>Selected</span>
+              </div>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#e5e7eb", border: "1px solid #d1d5db", display: "inline-block" }} />
+                <span>Saved</span>
+              </div>
+            </div>
           </div>
         </div>
-      )}
 
-      {/* Delete Question ConfirmDialog */}
+        {/* Right Column: Question Composer Form */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <form
+            onSubmit={handleSaveQuestion}
+            style={{
+              border: "1.5px solid #ece6dd",
+              padding: "1.25rem",
+              borderRadius: 14,
+              background: "#ffffff",
+              boxShadow: "0 1px 4px rgba(20, 17, 15, 0.03)",
+            }}
+          >
+            {/* Header: Title & Delete Question Action */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.75rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <h4 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, color: "var(--text-primary, #14110f)" }}>
+                  {editingQuestionId ? `Edit Question ${editingQuestionNum}` : `Add Question ${nextQuestionNum}`}
+                </h4>
+                {editingQuestionId && (
+                  <button
+                    type="button"
+                    onClick={handleResetToNewQuestion}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      color: "var(--accent-primary, #c97a1e)",
+                      fontSize: "0.75rem",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    Cancel Edit
+                  </button>
+                )}
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                {editingQuestion && (
+                  <button
+                    type="button"
+                    onClick={() => setQuestionToDelete(editingQuestion)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "5px",
+                      padding: "0.32rem 0.65rem",
+                      borderRadius: 6,
+                      border: "1px solid #fecaca",
+                      background: "#fef2f2",
+                      color: "#dc2626",
+                      fontSize: "0.75rem",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                    title={`Delete Question ${editingQuestionNum}`}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    </svg>
+                    <span>Delete Question {editingQuestionNum}</span>
+                  </button>
+                )}
+
+                {/* Question Kind Pills */}
+                <div style={{ display: "flex", gap: "4px", background: "#f5ece1", padding: "3px", borderRadius: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectKind("MULTIPLE_CHOICE")}
+                    style={{
+                      padding: "0.3rem 0.65rem",
+                      borderRadius: 6,
+                      fontSize: "0.75rem",
+                      fontWeight: 600,
+                      border: "none",
+                      cursor: "pointer",
+                      background: qType === "MULTIPLE_CHOICE" ? "#ffffff" : "transparent",
+                      color: qType === "MULTIPLE_CHOICE" ? "var(--text-primary, #14110f)" : "var(--text-muted, #78716a)",
+                      boxShadow: qType === "MULTIPLE_CHOICE" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                    }}
+                  >
+                    Single Choice
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectKind("MULTI_SELECT")}
+                    style={{
+                      padding: "0.3rem 0.65rem",
+                      borderRadius: 6,
+                      fontSize: "0.75rem",
+                      fontWeight: 600,
+                      border: "none",
+                      cursor: "pointer",
+                      background: qType === "MULTI_SELECT" ? "#ffffff" : "transparent",
+                      color: qType === "MULTI_SELECT" ? "var(--text-primary, #14110f)" : "var(--text-muted, #78716a)",
+                      boxShadow: qType === "MULTI_SELECT" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                    }}
+                  >
+                    Multiple Choice
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectKind("SHORT_ANSWER")}
+                    style={{
+                      padding: "0.3rem 0.65rem",
+                      borderRadius: 6,
+                      fontSize: "0.75rem",
+                      fontWeight: 600,
+                      border: "none",
+                      cursor: "pointer",
+                      background: qType === "SHORT_ANSWER" ? "#ffffff" : "transparent",
+                      color: qType === "SHORT_ANSWER" ? "var(--text-primary, #14110f)" : "var(--text-muted, #78716a)",
+                      boxShadow: qType === "SHORT_ANSWER" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+                    }}
+                  >
+                    Short Answer
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Prompt Input */}
+            <div className={styles.formGroup} style={{ marginBottom: "0.85rem" }}>
+              <label className={styles.formLabel}>
+                <span>
+                  Question <span style={{ color: "#dc2626" }}>*</span>
+                </span>
+              </label>
+              <textarea
+                rows={2}
+                required
+                placeholder="Enter your question statement here..."
+                value={qText}
+                onChange={(e) => setQText(e.target.value)}
+                className={styles.formTextarea}
+                style={{ minHeight: 65 }}
+              />
+            </div>
+
+            {/* Optional Question Image */}
+            <div style={{ marginBottom: "1.1rem" }}>
+              {qImageUrl ? (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "0.6rem 0.9rem", background: "#fdfbf7", borderRadius: 8, border: "1px solid #e7decb" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <img
+                      src={qImageUrl}
+                      alt="Question illustration"
+                      style={{ width: 64, height: 44, objectFit: "cover", borderRadius: 6, border: "1px solid #e5e7eb", cursor: "pointer" }}
+                      onClick={() => setPreviewConfig({ isOpen: true, type: "IMAGE", title: "Question Image Preview", src: qImageUrl })}
+                      title="Click to view image full size"
+                    />
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "#14110f" }}>Question Illustration</span>
+                      <span style={{ fontSize: "0.74rem", color: "#78716a" }}>Click thumbnail to preview fullscreen</span>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button
+                      type="button"
+                      onClick={() => promptFileInputRef.current?.click()}
+                      style={{ padding: "4px 10px", fontSize: "0.78rem", color: "#78716a", background: "#ffffff", border: "1px solid #d4c8b8", borderRadius: 6, cursor: "pointer", fontWeight: 600 }}
+                    >
+                      Change
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQImageUrl("")}
+                      style={{ padding: "4px 10px", fontSize: "0.78rem", color: "#dc2626", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, cursor: "pointer", fontWeight: 600 }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <input
+                    type="file"
+                    ref={promptFileInputRef}
+                    accept="image/*"
+                    style={{ display: "none" }}
+                    onChange={handlePromptImageFile}
+                  />
+                  <button
+                    type="button"
+                    disabled={qPromptUploading}
+                    onClick={() => promptFileInputRef.current?.click()}
+                    style={{
+                      width: "100%",
+                      background: "#faf8f5",
+                      border: "1.5px dashed #ded6cb",
+                      borderRadius: 8,
+                      padding: "0.6rem 1rem",
+                      fontSize: "0.82rem",
+                      fontWeight: 600,
+                      color: "#78716a",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "8px",
+                      transition: "all 0.15s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "var(--accent-primary, #c97a1e)";
+                      e.currentTarget.style.background = "#fffbf5";
+                      e.currentTarget.style.color = "var(--accent-primary, #c97a1e)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "#ded6cb";
+                      e.currentTarget.style.background = "#faf8f5";
+                      e.currentTarget.style.color = "#78716a";
+                    }}
+                  >
+                    {qPromptUploading ? (
+                      <>
+                        <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2, borderTopColor: "var(--accent-primary, #c97a1e)" }} />
+                        <span>Uploading question image...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+                          <circle cx="9" cy="9" r="2" />
+                          <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+                        </svg>
+                        <span>Attach Image to Question (Optional)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Choice Questions: Clean Options List */}
+            {qType !== "SHORT_ANSWER" ? (
+              <div style={{ marginBottom: "1rem" }}>
+                <label className={styles.formLabel} style={{ marginBottom: "0.45rem", fontSize: "0.82rem" }}>
+                  <span>
+                    {qType === "MULTI_SELECT"
+                      ? "Options (Check all correct answers) *"
+                      : "Options (Select the single correct answer) *"}
+                  </span>
+                </label>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  {qOptions.map((opt, idx) => (
+                    <div key={idx} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                      {qType === "MULTI_SELECT" ? (
+                        <input
+                          type="checkbox"
+                          checked={opt.isCorrect}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setQOptions((prev) =>
+                              prev.map((o, i) => (i === idx ? { ...o, isCorrect: checked } : o))
+                            );
+                          }}
+                          style={{ accentColor: "#059669", cursor: "pointer", width: 16, height: 16 }}
+                          title="Mark as correct answer"
+                        />
+                      ) : (
+                        <input
+                          type="radio"
+                          name="final_exam_correct_opt"
+                          checked={opt.isCorrect}
+                          onChange={() => {
+                            setQOptions((prev) =>
+                              prev.map((o, i) => ({ ...o, isCorrect: i === idx }))
+                            );
+                          }}
+                          style={{ accentColor: "#059669", cursor: "pointer", width: 16, height: 16 }}
+                          title="Mark as correct answer"
+                        />
+                      )}
+
+                      <input
+                        type="text"
+                        required={!opt.imageUrl}
+                        placeholder={`Option ${idx + 1}`}
+                        value={opt.text}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setQOptions((prev) =>
+                            prev.map((o, i) => (i === idx ? { ...o, text: val } : o))
+                          );
+                        }}
+                        className={styles.formInput}
+                        style={{ flex: 1, padding: "0.45rem 0.75rem", fontSize: "0.85rem" }}
+                      />
+
+                      {/* Option Image Upload / Preview */}
+                      {optionUploadingIdx === idx ? (
+                        <div style={{ width: 16, height: 16, border: "2px solid #fed7aa", borderTopColor: "var(--accent-primary, #c97a1e)", borderRadius: "50%", animation: "spin 0.65s linear infinite" }} />
+                      ) : opt.imageUrl ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <img src={opt.imageUrl} alt="" style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 4 }} />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPreviewConfig({
+                                isOpen: true,
+                                type: "IMAGE",
+                                title: `Option ${idx + 1} Image Preview`,
+                                src: opt.imageUrl,
+                              })
+                            }
+                            style={{
+                              background: "#fdf8f0",
+                              border: "1px solid #ebd9c4",
+                              color: "var(--accent-primary, #c97a1e)",
+                              borderRadius: 4,
+                              padding: "2px 5px",
+                              fontSize: "0.7rem",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                            }}
+                            title="Preview image in full screen"
+                          >
+                            Preview
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQOptions((prev) =>
+                                prev.map((o, i) => (i === idx ? { ...o, imageUrl: "" } : o))
+                              );
+                            }}
+                            style={{ border: "none", background: "transparent", color: "#b91c1c", cursor: "pointer", fontSize: "0.85rem" }}
+                            title="Remove option image"
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      ) : (
+                        <label style={{ cursor: "pointer", color: "var(--text-muted, #78716a)", padding: "0.25rem" }} title="Attach image to this option">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+                            <circle cx="9" cy="9" r="2" />
+                            <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+                          </svg>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            style={{ display: "none" }}
+                            onChange={(e) => handleOptionImageFile(idx, e)}
+                          />
+                        </label>
+                      )}
+
+                      {/* Remove option button if > 2 */}
+                      {qOptions.length > 2 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveOption(idx)}
+                          style={{ border: "none", background: "transparent", color: "var(--text-muted, #78716a)", cursor: "pointer", fontSize: "1rem", lineHeight: 1 }}
+                          title="Remove option"
+                        >
+                          &times;
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {qOptions.length < 8 && (
+                  <button
+                    type="button"
+                    onClick={handleAddOption}
+                    style={{
+                      marginTop: "0.6rem",
+                      background: "transparent",
+                      border: "none",
+                      color: "var(--accent-primary, #c97a1e)",
+                      fontSize: "0.8rem",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      padding: "0.2rem 0",
+                    }}
+                  >
+                    + Add Option
+                  </button>
+                )}
+              </div>
+            ) : (
+              /* Short Answer settings */
+              <div style={{ marginBottom: "1rem", padding: "0.75rem", background: "#faf7f2", borderRadius: 8, border: "1px solid #ece6dd" }}>
+                <label className={styles.formLabel} style={{ marginBottom: "0.3rem", fontSize: "0.8rem" }}>
+                  <span>Minimum Characters Required</span>
+                </label>
+                <input
+                  type="number"
+                  min={5}
+                  max={300}
+                  value={qMinCharacters}
+                  onChange={(e) => setQMinCharacters(Number(e.target.value))}
+                  className={styles.formInput}
+                  style={{ maxWidth: 120 }}
+                />
+              </div>
+            )}
+
+            {/* Explanation / Solution Guidance */}
+            <div className={styles.formGroup} style={{ marginBottom: "1rem" }}>
+              <label className={styles.formLabel} style={{ marginBottom: "0.3rem", fontSize: "0.8rem" }}>
+                <span>Explanation &amp; Answer Feedback (Optional)</span>
+              </label>
+              <input
+                type="text"
+                placeholder="Feedback shown to learner after submitting..."
+                value={qExplanation}
+                onChange={(e) => setQExplanation(e.target.value)}
+                className={styles.formInput}
+                style={{ fontSize: "0.82rem" }}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={savingQuestion}
+              className={styles.btnPrimary}
+              style={{ width: "100%", justifyContent: "center", padding: "0.6rem", fontSize: "0.85rem", fontWeight: 700 }}
+            >
+              {savingQuestion
+                ? editingQuestionId
+                  ? "Updating Question..."
+                  : "Adding Question..."
+                : editingQuestionId
+                ? `Update Question ${editingQuestionNum}`
+                : `+ Add Question ${nextQuestionNum} to Exam`}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {/* Bottom Action Controls */}
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginTop: "2rem", paddingTop: "1.25rem", borderTop: "1px solid var(--border-light, #ece6dd)" }}>
+        <button
+          type="button"
+          disabled={savingAll}
+          className={styles.btnPrimary}
+          onClick={handleSaveFinalExam}
+          style={{ padding: "0.6rem 1.6rem", fontSize: "0.88rem", fontWeight: 700 }}
+        >
+          {savingAll ? "Saving Final Exam..." : "Save Final Exam"}
+        </button>
+      </div>
+
+      {/* Delete Confirmation Dialog */}
       <ConfirmDialog
         isOpen={Boolean(questionToDelete)}
-        onClose={() => setQuestionToDelete(null)}
-        onConfirm={handleConfirmDeleteQuestion}
-        title="Delete Exam Question"
-        description={`Are you sure you want to remove "${questionToDelete?.text?.slice(0, 80)}..." from the Final Exam question pool?`}
-        confirmText="Delete Question"
+        onClose={() => {
+          if (!isDeletingQuestion) setQuestionToDelete(null);
+        }}
+        onConfirm={confirmDeleteQuestion}
+        title="Delete Question"
+        description={
+          <>
+            Are you sure you want to delete this question?
+            <div style={{ marginTop: "8px", padding: "8px 10px", background: "#f8f5f0", borderRadius: "6px", fontStyle: "italic", fontSize: "0.85rem" }}>
+              &ldquo;{questionToDelete?.text}&rdquo;
+            </div>
+          </>
+        }
         tone="danger"
+        confirmText={isDeletingQuestion ? "Deleting..." : "Delete Question"}
+        cancelText="Cancel"
+        isLoading={isDeletingQuestion}
       />
 
-      {/* Publish Exam ConfirmDialog */}
-      <ConfirmDialog
-        isOpen={showPublishConfirm}
-        onClose={() => setShowPublishConfirm(false)}
-        onConfirm={handlePublish}
-        title="Publish Final Exam"
-        description={`Are you sure you want to publish "${title}"? Learners who complete all curriculum steps will immediately unlock this ${questionCount}-mark exam (randomly shuffled from ${questions.length} questions in pool).`}
-        confirmText="Publish Now"
+      {/* Media Preview Modal */}
+      <MediaPreviewModal
+        config={previewConfig}
+        onClose={() => setPreviewConfig(null)}
       />
-
-      {/* Bulk Markdown (.md) Question Upload Modal */}
-      <MarkdownQuestionImportModal
-        isOpen={isMarkdownModalOpen}
-        onClose={() => setIsMarkdownModalOpen(false)}
-        title={`Upload Markdown (.md) Questions — ${title || "Final Exam Pool"}`}
-        programTitle={programTitle || "11 Steps to U"}
-        existingQuestions={questions}
-        allowReplaceMode={true}
-        defaultSampleCount={70}
-        onImport={handleMarkdownImport}
-      />
-    </div>
+    </section>
   );
 }

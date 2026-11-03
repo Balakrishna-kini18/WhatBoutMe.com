@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import styles from "../curriculum.module.css";
 import { API_URL, errorMessage, uploadFile } from "../../../lib/api";
-import { Modal, useToast, MediaPreviewModal } from "../../../components";
+import { Modal, useToast, MediaPreviewModal, ConfirmDialog } from "../../../components";
 import type { MediaPreviewConfig } from "../../../components";
 
 interface Lesson {
@@ -30,11 +30,14 @@ interface Step2ModuleListProps {
   onSelectModule: (stepId: string) => void;
   onOpenCreateModal: () => void;
   onOpenAddLessonChooser: () => void;
+  onOpenAddVideoLesson?: () => void;
+  onOpenAddPdfLesson?: () => void;
   onOpenQuizBuilder: () => void;
   onPreviewModule?: (step: Step) => void;
   onDeleteModule: (stepId: string) => void;
-  onDeleteLesson: (lessonId: string) => void;
+  onDeleteLesson: (lessonId: string) => Promise<void> | void;
   onDeleteQuiz: () => void;
+  onEditLesson?: (lesson: Lesson, step: Step) => void;
   onUpdateModule?: (stepId: string, updates: { title: string; description: string }) => Promise<void>;
   onRefreshData?: () => Promise<void> | void;
   onBackToBasicDetails?: () => void;
@@ -48,10 +51,13 @@ export default function Step2ModuleList({
   onSelectModule,
   onOpenCreateModal,
   onOpenAddLessonChooser,
+  onOpenAddVideoLesson,
+  onOpenAddPdfLesson,
   onOpenQuizBuilder,
   onDeleteModule,
   onDeleteLesson,
   onDeleteQuiz,
+  onEditLesson,
   onUpdateModule,
   onRefreshData,
 }: Step2ModuleListProps) {
@@ -67,6 +73,9 @@ export default function Step2ModuleList({
 
   // Modal States
   const [previewConfig, setPreviewConfig] = useState<MediaPreviewConfig | null>(null);
+  const [isLessonTypeModalOpen, setIsLessonTypeModalOpen] = useState(false);
+  const [lessonToDelete, setLessonToDelete] = useState<{ id: string; title: string } | null>(null);
+  const [isDeletingLesson, setIsDeletingLesson] = useState(false);
 
   // Edit Lesson Modal
   const [editLesson, setEditLesson] = useState<{
@@ -275,19 +284,34 @@ export default function Step2ModuleList({
 
   // Preview Media
   const handlePreview = (lesson: Lesson) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (lesson.type === "VIDEO") {
+      let resolvedSrc = lesson.mediaUrl || "";
+      if (resolvedSrc.startsWith("upload:")) {
+        const rawKey = resolvedSrc.replace("upload:", "");
+        const streamingKey = rawKey.includes(".") ? rawKey : `${rawKey}.mp4`;
+        resolvedSrc = `${API_URL}/media/stream/${streamingKey}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+      } else if (resolvedSrc && !resolvedSrc.startsWith("http://") && !resolvedSrc.startsWith("https://") && !resolvedSrc.startsWith("/")) {
+        resolvedSrc = `${API_URL}/media/stream/${resolvedSrc}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+      }
       setPreviewConfig({
         isOpen: true,
         type: "VIDEO",
         title: lesson.title,
-        src: lesson.mediaUrl,
+        src: resolvedSrc,
       });
     } else if (lesson.type === "PDF") {
+      let resolvedSrc = lesson.mediaUrl || "";
+      if (lesson.id) {
+        resolvedSrc = `${API_URL}/media/document/${lesson.id}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+      } else if (resolvedSrc.startsWith("upload:")) {
+        resolvedSrc = `${API_URL}/media/stream/${resolvedSrc.replace("upload:", "")}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+      }
       setPreviewConfig({
         isOpen: true,
         type: "PDF",
         title: lesson.title,
-        src: lesson.mediaUrl,
+        src: resolvedSrc,
       });
     }
   };
@@ -297,24 +321,14 @@ export default function Step2ModuleList({
     setPreviewConfig({
       isOpen: true,
       type: "QUIZ",
-      title: currentStep.quiz.title || "Step Knowledge Check Quiz",
+      title: currentStep.quiz.title || `Step ${currentStep.sequence} Knowledge Check Quiz`,
       quizData: currentStep.quiz,
     });
   };
 
   return (
     <section className={styles.cardSurface}>
-      {/* Header */}
-      <div className={styles.cardHeaderArea}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
-          <div>
-            <h2 className={styles.stepTitle}>Steps &amp; Lessons</h2>
-          </div>
-          <span className={styles.moduleCountBadge}>
-            {steps.length} {steps.length === 1 ? "Step" : "Steps"}
-          </span>
-        </div>
-      </div>
+
 
       {/* 2-Column Split: Left Navigator | Right Editor */}
       <div className={styles.curriculumSplitLayout}>
@@ -496,7 +510,7 @@ export default function Step2ModuleList({
 
                 <div className={styles.formGroup}>
                   <label className={styles.formLabel}>
-                    <span>Step Description</span>
+                    <span>Step Description (Optional)</span>
                   </label>
                   <textarea
                     rows={2}
@@ -529,7 +543,7 @@ export default function Step2ModuleList({
                 <button
                   type="button"
                   className={styles.btnPrimary}
-                  onClick={onOpenAddLessonChooser}
+                  onClick={() => setIsLessonTypeModalOpen(true)}
                   style={{ padding: "0.5rem 0.9rem", fontSize: "0.82rem", height: "auto" }}
                 >
                   <svg
@@ -572,7 +586,7 @@ export default function Step2ModuleList({
                     <button
                       type="button"
                       className={styles.btnPrimary}
-                      onClick={onOpenAddLessonChooser}
+                      onClick={() => setIsLessonTypeModalOpen(true)}
                     >
                       + Add Lesson
                     </button>
@@ -615,12 +629,18 @@ export default function Step2ModuleList({
                               </svg>
                             </button>
 
-                            {/* Action 2: Edit Details */}
+                            {/* Action 2: Edit */}
                             <button
                               type="button"
                               className={styles.actionIconBtn}
-                              onClick={() => handleOpenEditLesson(lesson)}
-                              title="Edit Lesson Details"
+                              onClick={() => {
+                                if (onEditLesson && currentStep) {
+                                  onEditLesson(lesson, currentStep);
+                                } else {
+                                  handleOpenEditLesson(lesson);
+                                }
+                              }}
+                              title={`Edit ${isVideo ? "Video" : "PDF"} Lesson`}
                               aria-label="Edit Lesson"
                             >
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -629,26 +649,11 @@ export default function Step2ModuleList({
                               </svg>
                             </button>
 
-                            {/* Action 3: Replace Content */}
-                            <button
-                              type="button"
-                              className={styles.actionIconBtn}
-                              onClick={() => handleOpenReplaceContent(lesson)}
-                              title={`Replace ${isVideo ? "Video" : "PDF"} Content`}
-                              aria-label="Replace Content"
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                <polyline points="17 8 12 3 7 8" />
-                                <line x1="12" y1="3" x2="12" y2="15" />
-                              </svg>
-                            </button>
-
-                            {/* Action 4: Delete */}
+                            {/* Action 3: Delete */}
                             <button
                               type="button"
                               className={styles.actionIconBtnDanger}
-                              onClick={() => onDeleteLesson(lesson.id)}
+                              onClick={() => setLessonToDelete({ id: lesson.id, title: lesson.title })}
                               title="Delete Lesson"
                               aria-label="Delete Lesson"
                             >
@@ -791,7 +796,6 @@ export default function Step2ModuleList({
         isOpen={editLesson.isOpen}
         onClose={() => setEditLesson((prev) => ({ ...prev, isOpen: false, lesson: null }))}
         title="Edit Lesson Details"
-        subtitle={`Update title, duration, and study notes for "${editLesson.lesson?.title || ""}"`}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <div>
@@ -811,7 +815,7 @@ export default function Step2ModuleList({
           {editLesson.lesson?.type === "VIDEO" && (
             <div>
               <label className={styles.formLabel}>
-                <span>Duration (Minutes &amp; Seconds)</span>
+                <span>Duration (Minutes &amp; Seconds) <span style={{ fontSize: "0.75rem", color: "#78716a", fontWeight: 400 }}>(Auto-extracted from video)</span></span>
               </label>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
                 <div>
@@ -986,6 +990,223 @@ export default function Step2ModuleList({
       <MediaPreviewModal
         config={previewConfig}
         onClose={() => setPreviewConfig(null)}
+      />
+          {/* Modal: Select Lesson Type Popup */}
+      <Modal
+        isOpen={isLessonTypeModalOpen}
+        onClose={() => setIsLessonTypeModalOpen(false)}
+        title="Select Lesson Type"
+        maxWidth="560px"
+      >
+        <div style={{ padding: "0 0 0.5rem" }}>
+          <p style={{ margin: "-0.5rem 0 1.15rem", fontSize: "0.85rem", color: "#78716a" }}>
+            Choose the content type you want to attach to Step {currentStep?.sequence}:
+          </p>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.85rem" }}>
+            {/* 1. Video Lesson */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setIsLessonTypeModalOpen(false);
+                if (onOpenAddVideoLesson) onOpenAddVideoLesson();
+                else onOpenAddLessonChooser();
+              }}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "1.25rem 0.75rem",
+                borderRadius: "12px",
+                border: "1.5px solid #e7decb",
+                background: "#faf8f5",
+                cursor: "pointer",
+                textAlign: "center",
+                gap: "0.75rem",
+                transition: "all 0.18s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "var(--accent-primary, #c97a1e)";
+                e.currentTarget.style.background = "#fffbf5";
+                e.currentTarget.style.boxShadow = "0 4px 12px rgba(201, 122, 30, 0.12)";
+                e.currentTarget.style.transform = "translateY(-2px)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "#e7decb";
+                e.currentTarget.style.background = "#faf8f5";
+                e.currentTarget.style.boxShadow = "none";
+                e.currentTarget.style.transform = "none";
+              }}
+            >
+              <div
+                style={{
+                  width: 46,
+                  height: 46,
+                  borderRadius: "12px",
+                  background: "#eff6ff",
+                  color: "#2563eb",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+              </div>
+              <span style={{ fontSize: "0.88rem", fontWeight: 700, color: "#14110f" }}>
+                Video Lesson
+              </span>
+            </div>
+
+            {/* 2. PDF Document */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setIsLessonTypeModalOpen(false);
+                if (onOpenAddPdfLesson) onOpenAddPdfLesson();
+                else onOpenAddLessonChooser();
+              }}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "1.25rem 0.75rem",
+                borderRadius: "12px",
+                border: "1.5px solid #e7decb",
+                background: "#faf8f5",
+                cursor: "pointer",
+                textAlign: "center",
+                gap: "0.75rem",
+                transition: "all 0.18s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "var(--accent-primary, #c97a1e)";
+                e.currentTarget.style.background = "#fffbf5";
+                e.currentTarget.style.boxShadow = "0 4px 12px rgba(201, 122, 30, 0.12)";
+                e.currentTarget.style.transform = "translateY(-2px)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "#e7decb";
+                e.currentTarget.style.background = "#faf8f5";
+                e.currentTarget.style.boxShadow = "none";
+                e.currentTarget.style.transform = "none";
+              }}
+            >
+              <div
+                style={{
+                  width: 46,
+                  height: 46,
+                  borderRadius: "12px",
+                  background: "#fef2f2",
+                  color: "#dc2626",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+              </div>
+              <span style={{ fontSize: "0.88rem", fontWeight: 700, color: "#14110f" }}>
+                PDF Document
+              </span>
+            </div>
+
+            {/* 3. Quiz */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setIsLessonTypeModalOpen(false);
+                onOpenQuizBuilder();
+              }}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "1.25rem 0.75rem",
+                borderRadius: "12px",
+                border: "1.5px solid #e7decb",
+                background: "#faf8f5",
+                cursor: "pointer",
+                textAlign: "center",
+                gap: "0.75rem",
+                transition: "all 0.18s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "var(--accent-primary, #c97a1e)";
+                e.currentTarget.style.background = "#fffbf5";
+                e.currentTarget.style.boxShadow = "0 4px 12px rgba(201, 122, 30, 0.12)";
+                e.currentTarget.style.transform = "translateY(-2px)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "#e7decb";
+                e.currentTarget.style.background = "#faf8f5";
+                e.currentTarget.style.boxShadow = "none";
+                e.currentTarget.style.transform = "none";
+              }}
+            >
+              <div
+                style={{
+                  width: 46,
+                  height: 46,
+                  borderRadius: "12px",
+                  background: "#fdf4ff",
+                  color: "#9333ea",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+              </div>
+              <span style={{ fontSize: "0.88rem", fontWeight: 700, color: "#14110f" }}>
+                Quiz Assessment
+              </span>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Confirm Delete Lesson Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(lessonToDelete)}
+        title="Delete Lesson"
+        description={`Are you sure you want to delete "${lessonToDelete?.title || "this lesson"}"? This will permanently remove the lesson and its materials.`}
+        confirmText={isDeletingLesson ? "Deleting..." : "Delete Lesson"}
+        cancelText="Keep Lesson"
+        tone="danger"
+        isLoading={isDeletingLesson}
+        onConfirm={async () => {
+          if (lessonToDelete) {
+            setIsDeletingLesson(true);
+            try {
+              await onDeleteLesson(lessonToDelete.id);
+              setLessonToDelete(null);
+            } catch (err) {
+              console.error("Delete lesson error:", err);
+            } finally {
+              setIsDeletingLesson(false);
+            }
+          }
+        }}
+        onClose={() => {
+          if (!isDeletingLesson) {
+            setLessonToDelete(null);
+          }
+        }}
       />
     </section>
   );

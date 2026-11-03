@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { BatchStatus, Role } from '@prisma/client';
+import { BatchStatus, Role, ContentStatus } from '@prisma/client';
 import { BatchesService } from './batches.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
@@ -34,9 +34,13 @@ describe('D1-031: BatchesService - Cohort Management & Lifecycle Engine', () => 
       },
       enrolment: {
         count: vi.fn().mockResolvedValue(0),
+        findMany: vi.fn().mockResolvedValue([]),
+        update: vi.fn().mockResolvedValue({}),
       },
       session: {
         count: vi.fn().mockResolvedValue(0),
+        findMany: vi.fn().mockResolvedValue([]),
+        update: vi.fn().mockResolvedValue({}),
         findMany: vi.fn().mockResolvedValue([]),
       },
       outboxEvent: {
@@ -67,7 +71,7 @@ describe('D1-031: BatchesService - Cohort Management & Lifecycle Engine', () => 
   // ─────────────────────────────────────────────────────────────────────────────
   describe('Batch Creation & Entity Validation', () => {
     it('creates batch in UPCOMING status with capacity and initial trainers', async () => {
-      prismaMock.program.findUnique.mockResolvedValue({ id: 'prog-1', title: '11 Steps to U' });
+      prismaMock.program.findUnique.mockResolvedValue({ id: 'prog-1', title: '11 Steps to U', isActive: true, status: ContentStatus.PUBLISHED });
       prismaMock.user.findUnique.mockResolvedValue({ id: 'mgr-1', name: 'Manager Roweena', role: Role.MANAGER });
       prismaMock.user.findMany.mockResolvedValue([
         { id: 'tr-1', name: 'Trainer John', role: Role.MANAGER },

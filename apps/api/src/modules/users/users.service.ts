@@ -35,6 +35,7 @@ export class UsersService {
             orderBy: { createdAt: 'desc' },
           },
           enrolments: {
+            orderBy: { updatedAt: 'desc' },
             include: {
               program: true,
               batch: {
@@ -182,6 +183,7 @@ export class UsersService {
             select: { id: true, name: true },
           },
           enrolments: {
+            orderBy: { updatedAt: 'desc' },
             select: {
               id: true,
               batchId: true,
@@ -712,32 +714,52 @@ export class UsersService {
           });
           const isFull = occupiedCount >= batch.capacity;
 
-          if (targetEnrolmentId) {
+          if (targetEnrolmentId && targetEnrolmentId !== 'NEW') {
             const enrolmentToUpdate = await this.prisma.enrolment.findUnique({
               where: { id: targetEnrolmentId },
             });
             if (!enrolmentToUpdate || enrolmentToUpdate.userId !== id) {
               throw new NotFoundException(`Enrolment '${targetEnrolmentId}' not found for user`);
             }
-            if (enrolmentToUpdate.batchId !== targetBatchId) {
+
+            // Check if the learner already has a separate enrolment in the target batch's program
+            const existingInTargetProgram = await this.prisma.enrolment.findUnique({
+              where: { userId_programId: { userId: id, programId: batch.programId } },
+            });
+
+            const recordToUpdate =
+              existingInTargetProgram && existingInTargetProgram.id !== enrolmentToUpdate.id
+                ? existingInTargetProgram
+                : enrolmentToUpdate;
+
+            const occupiedForTarget = await this.prisma.enrolment.count({
+              where: {
+                batchId: targetBatchId,
+                id: { not: recordToUpdate.id },
+                status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED] },
+              },
+            });
+            const isTargetFull = occupiedForTarget >= batch.capacity;
+
+            if (recordToUpdate.batchId !== targetBatchId || recordToUpdate.status === EnrolmentStatus.WAITLIST) {
               await this.prisma.enrolment.update({
-                where: { id: enrolmentToUpdate.id },
+                where: { id: recordToUpdate.id },
                 data: {
                   batchId: targetBatchId,
                   programId: batch.programId,
-                  status: isFull
+                  status: isTargetFull
                     ? EnrolmentStatus.WAITLIST
-                    : enrolmentToUpdate.status === EnrolmentStatus.REVOKED
+                    : recordToUpdate.status === EnrolmentStatus.REVOKED || recordToUpdate.status === EnrolmentStatus.WAITLIST
                     ? EnrolmentStatus.ACTIVE
-                    : enrolmentToUpdate.status,
+                    : recordToUpdate.status,
                 },
               });
               await this.prisma.logAction({
                 actorId: reqUser?.sub || reqUser?.id,
                 action: 'BATCH_TRANSFERRED',
                 entity: 'Enrolment',
-                entityId: enrolmentToUpdate.id,
-                meta: { userId: id, fromBatchId: enrolmentToUpdate.batchId, toBatchId: targetBatchId, changedBy: reqUser?.sub || reqUser?.id }
+                entityId: recordToUpdate.id,
+                meta: { userId: id, fromBatchId: recordToUpdate.batchId, toBatchId: targetBatchId, changedBy: reqUser?.sub || reqUser?.id }
               });
             }
           } else {
@@ -746,14 +768,23 @@ export class UsersService {
             });
 
             if (existingProgEnrolment) {
-              if (existingProgEnrolment.batchId !== targetBatchId) {
+              const occupiedForTarget = await this.prisma.enrolment.count({
+                where: {
+                  batchId: targetBatchId,
+                  id: { not: existingProgEnrolment.id },
+                  status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED] },
+                },
+              });
+              const isTargetFull = occupiedForTarget >= batch.capacity;
+
+              if (existingProgEnrolment.batchId !== targetBatchId || existingProgEnrolment.status === EnrolmentStatus.WAITLIST) {
                 await this.prisma.enrolment.update({
                   where: { id: existingProgEnrolment.id },
                   data: {
                     batchId: targetBatchId,
-                    status: isFull
+                    status: isTargetFull
                       ? EnrolmentStatus.WAITLIST
-                      : existingProgEnrolment.status === EnrolmentStatus.REVOKED
+                      : existingProgEnrolment.status === EnrolmentStatus.REVOKED || existingProgEnrolment.status === EnrolmentStatus.WAITLIST
                       ? EnrolmentStatus.ACTIVE
                       : existingProgEnrolment.status,
                   },

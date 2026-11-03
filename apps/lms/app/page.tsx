@@ -243,7 +243,9 @@ export default function LearnerDashboardPage() {
       route:
         p.status === "PENDING_AGREEMENT"
           ? `/agreement?programId=${p.programId}&enrolmentId=${p.enrolmentId}`
-          : `/courses`,
+          : p.programId
+            ? `/programs/${p.programId}/steps`
+            : `/courses`,
     };
   });
 

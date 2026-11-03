@@ -19,6 +19,7 @@ import { EnrollmentsService } from './enrollments.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { EmailService } from '../email/email.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
+import { isRegistrationDeadlinePassed } from '../../common/utils/deadline.util.js';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator.js';
 import { CouponsService } from '../coupons/coupons.service.js';
 import {
@@ -279,9 +280,9 @@ export class CheckoutController {
       const occupied = batch?._count?.enrolments ?? 0;
       const capacity = batch?.capacity ?? 50;
       const isFull = occupied >= capacity;
-      const isDeadlinePassed = batch?.registrationDeadline
-        ? new Date() > new Date(batch.registrationDeadline)
-        : false;
+      const isDeadlinePassed = isRegistrationDeadlinePassed(batch?.registrationDeadline);
+
+
 
       if (isFull || isDeadlinePassed) {
         targetStatus = EnrolmentStatus.WAITLIST;

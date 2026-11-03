@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -18,14 +18,35 @@ import { confirmPasswordResetUser } from "@/lib/api";
 import {
   buildAuthHref,
   extractRedirectParam,
+  extractLmsOriginParam,
+  getStoredLmsOrigin,
   peekEnrollmentIntent,
 } from "@/lib/auth-redirect";
 
 function ResetPasswordContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
-  const activeRedirect =
-    extractRedirectParam(searchParams) ?? peekEnrollmentIntent()?.returnUrl ?? null;
+  const [activeRedirect, setActiveRedirect] = useState<string | null>(null);
+  const [activeLmsOrigin, setActiveLmsOrigin] = useState<string | null>(null);
+
+  useEffect(() => {
+    const redirectFromUrl = extractRedirectParam(searchParams);
+    const lmsOriginFromUrl = extractLmsOriginParam(searchParams);
+    const origin = lmsOriginFromUrl || getStoredLmsOrigin();
+
+    if (origin) {
+      setActiveLmsOrigin(origin);
+    }
+
+    if (redirectFromUrl) {
+      setActiveRedirect(redirectFromUrl);
+    } else {
+      const stored = peekEnrollmentIntent();
+      if (stored?.returnUrl) {
+        setActiveRedirect(stored.returnUrl);
+      }
+    }
+  }, [searchParams]);
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -74,13 +95,13 @@ function ResetPasswordContent() {
         </p>
         <div className="mt-8 space-y-3">
           <Link
-            href={buildAuthHref("/forgot-password", activeRedirect)}
+            href={buildAuthHref("/forgot-password", activeRedirect, undefined, activeLmsOrigin)}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-ink py-4 font-semibold text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
           >
             Request Reset Link
           </Link>
           <Link
-            href={buildAuthHref("/login", activeRedirect)}
+            href={buildAuthHref("/login", activeRedirect, undefined, activeLmsOrigin)}
             className="block text-center text-sm font-semibold text-gold-deep hover:underline"
           >
             Back to Sign In
@@ -104,7 +125,7 @@ function ResetPasswordContent() {
         </p>
         <div className="mt-8">
           <Link
-            href={buildAuthHref("/login", activeRedirect)}
+            href={buildAuthHref("/login", activeRedirect, undefined, activeLmsOrigin)}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-ink py-4 font-semibold text-cream transition-colors duration-200 hover:bg-gold hover:text-ink"
           >
             Proceed to Sign In

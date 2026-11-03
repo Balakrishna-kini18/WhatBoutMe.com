@@ -16,6 +16,7 @@ import {
   peekEnrollmentIntent,
   saveEnrollmentIntent,
   saveLmsOrigin,
+  getStoredLmsOrigin,
 } from "@/lib/auth-redirect";
 
 type Method = "email" | "mobile";
@@ -38,6 +39,7 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [deviceConflict, setDeviceConflict] = useState(false);
   const [activeRedirect, setActiveRedirect] = useState<string | null>(null);
+  const [activeLmsOrigin, setActiveLmsOrigin] = useState<string | null>(null);
   const forPortal = useSyncExternalStore(subscribe, headingForPortal, notForPortal);
 
   // The learner portal has no sign-in of its own and sends people here.
@@ -48,9 +50,11 @@ export default function LoginPage() {
     const reason = params.get("reason");
     const redirectFromUrl = extractRedirectParam(params);
     const lmsOriginFromUrl = extractLmsOriginParam(params);
+    const origin = lmsOriginFromUrl || getStoredLmsOrigin();
 
-    if (lmsOriginFromUrl) {
-      saveLmsOrigin(lmsOriginFromUrl);
+    if (origin) {
+      saveLmsOrigin(origin);
+      setActiveLmsOrigin(origin);
     }
 
     if (redirectFromUrl) {
@@ -69,7 +73,7 @@ export default function LoginPage() {
       window.history.replaceState(
         null,
         "",
-        redirectFromUrl ? buildAuthHref("/login", redirectFromUrl) : "/login",
+        redirectFromUrl ? buildAuthHref("/login", redirectFromUrl, undefined, origin) : "/login",
       );
     } else if (params.has("signout")) {
       signOut();
@@ -204,7 +208,7 @@ export default function LoginPage() {
               Password
             </label>
             <Link
-              href={buildAuthHref("/forgot-password", activeRedirect)}
+              href={buildAuthHref("/forgot-password", activeRedirect, undefined, activeLmsOrigin)}
               className="text-xs font-semibold text-gold-deep hover:underline"
             >
               Forgot password?
@@ -236,7 +240,7 @@ export default function LoginPage() {
       <p className="mt-6 text-center text-sm text-ink-soft">
         Don&apos;t have an account?{" "}
         <Link
-          href={buildAuthHref("/signup", activeRedirect)}
+          href={buildAuthHref("/signup", activeRedirect, undefined, activeLmsOrigin)}
           className="font-semibold text-gold-deep hover:underline"
         >
           Sign up

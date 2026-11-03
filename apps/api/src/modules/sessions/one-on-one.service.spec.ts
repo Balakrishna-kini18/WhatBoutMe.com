@@ -81,8 +81,8 @@ describe('OneOnOneService - Stage 4 Request & Approval Flow', () => {
       await expect(
         service.createRequest('user-1', {
           enrolmentId: 'enrol-1',
-          requestedStart: '2026-11-01T10:00:00.000Z',
-          requestedEnd: '2026-11-01T10:30:00.000Z',
+          requestedStart: new Date(Date.now() + 86400000).toISOString(),
+          requestedEnd: new Date(Date.now() + 86400000 + 1800000).toISOString(),
         }),
       ).rejects.toThrow(ForbiddenException);
 
@@ -101,8 +101,8 @@ describe('OneOnOneService - Stage 4 Request & Approval Flow', () => {
       await expect(
         service.createRequest('user-1', {
           enrolmentId: 'enrol-1',
-          requestedStart: '2026-11-01T10:00:00.000Z',
-          requestedEnd: '2026-11-01T10:30:00.000Z',
+          requestedStart: '2027-11-01T10:00:00.000Z',
+          requestedEnd: '2027-11-01T10:30:00.000Z',
         }),
       ).rejects.toThrow(ForbiddenException);
     });
@@ -120,8 +120,8 @@ describe('OneOnOneService - Stage 4 Request & Approval Flow', () => {
       await expect(
         service.createRequest('user-1', {
           enrolmentId: 'enrol-1',
-          requestedStart: '2026-11-01T10:00:00.000Z',
-          requestedEnd: '2026-11-01T10:30:00.000Z',
+          requestedStart: '2027-11-01T10:00:00.000Z',
+          requestedEnd: '2027-11-01T10:30:00.000Z',
         }),
       ).rejects.toThrow(ConflictException);
     });
@@ -148,11 +148,13 @@ describe('OneOnOneService - Stage 4 Request & Approval Flow', () => {
         userId: 'user-1',
         program: { id: 'prog-1', title: 'Program' },
       });
-      prismaMock.oneOnOneRequest.findFirst.mockResolvedValue({
-        id: 'old-req',
-        requestedStart: new Date(Date.now() - 24 * 60 * 60 * 1000),
-        status: OneOnOneRequestStatus.PENDING_APPROVAL,
-      });
+      prismaMock.oneOnOneRequest.findFirst
+        .mockResolvedValueOnce({
+          id: 'old-req',
+          requestedStart: new Date(Date.now() - 24 * 60 * 60 * 1000),
+          status: OneOnOneRequestStatus.PENDING_APPROVAL,
+        })
+        .mockResolvedValueOnce(null);
       prismaMock.oneOnOneRequest.update.mockResolvedValue({ id: 'old-req', status: OneOnOneRequestStatus.EXPIRED });
       prismaMock.oneOnOneRequest.create.mockResolvedValue({
         id: 'new-req',
@@ -186,8 +188,8 @@ describe('OneOnOneService - Stage 4 Request & Approval Flow', () => {
       await expect(
         service.createRequest('user-1', {
           enrolmentId: 'enrol-1',
-          requestedStart: '2026-11-01T10:30:00.000Z',
-          requestedEnd: '2026-11-01T10:00:00.000Z',
+          requestedStart: '2027-11-01T10:30:00.000Z',
+          requestedEnd: '2027-11-01T10:00:00.000Z',
         }),
       ).rejects.toThrow(BadRequestException);
     });
@@ -208,8 +210,8 @@ describe('OneOnOneService - Stage 4 Request & Approval Flow', () => {
 
       const res = await service.createRequest('user-1', {
         enrolmentId: 'enrol-1',
-        requestedStart: '2026-11-01T10:00:00.000Z',
-        requestedEnd: '2026-11-01T10:30:00.000Z',
+        requestedStart: '2027-11-01T10:00:00.000Z',
+        requestedEnd: '2027-11-01T10:30:00.000Z',
         notes: 'Discussion on personal vision statement',
         learnerTimezone: 'Asia/Dubai',
       });
@@ -357,8 +359,8 @@ describe('OneOnOneService - Stage 4 Request & Approval Flow', () => {
         userId: 'user-1',
         enrolmentId: 'enrol-1',
         status: OneOnOneRequestStatus.PENDING_APPROVAL,
-        requestedStart: new Date('2026-11-01T10:00:00.000Z'),
-        requestedEnd: new Date('2026-11-01T10:30:00.000Z'),
+        requestedStart: new Date(Date.now() + 86400000),
+        requestedEnd: new Date(Date.now() + 86400000 + 1800000),
         user: { name: 'Learner One', email: 'learner@example.com' },
         enrolment: { program: { title: 'Program 1' } },
       });
@@ -380,8 +382,8 @@ describe('OneOnOneService - Stage 4 Request & Approval Flow', () => {
     });
 
     it('successfully approves request, provisions Zoom session and booking, and notifies learner', async () => {
-      const requestedStart = new Date('2026-11-01T10:00:00.000Z');
-      const requestedEnd = new Date('2026-11-01T10:30:00.000Z');
+      const requestedStart = new Date(Date.now() + 86400000);
+      const requestedEnd = new Date(Date.now() + 86400000 + 1800000);
 
       prismaMock.oneOnOneRequest.findUnique.mockResolvedValue({
         id: 'req-1',

@@ -6,7 +6,7 @@ import {
   Logger,
   Optional,
 } from '@nestjs/common';
-import { LeadStatus, Role, SessionStatus, SessionType } from '@prisma/client';
+import { LeadStatus, Role, SessionStatus, SessionType, OneOnOneRequestStatus } from '@prisma/client';
 import { CALENDAR_PROVIDER, type ICalendarProvider } from '../../common/interfaces/calendar-provider.interface.js';
 import { MEETING_PROVIDER, type IMeetingProvider } from '../../common/interfaces/meeting-provider.interface.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -29,6 +29,7 @@ export interface AvailableSlot {
   timeLocal: string;
   timeGst: string;
   timeIst: string;
+  isBooked: boolean;
 }
 
 function formatIcsTimestamp(d: Date): string {
@@ -121,25 +122,29 @@ export class DiscoveryService {
       return { date: dateStr, timezone: tz, hostName, slots: [] };
     }
 
-    // 1. Fetch DB Busy Sessions in this window (live cohort sessions + 1:1s + discovery calls)
+    // 1. Fetch DB Busy Sessions in this window (live cohort sessions + 1:1s + discovery calls + workshops)
     const dbSessions = await this.prisma.session.findMany({
       where: {
         status: { notIn: [SessionStatus.CANCELLED, SessionStatus.RESCHEDULED] },
         startTime: { lt: windowEnd },
         endTime: { gt: windowStart },
-        OR: [
-          ...(roweena?.id ? [{ hostTrainerId: roweena.id }] : []),
-          { sessionType: SessionType.SPEAKER_DISCOVERY_CALL },
-          { sessionType: SessionType.ONE_ON_ONE_WITH_RO },
-          { sessionType: SessionType.GROUP_COHORT },
-          { sessionType: SessionType.BATCH_CLASS },
-          { batchId: { not: null } },
-        ],
       },
       select: { startTime: true, endTime: true },
     });
 
-    // 2. Fetch Outlook Busy Blocks if Microsoft Graph is configured
+    // 2. Fetch pending or approved 1-on-1 coaching requests in this window
+    const pendingCoachingRequests = typeof (this.prisma as any).oneOnOneRequest?.findMany === 'function'
+      ? await this.prisma.oneOnOneRequest.findMany({
+      where: {
+        status: { in: [OneOnOneRequestStatus.PENDING_APPROVAL, OneOnOneRequestStatus.APPROVED] },
+        requestedStart: { lt: windowEnd },
+        requestedEnd: { gt: windowStart },
+      },
+      select: { requestedStart: true, requestedEnd: true },
+    })
+      : [];
+
+    // 3. Fetch Outlook Busy Blocks if Microsoft Graph is configured
     let outlookBusy: Array<{ startTime: Date; endTime: Date }> = [];
     if (this.calendarProvider) {
       try {
@@ -151,10 +156,11 @@ export class DiscoveryService {
 
     const busyIntervals = [
       ...dbSessions.map((s) => ({ start: s.startTime.getTime(), end: s.endTime.getTime() })),
+      ...pendingCoachingRequests.map((r) => ({ start: r.requestedStart.getTime(), end: r.requestedEnd.getTime() })),
       ...outlookBusy.map((b) => ({ start: b.startTime.getTime(), end: b.endTime.getTime() })),
     ];
 
-    // 3. Generate candidate 15-minute slots
+    // 4. Generate candidate 15-minute slots across the entire business day window
     const slots: AvailableSlot[] = [];
     const minAdvanceNoticeMs = 30 * 60 * 1000; // 30 minutes advance notice
     let cursor = windowStart.getTime();
@@ -164,54 +170,58 @@ export class DiscoveryService {
       const slotEndMs = cursor + 15 * 60 * 1000;
       cursor += 15 * 60 * 1000;
 
-      // Skip slots in past or starting within 30 minutes
-      if (slotStartMs < nowUtc.getTime() + minAdvanceNoticeMs) {
+      // Skip slots that have already completely ended earlier today
+      if (slotEndMs <= nowUtc.getTime()) {
         continue;
       }
+
+      // Check if slot starts too soon within advance notice buffer
+      const isTooSoon = slotStartMs < nowUtc.getTime() + minAdvanceNoticeMs;
 
       // Check overlap against busy intervals: overlap occurs if busy.start < slotEnd && busy.end > slotStart
       const hasClash = busyIntervals.some(
         (busy) => busy.start < slotEndMs && busy.end > slotStartMs,
       );
 
-      if (!hasClash) {
-        const slotStart = new Date(slotStartMs);
-        const slotEnd = new Date(slotEndMs);
+      const isBooked = hasClash || isTooSoon;
 
-        // Local timezone display
-        const timeLocal = new Intl.DateTimeFormat('en-US', {
-          timeZone: tz,
+      const slotStart = new Date(slotStartMs);
+      const slotEnd = new Date(slotEndMs);
+
+      // Local timezone display
+      const timeLocal = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).format(slotStart);
+
+      // Dubai (GST) display
+      const timeGst =
+        new Intl.DateTimeFormat('en-US', {
+          timeZone: 'Asia/Dubai',
           hour: 'numeric',
           minute: '2-digit',
           hour12: true,
-        }).format(slotStart);
+        }).format(slotStart) + ' GST';
 
-        // Dubai (GST) display
-        const timeGst =
-          new Intl.DateTimeFormat('en-US', {
-            timeZone: 'Asia/Dubai',
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true,
-          }).format(slotStart) + ' GST';
+      // India (IST) display
+      const timeIst =
+        new Intl.DateTimeFormat('en-US', {
+          timeZone: 'Asia/Kolkata',
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        }).format(slotStart) + ' IST';
 
-        // India (IST) display
-        const timeIst =
-          new Intl.DateTimeFormat('en-US', {
-            timeZone: 'Asia/Kolkata',
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true,
-          }).format(slotStart) + ' IST';
-
-        slots.push({
-          slotStartUtc: slotStart.toISOString(),
-          slotEndUtc: slotEnd.toISOString(),
-          timeLocal,
-          timeGst,
-          timeIst,
-        });
-      }
+      slots.push({
+        slotStartUtc: slotStart.toISOString(),
+        slotEndUtc: slotEnd.toISOString(),
+        timeLocal,
+        timeGst,
+        timeIst,
+        isBooked,
+      });
     }
 
     return {

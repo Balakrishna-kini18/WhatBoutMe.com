@@ -158,6 +158,38 @@ export class OneOnOneService {
       throw new BadRequestException('Requested end time must be after start time');
     }
 
+    // 3.5 Check for conflicts against active sessions in the admin calendar and other requests
+    const sessionClash = typeof (this.prisma as any).session?.findFirst === 'function'
+      ? await this.prisma.session.findFirst({
+      where: {
+        status: { notIn: [SessionStatus.CANCELLED, SessionStatus.RESCHEDULED] },
+        startTime: { lt: requestedEnd },
+        endTime: { gt: requestedStart },
+      },
+    })
+      : null;
+
+    if (sessionClash) {
+      throw new ConflictException(
+        'The requested time slot is already scheduled on the instructor calendar. Please select another time.',
+      );
+    }
+
+    const pendingRequestClash = await this.prisma.oneOnOneRequest.findFirst({
+      where: {
+        status: { in: [OneOnOneRequestStatus.PENDING_APPROVAL, OneOnOneRequestStatus.APPROVED] },
+        requestedStart: { lt: requestedEnd },
+        requestedEnd: { gt: requestedStart },
+        ...(existingPending ? { id: { not: existingPending.id } } : {}),
+      },
+    });
+
+    if (pendingRequestClash) {
+      throw new ConflictException(
+        'The requested time slot already has a coaching request pending or approved. Please select another time.',
+      );
+    }
+
     // 4. Create request
     const request = await this.prisma.oneOnOneRequest.create({
       data: {

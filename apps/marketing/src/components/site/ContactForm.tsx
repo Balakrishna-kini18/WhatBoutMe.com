@@ -56,6 +56,7 @@ interface AvailableSlot {
   timeLocal: string;
   timeGst: string;
   timeIst: string;
+  isBooked?: boolean;
 }
 
 interface BookingResponse {
@@ -392,7 +393,7 @@ function ConsultationHeaderGraphic() {
         return;
       }
 
-      if (!selectedSlot) {
+      if (!selectedSlot || selectedSlot.isBooked) {
         setError("Please select an available 15-minute time slot from the calendar.");
         return;
       }
@@ -823,9 +824,23 @@ function ConsultationHeaderGraphic() {
 
             {/* Available Slots Grid */}
             <div>
-              <label className="mb-1 block text-xs font-semibold text-stone-700">
-                Available 15-Minute Slots ({selectedDate}) *
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-stone-700">
+                  Available 15-Minute Slots ({selectedDate}) *
+                </label>
+                {slots.length > 0 && !isLoadingSlots && (
+                  <div className="flex items-center gap-2.5 text-[10px] text-stone-500 font-medium">
+                    <span className="inline-flex items-center gap-1">
+                      <span className="h-2 w-2 rounded-full bg-amber-500 ring-2 ring-amber-500/20" />
+                      <span>Available</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="h-2 w-2 rounded-full bg-stone-300" />
+                      <span>Booked</span>
+                    </span>
+                  </div>
+                )}
+              </div>
 
               {isLoadingSlots ? (
                 <div className="py-6 text-center text-xs text-stone-500 bg-stone-50/70 rounded-xl border border-stone-200 flex items-center justify-center gap-2">
@@ -834,30 +849,56 @@ function ConsultationHeaderGraphic() {
                 </div>
               ) : slots.length === 0 ? (
                 <div className="py-6 text-center text-xs text-stone-500 bg-stone-50/70 rounded-xl border border-stone-200">
-                  No open 15-minute slots on this date. Please pick another date above.
+                  No 15-minute slots on this date. Please pick another date above.
                 </div>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5 pt-0.5">
-                  {slots.map((slot) => {
-                    const isSelected = selectedSlot?.slotStartUtc === slot.slotStartUtc;
-                    return (
-                      <button
-                        key={slot.slotStartUtc}
-                        type="button"
-                        onClick={() => setSelectedSlot(slot)}
-                        className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between min-h-[50px] ${isSelected
-                            ? "bg-[#FFFBF5] border-[#E5A84B] ring-1 ring-[#E5A84B]/40 text-[#1A1412] font-semibold shadow-xs"
-                            : "bg-white border-stone-200 text-[#1A1412] hover:border-amber-400/80 hover:bg-[#FFFBF5]/30"
+                <>
+                  {slots.length > 0 && slots.every((s) => s.isBooked) && (
+                    <div className="mb-2 p-2.5 rounded-xl bg-amber-50/80 border border-amber-200/80 text-xs text-amber-800 flex items-center gap-2">
+                      <Clock className="h-4 w-4 shrink-0 text-amber-700" />
+                      <span>All slots on this date are already booked. Please choose another date from the calendar above.</span>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5 pt-0.5">
+                    {slots.map((slot) => {
+                      const isBooked = Boolean(slot.isBooked);
+                      const isSelected = !isBooked && selectedSlot?.slotStartUtc === slot.slotStartUtc;
+                      return (
+                        <button
+                          key={slot.slotStartUtc}
+                          type="button"
+                          disabled={isBooked}
+                          aria-disabled={isBooked}
+                          onClick={() => {
+                            if (isBooked) return;
+                            setSelectedSlot(slot);
+                          }}
+                          className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between min-h-[52px] relative ${
+                            isBooked
+                              ? "bg-stone-100/70 border-stone-200/80 text-stone-400 cursor-not-allowed select-none opacity-70"
+                              : isSelected
+                                ? "bg-[#FFFBF5] border-[#E5A84B] ring-1 ring-[#E5A84B]/40 text-[#1A1412] font-semibold shadow-xs"
+                                : "bg-white border-stone-200 text-[#1A1412] hover:border-amber-400/80 hover:bg-[#FFFBF5]/30 cursor-pointer"
                           }`}
-                      >
-                        <span className="text-xs sm:text-sm font-bold block">{slot.timeLocal}</span>
-                        <span className="text-[10px] text-stone-400 block mt-0.5 font-normal leading-tight">
-                          {slot.timeGst} · {slot.timeIst}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                        >
+                          <div className="flex items-center justify-between w-full">
+                            <span className={`text-xs sm:text-sm font-bold block ${isBooked ? "text-stone-400 line-through decoration-stone-300" : ""}`}>
+                              {slot.timeLocal}
+                            </span>
+                            {isBooked && (
+                              <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-stone-200/80 text-stone-600 border border-stone-300/80 leading-none">
+                                Booked
+                              </span>
+                            )}
+                          </div>
+                          <span className={`text-[10px] block mt-0.5 font-normal leading-tight ${isBooked ? "text-stone-400/70" : "text-stone-400"}`}>
+                            {slot.timeGst} · {slot.timeIst}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
               )}
             </div>
           </div>

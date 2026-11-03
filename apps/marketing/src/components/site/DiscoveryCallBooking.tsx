@@ -24,6 +24,7 @@ interface AvailableSlot {
   timeLocal: string;
   timeGst: string;
   timeIst: string;
+  isBooked?: boolean;
 }
 
 interface BookingResponse {
@@ -134,7 +135,7 @@ export default function DiscoveryCallBooking({
   }, [selectedDate, selectedTz]);
 
   const handleConfirmBooking = async () => {
-    if (!selectedSlot) return;
+    if (!selectedSlot || selectedSlot.isBooked) return;
     setBookingBusy(true);
     setBookingError("");
 
@@ -380,9 +381,23 @@ export default function DiscoveryCallBooking({
 
       {/* Slots Grid */}
       <div className="mb-6">
-        <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-ink-soft">
-          Available 15-Minute Slots ({selectedDate}) *
-        </label>
+        <div className="flex items-center justify-between mb-2">
+          <label className="block text-xs font-bold uppercase tracking-wider text-ink-soft">
+            Available 15-Minute Slots ({selectedDate}) *
+          </label>
+          {slots.length > 0 && !isLoadingSlots && (
+            <div className="flex items-center gap-2.5 text-[10px] text-ink-soft font-medium">
+              <span className="inline-flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-gold-deep" />
+                <span>Available</span>
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-sand" />
+                <span>Booked</span>
+              </span>
+            </div>
+          )}
+        </div>
 
         {isLoadingSlots ? (
           <div className="py-8 text-center text-xs text-ink-soft bg-white rounded-xl border border-line">
@@ -393,28 +408,53 @@ export default function DiscoveryCallBooking({
             No open 15-minute slots on this date. Please pick another date above.
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 max-h-64 overflow-y-auto p-1 border border-sand bg-white/60 rounded-xl">
-            {slots.map((slot) => {
-              const isSelected = selectedSlot?.slotStartUtc === slot.slotStartUtc;
-              return (
-                <button
-                  key={slot.slotStartUtc}
-                  type="button"
-                  onClick={() => setSelectedSlot(slot)}
-                  className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
-                    isSelected
-                      ? "bg-gold/15 border-gold-deep text-ink ring-1 ring-gold-deep"
-                      : "bg-white border-line text-ink hover:border-gold-deep"
-                  }`}
-                >
-                  <span className="text-xs sm:text-sm font-bold block">{slot.timeLocal}</span>
-                  <span className="text-[10px] text-ink-soft block mt-1">
-                    {slot.timeGst} · {slot.timeIst}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <>
+            {slots.length > 0 && slots.every((s) => s.isBooked) && (
+              <div className="mb-3 p-3 rounded-xl bg-amber-50/80 border border-amber-200/80 text-xs text-amber-800 flex items-center gap-2">
+                <Clock className="h-4 w-4 shrink-0 text-amber-700" />
+                <span>All slots on this date are already booked. Please choose another date above.</span>
+              </div>
+            )}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 max-h-64 overflow-y-auto p-1 border border-sand bg-white/60 rounded-xl">
+              {slots.map((slot) => {
+                const isBooked = Boolean(slot.isBooked);
+                const isSelected = !isBooked && selectedSlot?.slotStartUtc === slot.slotStartUtc;
+                return (
+                  <button
+                    key={slot.slotStartUtc}
+                    type="button"
+                    disabled={isBooked}
+                    aria-disabled={isBooked}
+                    onClick={() => {
+                      if (isBooked) return;
+                      setSelectedSlot(slot);
+                    }}
+                    className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
+                      isBooked
+                        ? "bg-sand/30 border-sand text-ink-soft/60 cursor-not-allowed select-none opacity-60"
+                        : isSelected
+                          ? "bg-gold/15 border-gold-deep text-ink ring-1 ring-gold-deep"
+                          : "bg-white border-line text-ink hover:border-gold-deep cursor-pointer"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className={`text-xs sm:text-sm font-bold block ${isBooked ? "line-through text-ink-soft/60" : ""}`}>
+                        {slot.timeLocal}
+                      </span>
+                      {isBooked && (
+                        <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-sand/60 text-ink-soft leading-none">
+                          Booked
+                        </span>
+                      )}
+                    </div>
+                    <span className={`text-[10px] block mt-1 ${isBooked ? "text-ink-soft/40" : "text-ink-soft"}`}>
+                      {slot.timeGst} · {slot.timeIst}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
 

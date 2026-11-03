@@ -103,7 +103,7 @@ export function LearnerPortalFlow({
           key: "STAGE_5_MISSION_STATEMENT",
           stageNumber: 5,
           title: "Mission Statement",
-          description: "Handwritten upload review triggering automated graduation certificate.",
+          description: "Handwritten upload review triggering completion certificate.",
           isUnlocked: Boolean(st.STAGE_5_MISSION_STATEMENT?.isUnlocked),
           isCompleted: Boolean(st.STAGE_5_MISSION_STATEMENT?.isCompleted),
           completedAt: st.STAGE_5_MISSION_STATEMENT?.completedAt,

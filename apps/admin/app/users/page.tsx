@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { CustomSelect, ActionMenu, StatusBadge, useToast, Modal, TableSkeleton, EmptyState, Pagination, SortIndicator } from "../components";
-import { apiGet, API_URL } from "../lib/api";
+import { apiGet, API_URL, invalidateCache } from "../lib/api";
 
 const RevokeAccessModal = dynamic(
   () => import("../components/RevokeAccessModal").then((mod) => mod.RevokeAccessModal),
@@ -104,7 +104,7 @@ export default function UsersPage() {
 
 function UsersContent() {
   const searchParams = useSearchParams();
-  const { success: toastSuccess } = useToast();
+  const { success: toastSuccess, error: toastError } = useToast();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [revokingUser, setRevokingUser] = useState<User | null>(null);
@@ -115,7 +115,7 @@ function UsersContent() {
   const [search, setSearch] = useState("");
   const [pageSize, setPageSize] = useState(10);
   const limit = pageSize;
-  const [batches, setBatches] = useState<{id: string, name: string}[]>([]);
+  const [batches, setBatches] = useState<Array<{ id: string; name: string; programId?: string; programTitle?: string; status?: string }>>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const [roleFilter, setRoleFilter] = useState<"ALL" | "USER" | "MANAGER" | "ADMIN" | "SUPER_ADMIN">("ALL");
@@ -166,6 +166,8 @@ function UsersContent() {
   // Quick Assign Batch Modal State
   const [assignBatchUser, setAssignBatchUser] = useState<User | null>(null);
   const [assignBatchId, setAssignBatchId] = useState<string>("");
+  const [assignEnrolmentId, setAssignEnrolmentId] = useState<string>("");
+  const [assignBatchError, setAssignBatchError] = useState<string>("");
   const [isAssigningBatch, setIsAssigningBatch] = useState(false);
 
   // Form states
@@ -277,7 +279,16 @@ function UsersContent() {
       });
       if (res.ok) {
         const data = await res.json();
-        setBatches(Array.isArray(data) ? data : data.batches || []);
+        const rawList = Array.isArray(data) ? data : data.batches || [];
+        setBatches(
+          rawList.map((b: any) => ({
+            id: b.id,
+            name: b.name,
+            programId: b.programId || b.program?.id,
+            programTitle: b.program?.title,
+            status: b.status,
+          }))
+        );
       }
     } catch (e) {
       console.error(e);
@@ -963,7 +974,88 @@ function UsersContent() {
     setIsModalOpen(true);
   };
 
-  const openAssignBatchModal = (user: User) => {
+  const openAssignBatchModal = (user: User, activeEnr?: UserEnrolment) => {
+    setAssignBatchUser(user);
+    setAssignBatchError("");
+    if (user.role === "MANAGER") {
+      setAssignEnrolmentId("");
+      setAssignBatchId(user.managedBatches?.[0]?.id || user.batchId || "");
+    } else {
+      const targetEnr =
+        activeEnr ||
+        user.enrolments?.find((e) => e.status !== "REVOKED") ||
+        user.enrolments?.[0] ||
+        null;
+      setAssignEnrolmentId(targetEnr?.id || user.enrolmentId || "NEW");
+      setAssignBatchId(targetEnr?.batchId || user.batchId || "");
+    }
+  };
+
+  const handleAssignBatchSubmit = async () => {
+    if (!assignBatchUser || isAssigningBatch) return;
+    if (assignBatchUser.role === "USER" && !assignBatchId) {
+      setAssignBatchError("Please select a batch to assign.");
+      return;
+    }
+    setAssignBatchError("");
+    setIsAssigningBatch(true);
+    try {
+      const token = localStorage.getItem("token");
+      const payload =
+        assignBatchUser.role === "MANAGER"
+          ? {
+              batchId: assignBatchId || null,
+              batchIds: assignBatchId ? [assignBatchId] : [],
+            }
+          : {
+              batchId: assignBatchId,
+              enrolmentId:
+                assignEnrolmentId && assignEnrolmentId !== "NEW"
+                  ? assignEnrolmentId
+                  : undefined,
+            };
+
+      const res = await fetch(`${API_URL}/users/${assignBatchUser.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        if (assignBatchUser.role === "USER" && assignEnrolmentId && assignEnrolmentId !== "NEW") {
+          setSelectedProgramByUser((prev) => ({
+            ...prev,
+            [assignBatchUser.id]: assignEnrolmentId,
+          }));
+        }
+        invalidateCache("/users");
+        invalidateCache("/batches");
+        toastSuccess(`Assigned ${assignBatchUser.name || "user"} to batch.`);
+        setAssignBatchUser(null);
+        fetchUsers();
+        fetchBatches();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        const raw = err?.error?.message ?? err?.message;
+        const msg = (Array.isArray(raw) ? raw.join(", ") : raw) || "Failed to assign batch.";
+        setAssignBatchError(msg);
+        toastError(msg);
+      }
+    } catch (e: any) {
+      const msg = e?.message || "Connection error while assigning batch.";
+      setAssignBatchError(msg);
+      toastError(msg);
+    } finally {
+      setIsAssigningBatch(false);
+    }
+  };
+
+  const _unusedAssignBatchPlaceholder = () => {
+    // removed
+  };
+  /*
     setAssignBatchUser(user);
     setAssignBatchId(user.batchId || "");
   };
@@ -996,6 +1088,7 @@ function UsersContent() {
     }
   };
 
+  */
   const handleOpenRevokeModal = (user: User) => {
     setRevokingUser(user);
     setIsRevokeModalOpen(true);
@@ -1122,7 +1215,7 @@ function UsersContent() {
         </div>
       </header>
 
-      {/* Segmented Navigation: People vs Organizations */}
+      {false && (
       <div
         style={{
           display: "flex",
@@ -1164,7 +1257,13 @@ function UsersContent() {
           Organizations & Resellers
         </Link>
       </div>
+      )}
+      {/*
+        </Link>
+      </div>
 
+      {!isManager && (
+      */}
       {!isManager && (
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" }}>
           <div className={styles.tabsContainer} role="tablist" aria-label="User directory views" style={{ gap: "0.5rem", flexWrap: "wrap", margin: 0 }}>
@@ -1953,7 +2052,7 @@ function UsersContent() {
                           ? [
                               {
                                 label: "Assign Batch",
-                                onClick: () => openAssignBatchModal(user),
+                                onClick: () => openAssignBatchModal(user, activeEnrolment),
                                 icon: (
                                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                     <polygon points="12 2 2 7 12 12 22 7 12 2" />
@@ -2082,7 +2181,7 @@ function UsersContent() {
                     Select Primary Role <span style={{ color: "var(--accent-primary)" }}>*</span>
                   </label>
 
-                  {!editingUserId && (
+                  {false && !editingUserId && (
                     <div
                       style={{
                         background: "#fdf8f0",
@@ -2390,6 +2489,100 @@ function UsersContent() {
             </>
           }
         >
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginTop: "0.5rem" }}>
+            {assignBatchError && (
+              <div
+                role="alert"
+                style={{
+                  padding: "0.65rem 0.9rem",
+                  borderRadius: "8px",
+                  background: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  color: "#b91c1c",
+                  fontSize: "0.82rem",
+                }}
+              >
+                {assignBatchError}
+              </div>
+            )}
+
+            {assignBatchUser.role === "USER" && (assignBatchUser.enrolments?.length || 0) > 0 && (
+              <div className={styles.formGroup}>
+                <label style={{ display: "block", marginBottom: "0.4rem", fontWeight: 600, fontSize: "0.85rem", color: "var(--text-primary)" }}>
+                  Enrolment to Update
+                </label>
+                <CustomSelect
+                  fullWidth
+                  value={assignEnrolmentId}
+                  onChange={(val) => {
+                    setAssignEnrolmentId(val);
+                    if (val === "NEW") {
+                      setAssignBatchId("");
+                    } else {
+                      const found = assignBatchUser.enrolments?.find((e) => e.id === val);
+                      setAssignBatchId(found?.batchId || "");
+                    }
+                  }}
+                  options={[
+                    ...(assignBatchUser.enrolments || []).map((e) => ({
+                      value: e.id,
+                      label: `${e.programTitle || "Program"} — ${e.batchName && e.batchName !== "Unassigned" ? e.batchName : "Unassigned"}`,
+                    })),
+                    { value: "NEW", label: "+ Enroll in Another Program / Batch" },
+                  ]}
+                  ariaLabel="Select enrolment to update"
+                />
+              </div>
+            )}
+
+            <div className={styles.formGroup}>
+              <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: 600, fontSize: "0.875rem", color: "var(--text-primary)" }}>
+                Select Batch
+              </label>
+              {(() => {
+                const selectedEnr =
+                  assignBatchUser.role === "USER" && assignEnrolmentId !== "NEW"
+                    ? assignBatchUser.enrolments?.find((e) => e.id === assignEnrolmentId)
+                    : null;
+                const activeBatches = batches.filter(
+                  (b) =>
+                    b.id === assignBatchId ||
+                    (b.status?.toUpperCase() !== "COMPLETED" && b.status?.toUpperCase() !== "ARCHIVED")
+                );
+                const sortedBatchChoices = [...activeBatches].sort((a, b) => {
+                  if (selectedEnr?.programId) {
+                    const aMatch = a.programId === selectedEnr.programId ? 0 : 1;
+                    const bMatch = b.programId === selectedEnr.programId ? 0 : 1;
+                    if (aMatch !== bMatch) return aMatch - bMatch;
+                  }
+                  return (a.name || "").localeCompare(b.name || "");
+                });
+                return (
+                  <CustomSelect
+                    fullWidth
+                    options={[
+                      ...(assignBatchUser.role === "MANAGER"
+                        ? [{ value: "", label: "No Batch Assigned (Unassigned)" }]
+                        : []),
+                      ...sortedBatchChoices.map((b) => ({
+                        value: b.id,
+                        label: b.programTitle ? `${b.name} (${b.programTitle})` : b.name,
+                      })),
+                    ]}
+                    value={assignBatchId}
+                    onChange={(val) => setAssignBatchId(val)}
+                    placeholder="Select batch..."
+                  />
+                );
+              })()}
+            </div>
+          </div>
+          {false && (
+          <div className={styles.formGroup} style={{ marginTop: "0.5rem" }}>
+            {/* legacy */}
+          </div>
+          )}
+          {/*
           <div className={styles.formGroup} style={{ marginTop: "0.5rem" }}>
             <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: 600, fontSize: "0.875rem", color: "var(--text-primary)" }}>
               Select Batch
@@ -2407,6 +2600,7 @@ function UsersContent() {
               placeholder="Select batch..."
             />
           </div>
+          */}
         </Modal>
       )}
 

@@ -129,6 +129,14 @@ const Icons = {
   ),
   Events: () => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z" />
+      <path d="M13 5v2" />
+      <path d="M13 11v2" />
+      <path d="M13 17v2" />
+    </svg>
+  ),
+  Calendar: () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
       <line x1="16" y1="2" x2="16" y2="6" />
       <line x1="8" y1="2" x2="8" y2="6" />
@@ -284,16 +292,7 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
     iconName: "Programs",
     keywords: ["courses", "curriculum", "lessons", "tracks", "syllabus", "content"],
   },
-  {
-    id: "quizzes",
-    title: "Question Bank & Quizzes",
-    description: "Assessments, test questions, grading rubrics, and quizzes",
-    href: "/quizzes",
-    category: "Curriculum",
-    iconName: "QuestionBank",
-    keywords: ["exams", "assessments", "tests", "questions", "grading"],
-  },
-  {
+    {
     id: "agreements",
     title: "Agreements & Compliance",
     description: "Student legal agreements, signed terms, and compliance records",
@@ -302,16 +301,7 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
     iconName: "Agreements",
     keywords: ["contracts", "legal", "terms", "compliance", "signatures"],
   },
-  {
-    id: "certificates",
-    title: "Certificates",
-    description: "Issue, configure, and verify completion credentials",
-    href: "/certificates",
-    category: "Curriculum",
-    iconName: "Certificates",
-    keywords: ["credentials", "awards", "graduation", "diploma"],
-  },
-  {
+    {
     id: "approvals",
     title: "Approvals & Certification Gates",
     description: "Audit eligibility criteria, approve completion certificates, and grade oral assessments",
@@ -320,16 +310,7 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
     iconName: "Certificates",
     keywords: ["approvals", "certificates", "oral", "exam", "rubric", "gates", "verify"],
   },
-  {
-    id: "resources",
-    title: "Resource Library",
-    description: "Worksheets, readings, guided audios, and learning materials",
-    href: "/resources",
-    category: "Curriculum",
-    iconName: "Resources",
-    keywords: ["resources", "worksheets", "readings", "audio", "meditations", "files"],
-  },
-  {
+    {
     id: "coupons",
     title: "Coupons & Discounts",
     description: "Promo codes, currency discounts (INR/AED/USD), and checkout usage rules",
@@ -341,7 +322,7 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
 
   {
     id: "leads",
-    title: "Enquiries (CRM & Leads)",
+    title: "Enquiries",
     description: "Prospective student applications and course enquiries",
     href: "/leads",
     category: "Communication",
@@ -354,7 +335,7 @@ const SEARCH_ITEMS: SearchablePageItem[] = [
     description: "Single calendar system, scheduling, and Outlook sync",
     href: "/meetings",
     category: "Communication",
-    iconName: "Announcements",
+    iconName: "Calendar",
     keywords: ["zoom", "live", "webinars", "events", "calendar", "outlook", "schedule"],
   },
   {
@@ -827,20 +808,17 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
           permission: hasPermission("manage_curriculum"),
           items: [
             { label: "Programs", href: "/programs", icon: <Icons.Programs />, perm: "manage_curriculum" },
-            { label: "Question Bank", href: "/quizzes", icon: <Icons.QuestionBank />, perm: "manage_curriculum" },
             { label: "Agreements", href: "/agreements", icon: <Icons.Agreements />, perm: "manage_operations" },
-            { label: "Certificates", href: "/certificates", icon: <Icons.Certificates />, perm: "manage_operations" },
-            { label: "Approvals & Gates", href: "/approvals", icon: <Icons.Approvals />, perm: "manage_operations" },
-            { label: "Resources", href: "/resources", icon: <Icons.Resources />, perm: "manage_operations" },
+            { label: "Approvals & Gates", href: "/approvals", icon: <Icons.Certificates />, perm: "manage_operations" },
           ],
         },
         {
           title: "COMMUNICATION",
           permission: hasPermission("manage_operations"),
           items: [
-            { label: "Enquiries (CRM)", href: "/leads", icon: <Icons.Enquiries />, perm: "manage_website" },
+            { label: "Enquiries", href: "/leads", icon: <Icons.Enquiries />, perm: "manage_website" },
             { label: "Events & Webinars", href: "/events", icon: <Icons.Events />, perm: "manage_operations" },
-            { label: "Calendar & Sessions", href: "/meetings", icon: <Icons.Events />, perm: "manage_operations" },
+            { label: "Calendar & Sessions", href: "/meetings", icon: <Icons.Calendar />, perm: "manage_operations" },
           ],
         },
         {
@@ -956,7 +934,37 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                 </div>
               );
             })
-          ) : null}
+          ) : (
+            <div className={styles.navSkeletonList} aria-hidden="true">
+              <div className={styles.navSkeletonGroup}>
+                <div className="skeleton" style={{ width: 62, height: 10, margin: "4px 8px 8px", borderRadius: 3 }} />
+                {[96, 120, 84, 92, 78].map((w, idx) => (
+                  <div key={idx} className={styles.navSkeletonItem} style={isCollapsed ? { justifyContent: "center" } : undefined}>
+                    <div className="skeleton" style={{ width: 18, height: 18, borderRadius: 5, flexShrink: 0 }} />
+                    {!isCollapsed && <div className="skeleton" style={{ width: `${w}px`, height: 13, borderRadius: 4 }} />}
+                  </div>
+                ))}
+              </div>
+              <div className={styles.navSkeletonGroup} style={{ marginTop: "0.5rem" }}>
+                <div className="skeleton" style={{ width: 78, height: 10, margin: "4px 8px 8px", borderRadius: 3 }} />
+                {[104, 88, 128].map((w, idx) => (
+                  <div key={idx} className={styles.navSkeletonItem} style={isCollapsed ? { justifyContent: "center" } : undefined}>
+                    <div className="skeleton" style={{ width: 18, height: 18, borderRadius: 5, flexShrink: 0 }} />
+                    {!isCollapsed && <div className="skeleton" style={{ width: `${w}px`, height: 13, borderRadius: 4 }} />}
+                  </div>
+                ))}
+              </div>
+              <div className={styles.navSkeletonGroup} style={{ marginTop: "0.5rem" }}>
+                <div className="skeleton" style={{ width: 94, height: 10, margin: "4px 8px 8px", borderRadius: 3 }} />
+                {[112, 118].map((w, idx) => (
+                  <div key={idx} className={styles.navSkeletonItem} style={isCollapsed ? { justifyContent: "center" } : undefined}>
+                    <div className="skeleton" style={{ width: 18, height: 18, borderRadius: 5, flexShrink: 0 }} />
+                    {!isCollapsed && <div className="skeleton" style={{ width: `${w}px`, height: 13, borderRadius: 4 }} />}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </nav>
 
                 {/* Sidebar Footer with Sign Out */ }
@@ -1091,7 +1099,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                               onClick={handleTestPush}
                               title="Trigger a test browser push alert to this device"
                             >
-                              {testPushSent ? "Sent! ✓" : "Test Push"}
+                              {testPushSent ? "Sent!" : "Test Push"}
                             </button>
                           ) : pushStatus !== "unsupported" && pushStatus !== "denied" ? (
                             <button
@@ -1512,7 +1520,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                           }}
                           title="Send a sample test push to verify browser alert"
                         >
-                          {testPushSent ? "Sent! ✓" : "Test Push"}
+                          {testPushSent ? "Sent!" : "Test Push"}
                         </button>
                       )}
                     </label>

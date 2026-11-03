@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useEffect } from "react";
+import { resolveMediaUrl } from "../lib/api";
+import Certificate from "../certificates/Certificate";
 
 export interface MediaPreviewConfig {
   isOpen: boolean;
@@ -28,6 +30,7 @@ export interface MediaPreviewConfig {
     studentName?: string;
     completionDate?: string;
     certificateNumber?: string;
+    templateType?: string;
   };
 }
 
@@ -37,6 +40,7 @@ interface MediaPreviewModalProps {
 }
 
 export default function MediaPreviewModal({ config, onClose }: MediaPreviewModalProps) {
+  const [isFullscreen, setIsFullscreen] = React.useState(false);
   useEffect(() => {
     if (!config?.isOpen) return;
     const prevOverflow = document.body.style.overflow;
@@ -67,7 +71,7 @@ export default function MediaPreviewModal({ config, onClose }: MediaPreviewModal
         alignItems: "center",
         justifyContent: "center",
         zIndex: 10000,
-        padding: "1.25rem",
+        padding: isFullscreen ? 0 : "1.25rem",
       }}
       onClick={onClose}
       role="dialog"
@@ -77,15 +81,16 @@ export default function MediaPreviewModal({ config, onClose }: MediaPreviewModal
       <div
         style={{
           background: "#ffffff",
-          borderRadius: 16,
-          boxShadow: "0 25px 60px -15px rgba(20, 17, 15, 0.35)",
-          width: type === "CERTIFICATE" ? "820px" : "900px",
+          borderRadius: isFullscreen ? 0 : 16,
+          boxShadow: isFullscreen ? "none" : "0 25px 60px -15px rgba(20, 17, 15, 0.35)",
+          width: isFullscreen ? "100vw" : (type === "CERTIFICATE" ? "820px" : "900px"),
           maxWidth: "100%",
-          maxHeight: "90vh",
+          height: isFullscreen ? "100vh" : undefined,
+          maxHeight: isFullscreen ? "100vh" : "90vh",
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
-          border: "1px solid #ebd9c4",
+          border: isFullscreen ? "none" : "1px solid #ebd9c4",
           animation: "modalFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
         }}
         onClick={(e) => e.stopPropagation()}
@@ -144,24 +149,62 @@ export default function MediaPreviewModal({ config, onClose }: MediaPreviewModal
             </h3>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: "#78716a",
-              cursor: "pointer",
-              fontSize: "1.35rem",
-              lineHeight: 1,
-              width: 32,
-              height: 32,
-              borderRadius: "50%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              transition: "all 0.15s ease",
-            }}
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <button
+              type="button"
+              onClick={() => setIsFullscreen(!isFullscreen)}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#78716a",
+                cursor: "pointer",
+                padding: "6px",
+                borderRadius: "6px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transition: "all 0.15s ease",
+              }}
+              title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Preview"}
+              aria-label={isFullscreen ? "Exit Fullscreen" : "Fullscreen Preview"}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "#f0ece3";
+                e.currentTarget.style.color = "#14110f";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.color = "#78716a";
+              }}
+            >
+              {isFullscreen ? (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+                </svg>
+              ) : (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                </svg>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#78716a",
+                cursor: "pointer",
+                fontSize: "1.35rem",
+                lineHeight: 1,
+                width: 32,
+                height: 32,
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transition: "all 0.15s ease",
+              }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = "#f0ece3";
               e.currentTarget.style.color = "#14110f";
@@ -174,6 +217,7 @@ export default function MediaPreviewModal({ config, onClose }: MediaPreviewModal
           >
             ×
           </button>
+          </div>
         </div>
 
         {/* Modal Body Content */}
@@ -192,7 +236,8 @@ export default function MediaPreviewModal({ config, onClose }: MediaPreviewModal
           {type === "VIDEO" && src && (
             <div style={{ width: "100%", height: "100%", maxHeight: "65vh", display: "flex", justifyContent: "center" }}>
               <video
-                src={src}
+                key={resolveMediaUrl(src)}
+                src={resolveMediaUrl(src)}
                 controls
                 autoPlay
                 playsInline
@@ -207,9 +252,9 @@ export default function MediaPreviewModal({ config, onClose }: MediaPreviewModal
           )}
 
           {type === "PDF" && src && (
-            <div style={{ width: "100%", height: "65vh" }}>
+            <div style={{ width: "100%", height: isFullscreen ? "calc(100vh - 130px)" : "65vh" }}>
               <iframe
-                src={`${src}#toolbar=1`}
+                src={`${resolveMediaUrl(src)}#toolbar=1`}
                 style={{ width: "100%", height: "100%", border: "none", borderRadius: 8 }}
                 title={`PDF: ${title}`}
               />
@@ -217,7 +262,7 @@ export default function MediaPreviewModal({ config, onClose }: MediaPreviewModal
           )}
 
           {type === "QUIZ" && (
-            <div style={{ width: "100%", maxHeight: "65vh", overflowY: "auto", padding: "1rem" }}>
+            <div style={{ width: "100%", maxHeight: isFullscreen ? "calc(100vh - 130px)" : "65vh", height: isFullscreen ? "calc(100vh - 130px)" : undefined, overflowY: "auto", padding: "1rem" }}>
               <div
                 style={{
                   background: "#ffffff",
@@ -283,9 +328,11 @@ export default function MediaPreviewModal({ config, onClose }: MediaPreviewModal
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                  {quizData.questions.map((q, idx) => {
-                    const questionText = q.question || q.title || q.prompt || `Question ${idx + 1}`;
+                  {quizData.questions.map((q: any, idx: number) => {
+                    const questionText = q.text || q.question || q.title || q.prompt || `Question ${idx + 1}`;
                     const options = Array.isArray(q.options) ? q.options : [];
+                    const isTextBox = q.type === "TEXT_BOX" || q.type === "SHORT_ANSWER";
+
                     return (
                       <div
                         key={q.id || idx}
@@ -296,20 +343,54 @@ export default function MediaPreviewModal({ config, onClose }: MediaPreviewModal
                           padding: "1rem 1.25rem",
                         }}
                       >
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem", marginBottom: "0.75rem" }}>
-                          <div style={{ display: "flex", gap: "0.5rem" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem", marginBottom: "0.5rem" }}>
+                          <div style={{ display: "flex", gap: "0.5rem", flex: 1 }}>
                             <span style={{ fontWeight: 700, color: "#d97706", fontSize: "0.9rem" }}>{idx + 1}.</span>
-                            <span style={{ fontWeight: 600, color: "#14110f", fontSize: "0.92rem" }}>{questionText}</span>
+                            <div style={{ flex: 1 }}>
+                              <span style={{ fontWeight: 600, color: "#14110f", fontSize: "0.92rem", display: "block" }}>{questionText}</span>
+                              {q.imageUrl && (
+                                <div style={{ marginTop: "0.5rem" }}>
+                                  <img
+                                    src={q.imageUrl}
+                                    alt="Question prompt"
+                                    style={{ maxHeight: 180, maxWidth: "100%", borderRadius: 6, objectFit: "contain", border: "1px solid #ece4d7" }}
+                                  />
+                                </div>
+                              )}
+                            </div>
                           </div>
-                          {q.points !== undefined && (
-                            <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#78716a", whiteSpace: "nowrap" }}>
-                              {q.points} {q.points === 1 ? "point" : "points"}
-                            </span>
-                          )}
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            {isTextBox && (
+                              <span style={{ fontSize: "0.7rem", fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#fef3c7", color: "#92400e" }}>
+                                {q.gradingMode === "MANUAL_REVIEW" ? "Manual Review" : "Self-Reflection"}
+                              </span>
+                            )}
+                            {q.points !== undefined && (
+                              <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#78716a", whiteSpace: "nowrap" }}>
+                                {q.points} {q.points === 1 ? "point" : "points"}
+                              </span>
+                            )}
+                          </div>
                         </div>
 
-                        {options.length > 0 && (
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "0.45rem", marginLeft: "1.5rem" }}>
+                        {isTextBox ? (
+                          <div style={{ marginLeft: "1.5rem", marginTop: "0.5rem" }}>
+                            <div
+                              style={{
+                                padding: "0.6rem 0.85rem",
+                                borderRadius: 6,
+                                background: "#fafaf9",
+                                border: "1px dashed #d6d3d1",
+                                color: "#78716a",
+                                fontSize: "0.82rem",
+                                fontStyle: "italic",
+                              }}
+                            >
+                              Learner text reflection area (Min {q.minCharacters || 10} characters)...
+                            </div>
+                          </div>
+                        ) : options.length > 0 ? (
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "0.45rem", marginLeft: "1.5rem", marginTop: "0.5rem" }}>
                             {options.map((opt: any, optIdx: number) => {
                               const text = typeof opt === "string" ? opt : opt.text || String(opt);
                               const isCorrect = typeof opt === "object" && opt.isCorrect !== undefined
@@ -335,6 +416,13 @@ export default function MediaPreviewModal({ config, onClose }: MediaPreviewModal
                                   <span style={{ color: isCorrect ? "#059669" : "#a8a29e", fontSize: "0.8rem", fontWeight: 700 }}>
                                     {String.fromCharCode(65 + optIdx)}.
                                   </span>
+                                  {opt.imageUrl && (
+                                    <img
+                                      src={opt.imageUrl}
+                                      alt="Option"
+                                      style={{ width: 32, height: 32, objectFit: "cover", borderRadius: 4, border: "1px solid #e7decb" }}
+                                    />
+                                  )}
                                   <span>{text}</span>
                                   {isCorrect && (
                                     <span
@@ -354,7 +442,7 @@ export default function MediaPreviewModal({ config, onClose }: MediaPreviewModal
                               );
                             })}
                           </div>
-                        )}
+                        ) : null}
                       </div>
                     );
                   })}
@@ -380,154 +468,19 @@ export default function MediaPreviewModal({ config, onClose }: MediaPreviewModal
           )}
 
           {type === "CERTIFICATE" && (
-            <div
-              style={{
-                width: "100%",
-                maxWidth: 720,
-                aspectRatio: "1.414",
-                background: "#ffffff",
-                border: "12px solid #14110f",
-                padding: "2.5rem 3rem",
-                borderRadius: 4,
-                boxShadow: "0 12px 35px rgba(20, 17, 15, 0.15)",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "space-between",
-                textAlign: "center",
-                position: "relative",
-                fontFamily: "var(--font-serif, Georgia, serif)",
-              }}
-            >
-              {/* Inner Decorative Golden Border */}
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 8,
-                  border: "2px solid #d4a373",
-                  pointerEvents: "none",
-                }}
+            <div style={{ width: "100%", maxWidth: isFullscreen ? 1100 : 860, margin: "0 auto", padding: isFullscreen ? "1.5rem" : "0.75rem" }}>
+              <Certificate
+                recipientName={certificateData?.studentName || "Alexandra Vance"}
+                courseName={certificateData?.programTitle || title}
+                issueDate={certificateData?.completionDate || new Date().toISOString()}
+                certificateNumber={certificateData?.certificateNumber || "WBM-CERT-001"}
+                certificateType={
+                  (certificateData as any)?.templateType === "PARTICIPATION"
+                    ? "PARTICIPATION"
+                    : "CPD_25_HOURS"
+                }
+                showLinkedInShare={false}
               />
-
-              <div style={{ width: "100%" }}>
-                <span
-                  style={{
-                    fontFamily: "var(--font-sans)",
-                    fontSize: "0.85rem",
-                    fontWeight: 700,
-                    letterSpacing: "0.18em",
-                    color: "#b45309",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  WHATBOUTME ACADEMY
-                </span>
-                <h1
-                  style={{
-                    fontSize: "2rem",
-                    fontWeight: 700,
-                    color: "#14110f",
-                    margin: "0.4rem 0 0",
-                    letterSpacing: "-0.01em",
-                  }}
-                >
-                  Certificate of Completion
-                </h1>
-                <p
-                  style={{
-                    fontSize: "0.88rem",
-                    color: "#78716a",
-                    fontStyle: "italic",
-                    margin: "0.35rem 0 0",
-                  }}
-                >
-                  This official credential verifies that
-                </p>
-              </div>
-
-              <div>
-                <h2
-                  style={{
-                    fontSize: "1.85rem",
-                    fontWeight: 700,
-                    color: "#b45309",
-                    margin: "0.5rem 0",
-                    borderBottom: "1px solid #ebd9c4",
-                    paddingBottom: "0.4rem",
-                    minWidth: 320,
-                  }}
-                >
-                  {certificateData?.studentName || "Learner Name"}
-                </h2>
-                <p style={{ fontSize: "0.88rem", color: "#57534e", margin: "0.5rem 0 0" }}>
-                  has successfully satisfied all rigorous curriculum steps, assessments, and attendance for
-                </p>
-                <h3
-                  style={{
-                    fontSize: "1.25rem",
-                    fontWeight: 700,
-                    color: "#14110f",
-                    margin: "0.35rem 0 0",
-                  }}
-                >
-                  {certificateData?.programTitle || title}
-                </h3>
-              </div>
-
-              {/* Bottom Signatures & Seal */}
-              <div
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "flex-end",
-                  marginTop: "1.5rem",
-                  paddingTop: "1rem",
-                  borderTop: "1px solid #f2ede4",
-                  fontFamily: "var(--font-sans)",
-                }}
-              >
-                <div style={{ textAlign: "left" }}>
-                  <div style={{ height: 26, borderBottom: "1px solid #14110f", width: 140, marginBottom: 4 }} />
-                  <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#14110f", display: "block" }}>
-                    Roweena
-                  </span>
-                  <span style={{ fontSize: "0.7rem", color: "#78716a" }}>Founder &amp; Master Coach</span>
-                </div>
-
-                {/* Golden Seal */}
-                <div
-                  style={{
-                    width: 58,
-                    height: 58,
-                    borderRadius: "50%",
-                    background: "radial-gradient(circle, #fde68a 0%, #d97706 100%)",
-                    border: "3px double #ffffff",
-                    boxShadow: "0 2px 8px rgba(180, 83, 9, 0.35)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#78350f",
-                    fontWeight: 800,
-                    fontSize: "0.62rem",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.04em",
-                    textAlign: "center",
-                    padding: 4,
-                  }}
-                >
-                  OFFICIAL SEAL
-                </div>
-
-                <div style={{ textAlign: "right" }}>
-                  <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#14110f", display: "block" }}>
-                    {certificateData?.completionDate || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                  </span>
-                  <span style={{ fontSize: "0.7rem", color: "#78716a" }}>
-                    ID: {certificateData?.certificateNumber || "WBM-2026-CERT"}
-                  </span>
-                </div>
-              </div>
             </div>
           )}
         </div>

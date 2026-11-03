@@ -17,7 +17,7 @@ import {
   type OneOnOneRequestItem,
   type MissionStatementItem,
 } from "../../lib/api";
-import { CustomSelect, StatusBadge, InputDialog, useToast } from "../../components";
+import { CustomSelect, StatusBadge, InputDialog, Modal, useToast } from "../../components";
 
 interface EnrolmentOption {
   id: string;
@@ -338,11 +338,14 @@ export default function UserDetailPage({
   const [previewMissionModalDoc, setPreviewMissionModalDoc] = useState<MissionStatementItem | null>(null);
   const [previewDocLoading, setPreviewDocLoading] = useState(true);
   const [previewDocError, setPreviewDocError] = useState(false);
+  const [previewDocFullscreen, setPreviewDocFullscreen] = useState(false);
   const [actingOneOnOne, setActingOneOnOne] = useState(false);
   const [actingMission, setActingMission] = useState(false);
   const [rejectingMissionModal, setRejectingMissionModal] = useState<MissionStatementItem | null>(null);
   const [rejectFeedback, setRejectFeedback] = useState("");
   const [submittingRejectFeedback, setSubmittingRejectFeedback] = useState(false);
+  const [downloadingCertPdf, setDownloadingCertPdf] = useState(false);
+  const [issuingCertificate, setIssuingCertificate] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -668,21 +671,37 @@ export default function UserDetailPage({
     }
   }
 
-  // Handle Certificate PDF download
+  // Handle Certificate PDF download with auth and proper error handling
   async function handleDownloadCertificatePdf(certId?: string, directUrl?: string | null) {
     if (!certId && !directUrl) {
       toast.error("Certificate record not found");
       return;
     }
+    setDownloadingCertPdf(true);
     try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
       if (certId) {
-        const res = await fetch(`${API_URL}/certificates/${certId}/pdf`);
+        const res = await fetch(`${API_URL}/certificates/${certId}/pdf`, {
+          headers: {
+            Accept: "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
         if (res.ok) {
           const data = await res.json();
-          if (data.downloadUrl || data.pdfUrl) {
-            window.open(data.downloadUrl || data.pdfUrl, "_blank");
+          const targetUrl = data.downloadUrl || data.pdfUrl;
+          if (targetUrl) {
+            window.open(targetUrl, "_blank");
             return;
           }
+        } else if (res.status === 404) {
+          // If not generated, try directUrl or notify
+          if (directUrl) {
+            window.open(directUrl, "_blank");
+            return;
+          }
+          toast.info("Certificate PDF is currently generating. Please try again in a moment.");
+          return;
         }
       }
       if (directUrl) {
@@ -690,10 +709,48 @@ export default function UserDetailPage({
         return;
       }
       toast.info("Certificate PDF is currently generating. Please try again in a moment.");
-    } catch {
+    } catch (err: any) {
       if (directUrl) {
         window.open(directUrl, "_blank");
+        return;
       }
+      toast.error(err.message || "Failed to download certificate PDF");
+    } finally {
+      setDownloadingCertPdf(false);
+    }
+  }
+
+  // Handle Certificate Issuance direct action
+  async function handleIssueCertificate(certId?: string) {
+    const targetId = certId || (progression?.certificate as any)?.id || (selectedEnrolment as any)?.certificate?.id;
+    if (!targetId) {
+      toast.error("Certificate record ID not found");
+      return;
+    }
+    setIssuingCertificate(true);
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const res = await fetch(`${API_URL}/certificates/${targetId}/issue`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.message || "Failed to issue certificate");
+      }
+      toast.success("Certificate issued successfully! PDF generated.");
+      if (selectedEnrolmentId) {
+        await fetchProgression(selectedEnrolmentId);
+      }
+      const updatedUser = await apiGet<UserDetail>(`/users/${userId}`, { skipCache: true });
+      if (updatedUser) setUser(updatedUser);
+    } catch (err: any) {
+      toast.error(err.message || "Could not issue certificate");
+    } finally {
+      setIssuingCertificate(false);
     }
   }
 
@@ -915,6 +972,21 @@ export default function UserDetailPage({
 
   const totalQuizzes = progression?.steps?.reduce((acc, s) => acc + (s.quiz ? 1 : 0), 0) ?? 0;
   const passedQuizzes = progression?.steps?.reduce((acc, s) => acc + (s.quiz?.isPassed ? 1 : 0), 0) ?? 0;
+
+  // Dynamic program/exam passing threshold and attendance requirements
+  const dynamicExamPassMark =
+    (stagesEval?.stages?.STAGE_2_EXAM?.details as any)?.passMark ??
+    (selectedEnrolment as any)?.program?.exam?.passMark ??
+    (selectedEnrolment as any)?.batch?.program?.passMark ??
+    75;
+
+  const dynamicAttendanceThreshold =
+    (stagesEval?.stages?.STAGE_3_ATTENDANCE?.details as any)?.thresholdPercent ??
+    compliance?.thresholdPercent ??
+    compliance?.thresholdUsed ??
+    selectedEnrolment?.batch?.attendanceThreshold ??
+    selectedEnrolment?.batch?.program?.attendanceThreshold ??
+    80;
 
   return (
     <div className={styles.container}>
@@ -1743,20 +1815,174 @@ export default function UserDetailPage({
                   <div className={styles.inspectorMetaItem}>
                     <span className={styles.inspectorMetaLabel}>Passing Threshold</span>
                     <span className={styles.inspectorMetaValue}>
-                      ≥70% Score Required
+                      ≥{dynamicExamPassMark}% Score Required
                     </span>
                   </div>
                   <div className={styles.inspectorMetaItem}>
                     <span className={styles.inspectorMetaLabel}>Oral Assessment</span>
                     <span className={styles.inspectorMetaValue}>
-                      {stagesEval?.stages?.STAGE_2_EXAM?.details?.oralRequired
-                        ? stagesEval.stages.STAGE_2_EXAM.details.oralPassed
-                          ? "Passed"
-                          : "Pending Oral Grading"
-                        : "Exempt / Not Required"}
+                      {(() => {
+                        const s2Details = stagesEval?.stages?.STAGE_2_EXAM?.details as any;
+                        if (!s2Details?.oralRequired) {
+                          return <span style={{ color: "var(--text-secondary)" }}>Exempt / Not Required</span>;
+                        }
+                        if (s2Details?.oralStatus === "PASSED" || s2Details?.oralPassed) {
+                          return (
+                            <span style={{ color: "#15803d", fontWeight: 700 }}>
+                              Passed {s2Details.oralScore != null ? `(${s2Details.oralScore}%)` : "✓"}
+                            </span>
+                          );
+                        }
+                        if (s2Details?.oralStatus === "SCHEDULED") {
+                          return (
+                            <span style={{ color: "#b45309", fontWeight: 700 }}>
+                              Scheduled {s2Details.oralScheduledDate ? `(${formatNumericDate(s2Details.oralScheduledDate)})` : ""}
+                            </span>
+                          );
+                        }
+                        if (s2Details?.oralStatus === "FAILED") {
+                          return (
+                            <span style={{ color: "#dc2626", fontWeight: 700 }}>
+                              Failed {s2Details.oralScore != null ? `(${s2Details.oralScore}%)` : ""}
+                            </span>
+                          );
+                        }
+                        return <span style={{ color: "#0284c7", fontWeight: 600 }}>Pending Oral Grading</span>;
+                      })()}
                     </span>
                   </div>
                 </div>
+
+                {/* Oral Assessment Status & Details Card */}
+                {(() => {
+                  const s2Details = stagesEval?.stages?.STAGE_2_EXAM?.details as any;
+                  const isOralReq = Boolean(s2Details?.oralRequired);
+                  const oralStatus = s2Details?.oralStatus;
+                  const oralScore = s2Details?.oralScore;
+                  const oralScheduledDate = s2Details?.oralScheduledDate;
+                  const oralTrainerNotes = s2Details?.oralTrainerNotes;
+
+                  if (isOralReq) {
+                    return (
+                      <div
+                        style={{
+                          marginTop: "1rem",
+                          padding: "1rem 1.25rem",
+                          borderRadius: "8px",
+                          background: "#ffffff",
+                          border: "1px solid var(--border-light, #e7decb)",
+                          boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ color: "var(--accent-primary, #c97a1e)" }}>
+                              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                              <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+                              <path d="M9 14l2 2 4-4" />
+                            </svg>
+                            <strong style={{ fontSize: "0.875rem", color: "var(--text-primary)" }}>
+                              Oral Competency Assessment
+                            </strong>
+                            <StatusBadge status={oralStatus || "SCHEDULED"} />
+                          </div>
+
+                          <div>
+                            <Link
+                              href={`/approvals?tab=oral${activeBatchId ? `&batchId=${activeBatchId}` : ""}`}
+                              className={styles.tableActionBtn}
+                              style={{ fontSize: "0.78rem" }}
+                            >
+                              {oralStatus === "PASSED" ? "View Rubric Scores ↗" : oralStatus === "SCHEDULED" ? "Evaluate & Grade Rubrics ↗" : "Oral Approvals ↗"}
+                            </Link>
+                          </div>
+                        </div>
+
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.75rem", fontSize: "0.8125rem", background: "var(--bg-soft, #faf7f2)", padding: "0.75rem 1rem", borderRadius: "6px" }}>
+                          <div>
+                            <span style={{ color: "var(--text-muted)", display: "block", fontSize: "0.72rem", fontWeight: 600, textTransform: "uppercase" }}>Scheduled Date</span>
+                            <strong style={{ color: "var(--text-primary)" }}>
+                              {oralScheduledDate ? formatNumericDate(oralScheduledDate) : "To Be Scheduled"}
+                            </strong>
+                          </div>
+                          <div>
+                            <span style={{ color: "var(--text-muted)", display: "block", fontSize: "0.72rem", fontWeight: 600, textTransform: "uppercase" }}>Rubric Score</span>
+                            <strong style={{ color: oralScore != null ? (oralScore >= 70 ? "#15803d" : "#dc2626") : "var(--text-secondary)" }}>
+                              {oralScore != null ? `${oralScore}% Overall` : "Awaiting Evaluation"}
+                            </strong>
+                          </div>
+                          <div>
+                            <span style={{ color: "var(--text-muted)", display: "block", fontSize: "0.72rem", fontWeight: 600, textTransform: "uppercase" }}>Stage Requirement</span>
+                            <span style={{ color: oralStatus === "PASSED" ? "#15803d" : "#b45309", fontWeight: 600 }}>
+                              {oralStatus === "PASSED" ? "Satisfied ✓" : "Required for Stage 2 Completion"}
+                            </span>
+                          </div>
+                        </div>
+
+                        {oralTrainerNotes && (
+                          <div style={{ marginTop: "0.75rem", fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                            Trainer Feedback: <em>{oralTrainerNotes}</em>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // Empty / Exempt state
+                  return (
+                    <div
+                      style={{
+                        marginTop: "1rem",
+                        padding: "0.85rem 1.15rem",
+                        borderRadius: "8px",
+                        background: "#ffffff",
+                        border: "1px solid var(--border-light, #e7decb)",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                        gap: "0.75rem",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <div
+                          style={{
+                            width: "32px",
+                            height: "32px",
+                            borderRadius: "6px",
+                            background: "var(--bg-soft, #faf7f2)",
+                            color: "var(--text-muted, #78716a)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                            <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+                          </svg>
+                        </div>
+                        <div>
+                          <strong style={{ fontSize: "0.84rem", color: "var(--text-primary)" }}>
+                            Oral Assessment: Exempt / Not Required
+                          </strong>
+                          <p style={{ margin: "2px 0 0", fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                            This program does not mandate an oral rubric interview. Completing the Final Exam satisfies Stage 2.
+                          </p>
+                        </div>
+                      </div>
+
+                      <Link
+                        href={`/approvals?tab=oral${activeBatchId ? `&batchId=${activeBatchId}` : ""}`}
+                        className={styles.tableActionBtn}
+                        style={{ fontSize: "0.78rem" }}
+                      >
+                        + Schedule Oral Assessment ↗
+                      </Link>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           )}
@@ -1770,7 +1996,7 @@ export default function UserDetailPage({
                     <div className={`${styles.helpTooltip} ${styles.helpTooltipLeft}`}>
                       <span className={styles.helpIcon} aria-label="Prerequisites Information" tabIndex={0}>?</span>
                       <div className={styles.helpTooltipContent}>
-                        Prerequisites: Learner must be actively enrolled in a live cohort batch. Requires ≥80% attendance compliance across scheduled live sessions.
+                        Prerequisites: Learner must be actively enrolled in a live cohort batch. Requires ≥{dynamicAttendanceThreshold}% attendance compliance across scheduled live sessions.
                       </div>
                     </div>
                     {stagesEval?.stages?.STAGE_3_ATTENDANCE?.isOverridden && (
@@ -1793,7 +2019,7 @@ export default function UserDetailPage({
                     <div className={styles.helpTooltip}>
                       <span className={styles.helpIcon} aria-label="Override Information" tabIndex={0}>?</span>
                       <div className={styles.helpTooltipContent}>
-                        Clicking override bypasses the 80% weekly attendance threshold and clears Stage 3. This action is permanently recorded in the audit log.
+                        Clicking override bypasses the {dynamicAttendanceThreshold}% weekly attendance threshold and clears Stage 3. This action is permanently recorded in the audit log.
                       </div>
                     </div>
                   </div>
@@ -2058,7 +2284,7 @@ export default function UserDetailPage({
                     <div className={`${styles.helpTooltip} ${styles.helpTooltipLeft}`}>
                       <span className={styles.helpIcon} aria-label="Prerequisites Information" tabIndex={0}>?</span>
                       <div className={styles.helpTooltipContent}>
-                        Prerequisites: Stage 1 (Curriculum), Stage 2 (Final Exam), and ≥80% live attendance compliance in Stage 3 live cohort sessions are required before scheduling.
+                        Prerequisites: Stage 1 (Curriculum), Stage 2 (Final Exam), and ≥{dynamicAttendanceThreshold}% live attendance compliance in Stage 3 live cohort sessions are required before scheduling.
                       </div>
                     </div>
                     {stagesEval?.stages?.STAGE_4_ONE_ON_ONE?.isOverridden && (
@@ -2448,7 +2674,7 @@ export default function UserDetailPage({
                                   setActingMission(true);
                                   try {
                                     await approveMissionStatement(latestMission.id);
-                                    toast.success("Mission statement approved! Certificate has been automatically issued.");
+                                    toast.success("Mission statement approved! Certificate ready in Approvals queue.");
                                     await fetchProgression(selectedEnrolmentId);
                                     const updatedUser = await apiGet<UserDetail>(`/users/${userId}`, { skipCache: true });
                                     if (updatedUser) setUser(updatedUser);
@@ -2461,7 +2687,7 @@ export default function UserDetailPage({
                                 className={styles.actionBtnPrimary}
                                 style={{ padding: "0.45rem 0.9rem", fontSize: "0.8rem", background: "#15803d", borderColor: "#15803d" }}
                               >
-                                {actingMission ? "Approving & Issuing..." : "Approve & Auto-Issue Certificate ✓"}
+                                {actingMission ? "Approving..." : "Approve Mission Statement ✓"}
                               </button>
                               <button
                                 type="button"
@@ -2480,7 +2706,7 @@ export default function UserDetailPage({
 
                           {latestMission.status === "APPROVED" && (
                             <span style={{ fontSize: "0.75rem", fontWeight: 700, padding: "3px 10px", borderRadius: "100px", background: "#dcfce7", color: "#15803d" }}>
-                              Approved &bull; Certificate Issued
+                              {progression?.certificate?.status === "ISSUED" ? "Approved • Certificate Issued" : "Approved • Ready in Approvals"}
                             </span>
                           )}
                         </div>
@@ -2539,7 +2765,7 @@ export default function UserDetailPage({
                           Boolean(stagesEval?.stages?.STAGE_5_MISSION_STATEMENT?.isCompleted),
                         ];
                         const cleared = gates.filter(Boolean).length;
-                        return `${cleared} of 5 Gates Satisfied`;
+                        return `${cleared} of 5 Stages Completed`;
                       })()}
                     </span>
                   </div>
@@ -2566,69 +2792,325 @@ export default function UserDetailPage({
                   </div>
                 </div>
 
-                {/* Instant Certificate Download Action Card when Issued */}
+                {/* Certificate Status Action Card */}
                 {(() => {
                   const cert = progression?.certificate || (selectedEnrolment as any)?.certificate || (certEligibility as any)?.certificate;
                   const isIssued = Boolean(certEligibility?.status === "ISSUED" || cert?.status === "ISSUED" || (progression as any)?.certificateIssued);
-                  if (!isIssued && !cert) return null;
-                  return (
-                    <div style={{ margin: "1rem 0", padding: "1rem 1.25rem", borderRadius: "8px", background: "#f0fdf4", border: "1px solid #bbf7d0", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                        <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#dcfce7", color: "#15803d", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                  const isApproved = Boolean(cert?.status === "APPROVED" || certEligibility?.status === "APPROVED");
+                  const isEligible = Boolean(certEligibility?.isEligible && !isIssued && !isApproved);
+
+                  if (isIssued && cert) {
+                    return (
+                      <div
+                        style={{
+                          margin: "1rem 0",
+                          padding: "1.1rem 1.35rem",
+                          borderRadius: "10px",
+                          background: "#ffffff",
+                          border: "1px solid #d1fae5",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: "1.25rem",
+                          boxShadow: "0 2px 6px rgba(16, 185, 129, 0.04)",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "1rem", minWidth: 280 }}>
+                          <div
+                            style={{
+                              width: "42px",
+                              height: "42px",
+                              borderRadius: "10px",
+                              background: "#ecfdf5",
+                              border: "1px solid #a7f3d0",
+                              color: "#059669",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
+                            }}
+                          >
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          </div>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                              <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--text-primary, #14110f)", letterSpacing: "-0.01em" }}>
+                                Official Certificate Issued
+                              </span>
+                              <StatusBadge status="ISSUED" />
+                            </div>
+                            <div style={{ fontSize: "0.8125rem", color: "var(--text-secondary, #78716a)", marginTop: "4px" }}>
+                              Certificate Code:{" "}
+                              <code
+                                style={{
+                                  fontFamily: "var(--font-mono, monospace)",
+                                  fontWeight: 700,
+                                  background: "#ecfdf5",
+                                  border: "1px solid #a7f3d0",
+                                  padding: "2px 7px",
+                                  borderRadius: "4px",
+                                  color: "#047857",
+                                  fontSize: "0.8rem",
+                                }}
+                              >
+                                {cert.certificateCode || "Verified"}
+                              </code>
+                              {cert.issuedAt && ` • Issued ${formatNumericDate(cert.issuedAt)}`}
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <div style={{ fontWeight: 700, fontSize: "0.95rem", color: "#166534" }}>
-                            Official Certificate Issued
-                          </div>
-                          <div style={{ fontSize: "0.78rem", color: "#15803d", marginTop: "2px" }}>
-                            Certificate Code: <strong>{cert?.certificateCode || "Verified"}</strong> {cert?.issuedAt && `• Issued ${formatNumericDate(cert.issuedAt)}`}
-                          </div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            disabled={downloadingCertPdf}
+                            onClick={() => handleDownloadCertificatePdf(cert.id, cert.pdfUrl)}
+                            className={styles.actionBtnPrimary}
+                            style={{
+                              background: "#059669",
+                              color: "#ffffff",
+                              borderColor: "#059669",
+                              fontSize: "0.825rem",
+                              padding: "0.55rem 1.15rem",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "7px",
+                              boxShadow: "0 2px 6px rgba(5, 150, 105, 0.25)",
+                            }}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                              <polyline points="7 10 12 15 17 10" />
+                              <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                            <span>{downloadingCertPdf ? "Downloading..." : "Download Certificate PDF ↗"}</span>
+                          </button>
+                          {cert.id && (
+                            <Link
+                              href={`/certificates/${cert.id}`}
+                              target="_blank"
+                              className={styles.actionBtnSecondary}
+                              style={{ fontSize: "0.825rem", padding: "0.55rem 0.95rem" }}
+                            >
+                              <span>View Details ↗</span>
+                            </Link>
+                          )}
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleDownloadCertificatePdf(cert?.id, cert?.pdfUrl)}
-                        className={styles.actionBtnPrimary}
-                        style={{ background: "#15803d", borderColor: "#15803d", fontSize: "0.8rem", padding: "0.5rem 1rem", display: "inline-flex", alignItems: "center", gap: "6px" }}
+                    );
+                  }
+
+                  if (isApproved && cert) {
+                    return (
+                      <div
+                        style={{
+                          margin: "1rem 0",
+                          padding: "1.15rem 1.35rem",
+                          borderRadius: "10px",
+                          background: "#ffffff",
+                          border: "1px solid var(--border-light, #e7decb)",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: "1.25rem",
+                          boxShadow: "0 2px 6px rgba(20, 17, 15, 0.03)",
+                        }}
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                        Download Certificate PDF ↗
-                      </button>
-                    </div>
-                  );
+                        <div style={{ display: "flex", alignItems: "center", gap: "1rem", minWidth: 280 }}>
+                          <div
+                            style={{
+                              width: "42px",
+                              height: "42px",
+                              borderRadius: "10px",
+                              background: "#fdf8f3",
+                              border: "1px solid #f3e6d5",
+                              color: "var(--accent-primary, #c97a1e)",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
+                            }}
+                          >
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <circle cx="12" cy="8" r="6" />
+                              <path d="M15.4 13.8L18 22l-6-3-6 3 2.6-8.2" />
+                            </svg>
+                          </div>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                              <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--text-primary, #14110f)", letterSpacing: "-0.01em" }}>
+                                Certificate Approved &bull; Ready to Issue
+                              </span>
+                              <StatusBadge status="APPROVED" />
+                            </div>
+                            <div style={{ fontSize: "0.8125rem", color: "var(--text-secondary, #78716a)", marginTop: "4px" }}>
+                              All 5 course stages completed &bull; Reserved Code:{" "}
+                              <code
+                                style={{
+                                  fontFamily: "var(--font-mono, monospace)",
+                                  fontWeight: 700,
+                                  background: "#faf4ed",
+                                  border: "1px solid #f0e2d3",
+                                  padding: "2px 7px",
+                                  borderRadius: "4px",
+                                  color: "var(--accent-primary, #c97a1e)",
+                                  fontSize: "0.8rem",
+                                }}
+                              >
+                                {cert.certificateCode || "WBM-2026-..."}
+                              </code>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            disabled={issuingCertificate}
+                            onClick={() => handleIssueCertificate(cert.id)}
+                            className={styles.actionBtnPrimary}
+                            style={{
+                              background: "var(--accent-primary, #c97a1e)",
+                              color: "#ffffff",
+                              borderColor: "var(--accent-primary, #c97a1e)",
+                              fontSize: "0.825rem",
+                              padding: "0.55rem 1.25rem",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "7px",
+                              boxShadow: "0 2px 6px rgba(201, 122, 30, 0.28)",
+                            }}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                            <span>{issuingCertificate ? "Issuing Certificate..." : "Issue Certificate"}</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (isEligible) {
+                    return (
+                      <div
+                        style={{
+                          margin: "1rem 0",
+                          padding: "1.1rem 1.35rem",
+                          borderRadius: "10px",
+                          background: "#ffffff",
+                          border: "1px solid var(--border-light, #e7decb)",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: "1.25rem",
+                          boxShadow: "0 2px 6px rgba(20, 17, 15, 0.03)",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "1rem", minWidth: 280 }}>
+                          <div
+                            style={{
+                              width: "42px",
+                              height: "42px",
+                              borderRadius: "10px",
+                              background: "#f8fafc",
+                              border: "1px solid #e2e8f0",
+                              color: "#64748b",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
+                            }}
+                          >
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <circle cx="12" cy="12" r="10" />
+                              <polyline points="12 6 12 12 16 14" />
+                            </svg>
+                          </div>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                              <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "var(--text-primary, #14110f)", letterSpacing: "-0.01em" }}>
+                                Milestones Cleared &bull; Pending Review
+                              </span>
+                              <StatusBadge status="PENDING" />
+                            </div>
+                            <div style={{ fontSize: "0.8125rem", color: "var(--text-secondary, #78716a)", marginTop: "4px" }}>
+                              Learner has completed all 5 course stages and is eligible for certificate issuance.
+                            </div>
+                          </div>
+                        </div>
+
+                        <Link
+                          href={`/approvals?tab=certificates${activeBatchId ? `&batchId=${activeBatchId}` : ""}`}
+                          className={styles.actionBtnSecondary}
+                          style={{ fontSize: "0.825rem", padding: "0.55rem 1rem" }}
+                        >
+                          Review in Approvals ↗
+                        </Link>
+                      </div>
+                    );
+                  }
+
+                  return null;
                 })()}
 
                 {/* 5-Prerequisites Checklist */}
                 <div>
-                  <h5 style={{ fontSize: "0.8125rem", fontWeight: 700, margin: "0 0 0.5rem", color: "var(--text-primary)" }}>
-                    5-Stage Graduation Gate Audit
+                  <h5 style={{ fontSize: "0.8125rem", fontWeight: 700, margin: "0 0 0.6rem", color: "var(--text-primary)" }}>
+                    5-Stage Course Requirements
                   </h5>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.6rem" }}>
                     {[
                       { num: 1, name: "Curriculum & Quizzes", done: Boolean(stagesEval?.stages?.STAGE_1_CURRICULUM?.isCompleted || (completedSteps === totalSteps && totalSteps > 0)) },
-                      { num: 2, name: "Final Exam (≥70%)", done: Boolean(stagesEval?.stages?.STAGE_2_EXAM?.isCompleted) },
-                      { num: 3, name: "Attendance Compliance (≥80%)", done: Boolean(stagesEval?.stages?.STAGE_3_ATTENDANCE?.isCompleted || compliance?.status === "COMPLIANT") },
-                      { num: 4, name: "1:1 Session Consultation", done: Boolean(stagesEval?.stages?.STAGE_4_ONE_ON_ONE?.isCompleted) },
-                      { num: 5, name: "Approved Mission Statement", done: Boolean(stagesEval?.stages?.STAGE_5_MISSION_STATEMENT?.isCompleted) },
+                      { num: 2, name: `Final Exam (≥${dynamicExamPassMark}%)`, done: Boolean(stagesEval?.stages?.STAGE_2_EXAM?.isCompleted) },
+                      { num: 3, name: `Attendance (≥${dynamicAttendanceThreshold}%)`, done: Boolean(stagesEval?.stages?.STAGE_3_ATTENDANCE?.isCompleted || compliance?.status === "COMPLIANT") },
+                      { num: 4, name: "1:1 Coaching Call", done: Boolean(stagesEval?.stages?.STAGE_4_ONE_ON_ONE?.isCompleted) },
+                      { num: 5, name: "Mission Statement", done: Boolean(stagesEval?.stages?.STAGE_5_MISSION_STATEMENT?.isCompleted) },
                     ].map((gate) => (
                       <div
                         key={gate.num}
                         style={{
-                          padding: "0.6rem 0.75rem",
-                          borderRadius: "6px",
-                          background: gate.done ? "#f0fdf4" : "#faf7f2",
-                          border: `1px solid ${gate.done ? "#bbf7d0" : "#ebdccb"}`,
+                          padding: "0.65rem 0.85rem",
+                          borderRadius: "8px",
+                          background: "#ffffff",
+                          border: `1px solid ${gate.done ? "#e2e8f0" : "#ebdccb"}`,
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "space-between",
                           fontSize: "0.78rem",
+                          boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
                         }}
                       >
-                        <span style={{ fontWeight: 600, color: gate.done ? "#166534" : "var(--text-secondary)" }}>
-                          {gate.num}. {gate.name}
-                        </span>
-                        <span style={{ fontWeight: 700, color: gate.done ? "#15803d" : "#78716a" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <div
+                            style={{
+                              width: "18px",
+                              height: "18px",
+                              borderRadius: "50%",
+                              background: gate.done ? "#ecfdf5" : "#f5f5f4",
+                              color: gate.done ? "#16a34a" : "#a8a29e",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {gate.done ? (
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                            ) : (
+                              <span style={{ fontSize: "10px", lineHeight: 1 }}>&bull;</span>
+                            )}
+                          </div>
+                          <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>
+                            {gate.num}. {gate.name}
+                          </span>
+                        </div>
+                        <span style={{ fontWeight: 600, fontSize: "0.72rem", color: gate.done ? "#16a34a" : "#78716c" }}>
                           {gate.done ? "Satisfied" : "Pending"}
                         </span>
                       </div>
@@ -2734,6 +3216,298 @@ export default function UserDetailPage({
               isLoading={submittingRejectFeedback}
             />
           )}
+
+          {/* Modal for Mission Statement Document Preview */}
+          {previewMissionModalDoc && (() => {
+            const isDataUri = previewMissionModalDoc.fileUrl.startsWith("data:");
+            const docFileUrl =
+              previewMissionModalDoc.fileUrl.startsWith("http") || isDataUri
+                ? previewMissionModalDoc.fileUrl
+                : `${API_URL}/mission-statements/${previewMissionModalDoc.id}/file`;
+            const isImage =
+              (previewMissionModalDoc.mimeType || "").includes("image") ||
+              (isDataUri && previewMissionModalDoc.fileUrl.startsWith("data:image/")) ||
+              docFileUrl.match(/\.(jpg|jpeg|png|webp|svg)(\?.*)?$/i) !== null;
+
+            return (
+              <Modal
+                isOpen={true}
+                onClose={() => {
+                  setPreviewMissionModalDoc(null);
+                  setPreviewDocFullscreen(false);
+                }}
+                title={`Mission Statement: ${user.name}`}
+                subtitle={`${selectedEnrolment?.program?.title || "Program"} · ${previewMissionModalDoc.fileName || "Mission-Statement.pdf"}`}
+                maxWidth={previewDocFullscreen ? "98vw" : "960px"}
+                containerStyle={
+                  previewDocFullscreen
+                    ? {
+                        width: "98vw",
+                        height: "94vh",
+                        maxHeight: "94vh",
+                        borderRadius: 10,
+                      }
+                    : {
+                        width: "100%",
+                        maxHeight: "92vh",
+                      }
+                }
+                bodyStyle={{
+                  padding: 0,
+                  overflow: "hidden",
+                  background: "#18181b",
+                }}
+                headerActions={
+                  <button
+                    type="button"
+                    onClick={() => setPreviewDocFullscreen(!previewDocFullscreen)}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      color: "var(--text-muted, #78716a)",
+                      cursor: "pointer",
+                      padding: "6px",
+                      borderRadius: "6px",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      transition: "all 0.15s ease",
+                    }}
+                    title={previewDocFullscreen ? "Exit Fullscreen" : "Fullscreen Preview"}
+                    aria-label={previewDocFullscreen ? "Exit Fullscreen" : "Fullscreen Preview"}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "var(--bg-soft, #f0ece3)";
+                      e.currentTarget.style.color = "var(--text-primary, #14110f)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "transparent";
+                      e.currentTarget.style.color = "var(--text-muted, #78716a)";
+                    }}
+                  >
+                    {previewDocFullscreen ? (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+                      </svg>
+                    ) : (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                      </svg>
+                    )}
+                  </button>
+                }
+                footer={
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", flexWrap: "wrap", gap: "10px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <a
+                        href={docFileUrl}
+                        download={previewMissionModalDoc.fileName || "mission-statement.pdf"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.actionBtnSecondary}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          fontSize: "0.82rem",
+                          padding: "0.45rem 0.95rem",
+                          fontWeight: 600,
+                          textDecoration: "none",
+                        }}
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="7 10 12 15 17 10" />
+                          <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
+                        <span>Download Document</span>
+                      </a>
+                    </div>
+
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <button
+                        type="button"
+                        className={styles.actionBtnSecondary}
+                        onClick={() => {
+                          setPreviewMissionModalDoc(null);
+                          setPreviewDocFullscreen(false);
+                        }}
+                      >
+                        Close
+                      </button>
+                      {previewMissionModalDoc.status === "SUBMITTED" && (
+                        <>
+                          <button
+                            type="button"
+                            className={styles.tableActionBtn}
+                            style={{ color: "#991b1b", borderColor: "#fecaca" }}
+                            onClick={() => {
+                              const doc = previewMissionModalDoc;
+                              setPreviewMissionModalDoc(null);
+                              setPreviewDocFullscreen(false);
+                              setRejectingMissionModal(doc);
+                              setRejectFeedback("");
+                            }}
+                          >
+                            Request Revision
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.actionBtnPrimary}
+                            style={{ background: "#15803d", borderColor: "#15803d" }}
+                            onClick={async () => {
+                              const doc = previewMissionModalDoc;
+                              setPreviewMissionModalDoc(null);
+                              setPreviewDocFullscreen(false);
+                              setActingMission(true);
+                              try {
+                                await approveMissionStatement(doc.id);
+                                toast.success("Mission statement approved! Certificate ready to issue.");
+                                if (selectedEnrolmentId) await fetchProgression(selectedEnrolmentId);
+                                const updatedUser = await apiGet(`/users/${userId}`, { skipCache: true });
+                                if (updatedUser) setUser(updatedUser);
+                              } catch (err: any) {
+                                toast.error(err.message || "Failed to approve mission statement");
+                              } finally {
+                                setActingMission(false);
+                              }
+                            }}
+                          >
+                            Approve Statement ✓
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                }
+              >
+                <div
+                  style={{
+                    width: "100%",
+                    height: previewDocFullscreen ? "calc(94vh - 128px)" : "68vh",
+                    minHeight: "480px",
+                    overflow: "hidden",
+                    background: isImage ? "#18181b" : "#ffffff",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    position: "relative",
+                  }}
+                >
+                  {previewDocLoading && !previewDocError && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 12,
+                        color: "#71717a",
+                        background: "#ffffff",
+                        zIndex: 2,
+                      }}
+                    >
+                      <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>Loading document preview...</span>
+                    </div>
+                  )}
+
+                  {previewDocError && (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: 12,
+                        padding: "2rem",
+                        textAlign: "center",
+                        color: "#dc2626",
+                      }}
+                    >
+                      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="8" x2="12" y2="12" />
+                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                      </svg>
+                      <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#18181b" }}>
+                        Document Preview Unavailable Inline
+                      </div>
+                      <p style={{ margin: 0, fontSize: "0.82rem", color: "#71717a", maxWidth: 440, lineHeight: 1.5 }}>
+                        The document format or browser security policies prevent inline display. You can open or download the document below.
+                      </p>
+                      <a
+                        href={docFileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.actionBtnPrimary}
+                        style={{ marginTop: 6 }}
+                      >
+                        <span>Open in New Tab &nearr;</span>
+                      </a>
+                    </div>
+                  )}
+
+                  {isImage && (
+                    <img
+                      src={docFileUrl}
+                      alt="Learner Mission Statement"
+                      onLoad={(e) => {
+                        const img = e.currentTarget;
+                        if (img.naturalWidth <= 1 && img.naturalHeight <= 1) {
+                          setPreviewDocLoading(false);
+                          setPreviewDocError(true);
+                          return;
+                        }
+                        setPreviewDocLoading(false);
+                        setPreviewDocError(false);
+                      }}
+                      onError={() => {
+                        setPreviewDocLoading(false);
+                        setPreviewDocError(true);
+                      }}
+                      style={{
+                        maxWidth: "100%",
+                        maxHeight: "100%",
+                        objectFit: "contain",
+                        display: previewDocLoading || previewDocError ? "none" : "block",
+                      }}
+                    />
+                  )}
+
+                  {!isImage && (
+                    <iframe
+                      src={docFileUrl}
+                      title="Learner Mission Statement Document"
+                      onLoad={() => {
+                        setPreviewDocLoading(false);
+                        setPreviewDocError(false);
+                      }}
+                      onError={() => {
+                        setPreviewDocLoading(false);
+                        setPreviewDocError(true);
+                      }}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        border: "none",
+                        display: previewDocLoading || previewDocError ? "none" : "block",
+                      }}
+                    />
+                  )}
+                </div>
+              </Modal>
+            );
+          })()}
 
           {/* Modal for Digital Signature & Audit Record */}
           {previewAgreementModal && (

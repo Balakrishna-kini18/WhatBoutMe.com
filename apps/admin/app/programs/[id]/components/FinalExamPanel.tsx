@@ -48,6 +48,7 @@ export default function FinalExamPanel({
   const { success, error } = useToast();
   const [loading, setLoading] = useState(true);
   const [savingAll, setSavingAll] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
 
   // Exam Configuration State
   const [exam, setExam] = useState<ExamConfig | null>(null);
@@ -90,7 +91,14 @@ export default function FinalExamPanel({
         setTitle(data.exam.title || (programTitle ? `${programTitle} Final Examination` : "Final Comprehensive Examination"));
         setQuestionCount(data.exam.questionCount ?? 50);
         const loadedPassMark = data.exam.passMark;
-        setPassMark(loadedPassMark && loadedPassMark !== 75 && loadedPassMark > 0 ? loadedPassMark : 80);
+        const resolvedPassMark = typeof loadedPassMark === "number" && loadedPassMark > 0 ? loadedPassMark : 80;
+        setPassMark(resolvedPassMark);
+
+        // Auto-heal legacy default 75 in database to standard 80% if not custom-updated
+        if (data?.exam?.id && loadedPassMark === 75) {
+          updateExam(data.exam.id, { passMark: 80 }).catch((e) => console.warn("Auto-sync exam passMark failed", e));
+          setPassMark(80);
+        }
         setTimeLimitMin(data.exam.timeLimitMin ?? 90);
         setShuffleQuestions(data.exam.shuffleQuestions ?? true);
       } else {
@@ -111,6 +119,28 @@ export default function FinalExamPanel({
   useEffect(() => {
     loadExamData();
   }, [loadExamData]);
+
+  const handleSaveExamSettings = async () => {
+    try {
+      setSavingSettings(true);
+      const activeExamId = await ensureExamEntity();
+      const updated = await updateExam(activeExamId, {
+        title: title.trim() || (programTitle ? `${programTitle} Final Examination` : "Final Comprehensive Examination"),
+        questionCount: Number(questionCount) || 50,
+        passMark: Number(passMark) || 80,
+        timeLimitMin: Number(timeLimitMin) || 90,
+        maxAttempts: 999,
+        cooldownHours: 0,
+        shuffleQuestions,
+      });
+      setExam(updated);
+      success(`Final Exam settings saved. Passing threshold is ${updated.passMark}%.`);
+    } catch (err: any) {
+      error(err.message || "Failed to save exam settings");
+    } finally {
+      setSavingSettings(false);
+    }
+  };
 
   const ensureExamEntity = async (): Promise<string> => {
     if (exam?.id) {
@@ -625,6 +655,7 @@ export default function FinalExamPanel({
                 max={100}
                 value={passMark}
                 onChange={(e) => setPassMark(Math.min(100, Math.max(1, Number(e.target.value) || 80)))}
+                onBlur={() => handleSaveExamSettings()}
                 className={styles.formInput}
                 style={{ width: "80px", textAlign: "center", fontWeight: 700, color: "#d97706" }}
               />
@@ -653,7 +684,7 @@ export default function FinalExamPanel({
         </div>
 
         {/* Shuffle Questions Bar */}
-        <div style={{ borderTop: "1px solid #ece6dd", paddingTop: "0.85rem" }}>
+        <div style={{ borderTop: "1px solid #ece6dd", paddingTop: "0.85rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
           <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "0.82rem", fontWeight: 600, color: "#14110f" }}>
             <input
               type="checkbox"
@@ -663,6 +694,16 @@ export default function FinalExamPanel({
             />
             <span>Randomly shuffle question order and choices for each learner attempt</span>
           </label>
+
+          <button
+            type="button"
+            onClick={handleSaveExamSettings}
+            disabled={savingSettings}
+            className={styles.btnPrimary}
+            style={{ padding: "0.4rem 1rem", fontSize: "0.82rem", display: "inline-flex", alignItems: "center", gap: "6px" }}
+          >
+            {savingSettings ? "Saving Settings..." : "Save Exam Settings"}
+          </button>
         </div>
       </div>
 

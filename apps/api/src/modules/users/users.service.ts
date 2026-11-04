@@ -37,10 +37,32 @@ export class UsersService {
           enrolments: {
             orderBy: { updatedAt: 'desc' },
             include: {
-              program: true,
+              program: {
+                include: {
+                  exams: {
+                    select: {
+                      id: true,
+                      passMark: true,
+                      title: true,
+                      status: true,
+                    },
+                  },
+                },
+              },
               batch: {
                 include: {
-                  program: true,
+                  program: {
+                    include: {
+                      exams: {
+                        select: {
+                          id: true,
+                          passMark: true,
+                          title: true,
+                          status: true,
+                        },
+                      },
+                    },
+                  },
                   trainers: true,
                 },
               },

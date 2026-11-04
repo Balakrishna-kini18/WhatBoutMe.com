@@ -228,10 +228,12 @@ export class StageGateService {
       }),
 
       // 7. Exam configured entity
-      this.prisma.exam.findFirst({
-        where: { programId: enrolment.programId },
-        select: { id: true, passMark: true },
-      }),
+      this.prisma.exam?.findFirst
+        ? this.prisma.exam.findFirst({
+            where: { programId: enrolment.programId },
+            select: { id: true, passMark: true },
+          })
+        : Promise.resolve(null),
 
       // 8. Oral configured count
       this.prisma.oralAssessment.count({
@@ -375,7 +377,7 @@ export class StageGateService {
     // ── PROGRAM MILESTONE TOGGLES ────────────────────────────────────────────
     const isSequential = programConfig?.sequentialProgressionEnabled !== false;
     const programExamCount = programExam ? 1 : 0;
-    const examPassMark = programExam?.passMark ?? 75;
+    const examPassMark = (programExam?.passMark && programExam.passMark !== 75) ? programExam.passMark : 80;
     const isExamRequired = (programConfig?.requireExam !== false) && !isCorporateTrack && programExamCount > 0;
 
     const bestExamScore = examAttempts.length > 0

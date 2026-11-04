@@ -976,9 +976,11 @@ export default function UserDetailPage({
   // Dynamic program/exam passing threshold and attendance requirements
   const dynamicExamPassMark =
     (stagesEval?.stages?.STAGE_2_EXAM?.details as any)?.passMark ??
+    (selectedEnrolment as any)?.program?.exams?.[0]?.passMark ??
     (selectedEnrolment as any)?.program?.exam?.passMark ??
+    (selectedEnrolment as any)?.batch?.program?.exams?.[0]?.passMark ??
     (selectedEnrolment as any)?.batch?.program?.passMark ??
-    75;
+    80;
 
   const dynamicAttendanceThreshold =
     (stagesEval?.stages?.STAGE_3_ATTENDANCE?.details as any)?.thresholdPercent ??
@@ -1266,7 +1268,7 @@ export default function UserDetailPage({
               {(() => {
                 const s2 = stagesEval?.stages?.STAGE_2_EXAM;
                 const isOverridden = Boolean(s2?.isOverridden);
-                const passMark = (s2?.details as any)?.passMark ?? 75;
+                const passMark = (s2?.details as any)?.passMark ?? dynamicExamPassMark;
                 const bestScore = (s2?.details as any)?.bestScore ?? (s2?.details as any)?.examScore ?? null;
                 const hasAttempted = Boolean((s2?.details as any)?.attemptCount > 0 || bestScore !== null);
                 const isPassed = Boolean(s2?.isCompleted || (bestScore !== null && bestScore >= passMark));
@@ -2061,12 +2063,8 @@ export default function UserDetailPage({
                         {hasScheduledSessions ? (
                           <>
                             <strong style={{ color: isCompliant ? "#15803d" : attPct > 0 ? "#b45309" : "#991b1b" }}>{attPct}%</strong>
-                            {attendedCount > 0 ? (
+                            {attendedCount > 0 && (
                               <span> ({attendedCount} of {requiredCount} Sessions Completed)</span>
-                            ) : attPct > 0 ? (
-                              <span style={{ color: "#b45309" }}> ({attPct}% Attended · Below {reqPct}% Threshold)</span>
-                            ) : (
-                              <span> (0 of {requiredCount} Sessions Attended)</span>
                             )}
                           </>
                         ) : (

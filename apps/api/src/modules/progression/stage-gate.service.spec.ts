@@ -88,6 +88,7 @@ describe('StageGateService: 5-Stage Sequential Progression Pipeline & Security A
       },
       exam: {
         count: vi.fn().mockResolvedValue(1),
+        findFirst: vi.fn().mockResolvedValue({ id: 'exam-1', passMark: 80 }),
       },
       examAttempt: {
         findMany: vi.fn().mockResolvedValue([

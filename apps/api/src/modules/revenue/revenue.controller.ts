@@ -396,7 +396,18 @@ export class RevenueController {
     const byBatch = Array.from(batchMap.values()).sort((a, b) => (b.USD + b.AED / 3.67 + b.INR / 83) - (a.USD + a.AED / 3.67 + a.INR / 83));
 
     // Multi-currency total summary string
-    const numericTotalRevenue = Array.from(Object.values(byCurrency)).reduce((sum, v) => sum + v.total, 0);
+    const toUSD = (amt: number, curr: string): number => {
+      const code = (curr || 'USD').toUpperCase();
+      if (code === 'USD') return amt;
+      if (code === 'AED') return amt / 3.67;
+      if (code === 'INR') return amt / 83;
+      return amt;
+    };
+
+    const totalRevenueInUSD = Object.entries(byCurrency).reduce((sum, [code, v]) => {
+      return sum + toUSD(v.total, code);
+    }, 0);
+    const numericTotalRevenue = Math.round(totalRevenueInUSD);
     const activeCurrencies = Object.entries(byCurrency).filter(([_, v]) => v.total > 0);
 
     let multiCurrencySummary: string;
@@ -411,8 +422,10 @@ export class RevenueController {
     }
 
     return {
-      totalRevenue: multiCurrencySummary,
+      totalRevenue: `$${numericTotalRevenue.toLocaleString('en-US')}`,
+      totalRevenueInUSD: numericTotalRevenue,
       numericTotalRevenue,
+      multiCurrencyBreakdown: multiCurrencySummary,
       byCurrency,
       byCourse,
       byBatch,

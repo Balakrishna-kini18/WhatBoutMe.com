@@ -1,3 +1,4 @@
+import Stripe from 'stripe';
 import {
   BadRequestException,
   Injectable,
@@ -323,7 +324,10 @@ export class EventsService {
     }
 
     // Paid Event flow: create PENDING registration
-    const orderId = `sim_ord_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+    let orderId = `sim_ord_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+    let checkoutUrl: string | undefined = undefined;
+
+    const isStripeActive = process.env.PAYMENT_PROVIDER === 'STRIPE' && !!process.env.STRIPE_SECRET_KEY;
 
     const registration = await this.prisma.eventRegistration.create({
       data: {
@@ -334,21 +338,67 @@ export class EventsService {
         attendeePhone,
         amount: event.price,
         currency: event.currency,
-        paymentGateway: 'SIMULATION',
+        paymentGateway: isStripeActive ? 'STRIPE' : 'SIMULATION',
         gatewayOrderId: orderId,
         paymentStatus: EventPaymentStatus.PENDING,
         emailSent: false,
       },
     });
 
+    if (isStripeActive) {
+      try {
+        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+        const marketingUrl = process.env.MARKETING_SITE_URL || 'http://localhost:3001';
+        const session = await stripe.checkout.sessions.create({
+          mode: 'payment',
+          customer_email: attendeeEmail,
+          line_items: [
+            {
+              price_data: {
+                currency: event.currency.toLowerCase(),
+                unit_amount: Math.round(priceNum * 100),
+                product_data: {
+                  name: event.title,
+                  description: `Event Registration - ${event.title}`,
+                },
+              },
+              quantity: 1,
+            },
+          ],
+          metadata: {
+            targetType: 'EVENT',
+            targetId: event.id,
+            eventId: event.id,
+            registrationId: registration.id,
+            attendeeName,
+            attendeeEmail,
+            attendeePhone,
+          },
+          success_url: `${marketingUrl}/events/${event.slug || event.id}?session_id={CHECKOUT_SESSION_ID}&registrationId=${registration.id}`,
+          cancel_url: `${marketingUrl}/events/${event.slug || event.id}?canceled=1`,
+        });
+
+        orderId = session.id;
+        checkoutUrl = session.url || undefined;
+
+        await this.prisma.eventRegistration.update({
+          where: { id: registration.id },
+          data: { gatewayOrderId: orderId },
+        });
+      } catch (err: any) {
+        this.logger.error(`Stripe event checkout session creation failed: ${err?.message}`);
+      }
+    }
+
     return {
       success: true,
       registrationId: registration.id,
       orderId,
+      checkoutUrl,
       amount: priceNum,
       currency: event.currency,
       status: EventPaymentStatus.PENDING,
-      simulation: true,
+      simulation: !checkoutUrl,
       event: mapEvent(event, { isStaff: false }),
     };
   }
@@ -387,6 +437,20 @@ export class EventsService {
         },
         event: mapEvent(reg.event, { isStaff: false }),
       };
+    }
+
+    if (dto.gatewayOrderId?.startsWith('cs_') && process.env.STRIPE_SECRET_KEY && !dto.isSimulated) {
+      try {
+        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+        const session = await stripe.checkout.sessions.retrieve(dto.gatewayOrderId);
+        if (session.payment_status !== 'paid') {
+          throw new BadRequestException('Payment has not yet completed on Stripe.');
+        }
+      } catch (err: any) {
+        if (err instanceof BadRequestException) throw err;
+        this.logger.error(`Stripe session retrieval verification error: ${err?.message}`);
+        throw new BadRequestException('Could not verify payment status with Stripe.');
+      }
     }
 
     const paymentId = dto.gatewayPaymentId || `sim_pay_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;

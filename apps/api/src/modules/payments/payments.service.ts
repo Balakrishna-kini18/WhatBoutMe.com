@@ -198,6 +198,66 @@ export class PaymentsService {
       }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // TIER 1: MULTIPLE PAYMENT AVOIDANCE FOR SAME COURSE
+    // ─────────────────────────────────────────────────────────────────────────
+    const targetUserId = user?.sub || user?.id;
+    if (dto.targetType === 'ENROLMENT' && targetUserId) {
+      const progId = (pricing as any).programId;
+      if (progId) {
+        const existingEnrolment = await this.prisma.enrolment.findFirst({
+          where: {
+            userId: targetUserId,
+            programId: progId,
+            status: {
+              in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.COMPLETED, EnrolmentStatus.PENDING_AGREEMENT],
+            },
+          },
+          include: {
+            payments: { where: { status: 'succeeded' } },
+          },
+        });
+
+        if (existingEnrolment && existingEnrolment.payments.length > 0) {
+          this.logger.warn(
+            `[Duplicate Payment Blocked] User ${targetUserId} attempted to initiate duplicate checkout for already paid program ${progId}`
+          );
+          throw new BadRequestException({
+            statusCode: 400,
+            error: 'ALREADY_ENROLLED',
+            message: 'You have already enrolled and completed payment for this course. Duplicate payment is blocked.',
+            programId: progId,
+            enrolmentId: existingEnrolment.id,
+            status: existingEnrolment.status,
+            dashboardUrl: `/programs/${progId}/steps`,
+          });
+        }
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // TIER 2: IN-FLIGHT SESSION DE-DUPLICATION (EXPIRE STALE OPEN SESSIONS)
+    // ─────────────────────────────────────────────────────────────────────────
+    const targetEnrolmentId = dto.enrolmentId || (pricing as any).enrolmentId || (dto.targetType === 'ENROLMENT' ? dto.targetId : undefined);
+    if (targetEnrolmentId && this.stripeProvider?.expireSession) {
+      try {
+        const stalePendingPayment = await this.prisma.payment.findFirst({
+          where: {
+            enrolmentId: targetEnrolmentId,
+            status: 'pending',
+            createdAt: { gt: new Date(Date.now() - 15 * 60 * 1000) },
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+
+        if (stalePendingPayment && stalePendingPayment.stripeSessionId.startsWith('cs_')) {
+          await this.stripeProvider.expireSession(stalePendingPayment.stripeSessionId).catch(() => {});
+        }
+      } catch (err: any) {
+        this.logger.warn(`Could not expire prior stale session: ${err?.message}`);
+      }
+    }
+
     const provider = this.getActiveProvider();
     const orderResult = await provider.createOrder({
       amount: finalAmount,
@@ -212,11 +272,32 @@ export class PaymentsService {
       metadata: {
         title: pricing.title,
         originalAmount: pricing.amount,
+        baseAmountUSD: (pricing as any).amount,
+        enrolmentId: dto.enrolmentId || (pricing as any).enrolmentId,
         discountAmount,
         couponCode: dto.couponCode,
         couponId,
       },
     });
+
+    // Ledger pending payment row in database to guarantee tracking
+    if (orderResult.orderId && !orderResult.simulationBypass) {
+      const eid = dto.enrolmentId || (pricing as any).enrolmentId || (dto.targetType === 'ENROLMENT' ? dto.targetId : undefined);
+      await this.prisma.payment.create({
+        data: {
+          enrolmentId: eid || null,
+          stripeSessionId: orderResult.orderId,
+          amount: finalAmount,
+          currency: pricing.currency,
+          status: 'pending',
+          couponCode: dto.couponCode || null,
+          discountAmount,
+          idempotencyKey: dto.idempotencyKey || null,
+        },
+      }).catch((err) => {
+        this.logger.warn(`Could not ledger pending payment row: ${err?.message}`);
+      });
+    }
 
     return {
       ...orderResult,
@@ -735,5 +816,71 @@ export class PaymentsService {
     }
 
     throw new BadRequestException(`Unsupported targetType: ${dto.targetType}`);
+  }
+
+  /**
+   * Synchronous Session Status Check & Dual-Path Fallback
+   * Prevents learner lockout if Stripe redirect completes before webhook delivers.
+   */
+  async getSessionStatus(sessionId: string) {
+    if (!sessionId) {
+      throw new BadRequestException('sessionId is required');
+    }
+
+    const payment = await this.prisma.payment.findUnique({
+      where: { stripeSessionId: sessionId },
+      include: {
+        enrolment: {
+          include: { program: true, signedAgreement: true },
+        },
+        invoice: true,
+      },
+    });
+
+    if (payment && payment.status === 'succeeded') {
+      const isSigned = payment.enrolment?.signedAgreement?.status === AgreementStatus.SIGNED;
+      return {
+        status: 'PAID',
+        enrolmentId: payment.enrolmentId,
+        enrolmentStatus: payment.enrolment?.status,
+        programId: payment.enrolment?.programId,
+        programTitle: payment.enrolment?.program?.title,
+        isSigned,
+        invoiceNumber: payment.invoice?.invoiceNumber || null,
+        invoiceUrl: payment.invoice ? `/api/invoices/${payment.invoice.id}/pdf` : null,
+        amount: payment.amount,
+        currency: payment.currency,
+        currencySymbol: getCurrencySymbol(payment.currency),
+      };
+    }
+
+    // Dual-path fallback: If still pending and using Stripe, check live session from Stripe API
+    if (this.activeProviderType === 'STRIPE' && this.stripeProvider.retrieveSession) {
+      const stripeSession = await this.stripeProvider.retrieveSession(sessionId);
+      if (stripeSession && stripeSession.payment_status === 'paid') {
+        this.logger.log(`[Dual-Path Fallback] Reconciling paid Stripe session ${sessionId} synchronously.`);
+        const simulated = await this.simulateTestWebhook({
+          targetType: (stripeSession.metadata?.targetType as any) || 'ENROLMENT',
+          targetId: stripeSession.metadata?.targetId,
+          enrolmentId: stripeSession.metadata?.enrolmentId || payment?.enrolmentId || undefined,
+          status: 'PAID',
+          amount: (stripeSession.amount_total || 0) / 100,
+          currency: (stripeSession.currency || 'USD').toUpperCase() as SupportedCurrency,
+          couponCode: stripeSession.metadata?.couponCode,
+          idempotencyKey: stripeSession.metadata?.idempotencyKey,
+        });
+
+        return {
+          status: 'PAID',
+          ...simulated,
+        };
+      }
+    }
+
+    return {
+      status: payment?.status ? payment.status.toUpperCase() : 'PENDING',
+      orderId: sessionId,
+      enrolmentId: payment?.enrolmentId,
+    };
   }
 }

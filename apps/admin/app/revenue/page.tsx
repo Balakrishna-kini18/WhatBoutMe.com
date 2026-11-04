@@ -302,14 +302,20 @@ export default function RevenuePage() {
 
   // Dynamic Metrics for Current Filtered Slice
   const { displayUsdTotal } = useMemo(() => {
+    const toUsd = (amt: number, curr?: string) => {
+      const c = (curr || "USD").toUpperCase();
+      if (c === "USD") return amt;
+      if (c === "AED") return amt / 3.67;
+      if (c === "INR") return amt / 83;
+      return amt;
+    };
+
     let usd = 0;
     for (const tx of filteredAndSortedTransactions) {
       const isPaid = tx.status === "PAID" || tx.status === "COMPLETED" || tx.status === "succeeded";
       if (isPaid) {
         const netAmt = typeof tx.netAmount === "number" ? tx.netAmount : Number(tx.numericAmount) || 0;
-        if (tx.currency === "USD") {
-          usd += netAmt;
-        }
+        usd += toUsd(netAmt, tx.currency);
       }
     }
 
@@ -320,7 +326,7 @@ export default function RevenuePage() {
       statusFilter === "all" &&
       !searchQuery.trim();
 
-    const finalUsd = isUnfilteredAllTime ? (data?.byCurrency?.USD?.total ?? usd) : usd;
+    const finalUsd = isUnfilteredAllTime ? (data?.totalRevenueInUSD ?? data?.numericTotalRevenue ?? usd) : usd;
 
     return {
       displayUsdTotal: finalUsd,

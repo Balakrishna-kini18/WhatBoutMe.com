@@ -43,6 +43,8 @@ export interface WebhookVerificationResult {
   status: 'PAID' | 'FAILED' | 'REFUNDED';
   amount: number;
   currency: SupportedCurrency;
+  amountUSD?: number;
+  paymentIntentId?: string;
   metadata?: Record<string, any>;
 }
 
@@ -50,4 +52,7 @@ export interface IPaymentProvider {
   readonly providerType: PaymentProviderType;
   createOrder(params: CreateOrderParams): Promise<CreateOrderResult>;
   verifyWebhook(params: VerifyWebhookParams): Promise<WebhookVerificationResult>;
+  expireSession?(orderId: string): Promise<boolean>;
+  retrieveSession?(orderId: string): Promise<any>;
+  refundPayment?(params: { paymentIntentId: string; amount?: number; reason?: string }): Promise<any>;
 }

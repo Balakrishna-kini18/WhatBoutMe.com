@@ -57,8 +57,15 @@ async function bootstrap() {
     express.raw({ type: () => true, limit: '250mb' }),
   );
 
-  // Body limit
-  app.use(express.json({ limit: '50mb' }));
+  // Body limit with raw body capture for webhook signature verification
+  app.use(
+    express.json({
+      limit: '50mb',
+      verify: (req: any, _res: any, buf: Buffer) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   // Validation

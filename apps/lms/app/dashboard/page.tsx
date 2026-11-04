@@ -1,6 +1,8 @@
-import { redirect } from "next/navigation";
+"use client";
 
-export default function DashboardPage() {
-  redirect("/");
+import LearnerDashboardPage from "../page";
+
+export default function DashboardRoute() {
+  return <LearnerDashboardPage />;
 }
 

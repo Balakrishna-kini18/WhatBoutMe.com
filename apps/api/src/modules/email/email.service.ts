@@ -74,9 +74,12 @@ export class EmailService {
           user,
           pass,
         },
-        connectionTimeout: 8000,
-        greetingTimeout: 5000,
-        socketTimeout: 10000,
+        pool: true,
+        maxConnections: 3,
+        maxMessages: 100,
+        connectionTimeout: 15000,
+        greetingTimeout: 15000,
+        socketTimeout: 20000,
         tls: {
           rejectUnauthorized: process.env.NODE_ENV === 'production',
         },
@@ -209,9 +212,9 @@ export class EmailService {
             port: alternatePort,
             secure: alternateSecure,
             auth: { user, pass },
-            connectionTimeout: 10000,
-            greetingTimeout: 6000,
-            socketTimeout: 15000,
+            connectionTimeout: 15000,
+            greetingTimeout: 15000,
+            socketTimeout: 20000,
             tls: { rejectUnauthorized: false },
           });
           info = await fallbackTransporter.sendMail({

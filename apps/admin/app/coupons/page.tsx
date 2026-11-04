@@ -299,7 +299,7 @@ export default function CouponsPage() {
         programIds: formScope === "SPECIFIC_COURSES" ? formProgramIds : [],
         maxTotalUses: formMaxTotalUses ? Number(formMaxTotalUses) : undefined,
         maxUsesPerUser: Number(formMaxUsesPerUser) || 1,
-        expiresAt: formExpiresAt ? new Date(formExpiresAt).toISOString() : null,
+        expiresAt: formExpiresAt && !isNaN(new Date(formExpiresAt).getTime()) ? new Date(formExpiresAt).toISOString() : undefined,
         isActive: formIsActive,
         appliesToInstalments: formAppliesToInstalments,
       };

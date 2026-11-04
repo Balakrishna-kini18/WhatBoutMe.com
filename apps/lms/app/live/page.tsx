@@ -33,6 +33,8 @@ interface Session {
   recordingUrl: string | null;
   hostTrainer?: { id: string; name: string; email: string } | null;
   batch?: { id: string; name: string } | null;
+  programTitle?: string;
+  batchName?: string;
   // Enriched by client after booking fetch
   bookingStatus?: "BOOKED" | "CONFIRMED" | "ATTENDED" | null;
   bookingId?: string | null;
@@ -923,8 +925,8 @@ export default function LiveSessionsPage() {
           {visible.map((s, sIdx) => {
             const start = new Date(s.startTime);
             const end = new Date(s.endTime);
-            const live = s.status !== "COMPLETED" && s.status !== "CANCELLED" && (s.status === "ACTIVE" || (now >= start.getTime() - 10 * 60000 && now <= end.getTime() + 2 * 60 * 60000));
-            const ended = s.status === "COMPLETED" || (s.status !== "ACTIVE" && now > end.getTime() + 2 * 60 * 60000);
+            const live = s.status !== "COMPLETED" && s.status !== "CANCELLED" && (s.status === "ACTIVE" || (now >= start.getTime() - 10 * 60000 && now <= end.getTime() + 15 * 60000));
+            const ended = s.status === "COMPLETED" || (s.status !== "ACTIVE" && now > end.getTime() + 15 * 60000);
             const isNext = s.id === next?.id && !ended;
             const isBooked =
               s.bookingStatus === "BOOKED" ||
@@ -985,7 +987,7 @@ export default function LiveSessionsPage() {
                 {/* Card body */}
                 <div className={styles.cardBody}>
                   <div className={styles.cardEyebrow}>
-                    <span>11 Steps to You</span>
+                    <span>{s.programTitle || s.batch?.name || "Live Interactive Session"}</span>
                     <span className={styles.eyebrowDot} aria-hidden="true">·</span>
                     <span>{formatDuration(start, end)}</span>
                     {s.sessionType === "ONE_ON_ONE" && (

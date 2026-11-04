@@ -594,6 +594,7 @@ export class PaymentsService {
       if (this.cacheHelper) {
         await this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`).catch(() => { });
         await this.cacheHelper.invalidateNamespace('enrolments').catch(() => { });
+        await this.cacheHelper.invalidateNamespace('batches').catch(() => { });
         await this.cacheHelper.invalidateNamespace('invoices').catch(() => { });
         await this.cacheHelper.invalidateNamespace('revenue').catch(() => { });
       }

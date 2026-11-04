@@ -256,11 +256,13 @@ export function autoInvalidateOnMutation(url: string): void {
     return;
   }
 
-  const isBatchOrSession = /\/(batches|sessions|attendance)/.test(url);
+  const isBatchOrSession = /\/(batches|sessions|attendance|enrolments|enrollments)/.test(url);
   if (isBatchOrSession) {
     invalidateCache("/batches");
     invalidateCache("/sessions");
     invalidateCache("/attendance");
+    invalidateCache("/enrolments");
+    invalidateCache("/enrollments");
     invalidateCache("/meetings");
     invalidateCache("/admin/dashboard");
     invalidateCache("/dashboard");
@@ -2279,6 +2281,7 @@ export async function resendEnrolmentPaymentLink(enrolmentId: string): Promise<a
 }
 
 export interface CreateSessionInput {
+  timezone?: string;
   batchId?: string;
   title: string;
   startTime: string;

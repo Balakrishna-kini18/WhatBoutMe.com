@@ -450,6 +450,20 @@ export class SessionsService {
       ];
     }
 
+    // Auto-transition past sessions to COMPLETED (e.g. serverless environments where intervals don't run 24/7)
+    const now = new Date();
+    if (typeof (this.prisma.session as any)?.updateMany === 'function') {
+      await this.prisma.session.updateMany({
+        where: {
+          status: { in: [SessionStatus.SCHEDULED, SessionStatus.ACTIVE] },
+          endTime: { lte: now },
+        },
+        data: {
+          status: SessionStatus.COMPLETED,
+        },
+      }).catch(() => {});
+    }
+
     const sessions = await this.prisma.session.findMany({
       where,
       orderBy: { startTime: 'asc' },
@@ -1010,6 +1024,20 @@ export class SessionsService {
 
   // Learner: their own sessions with attendance (preserved)
   async getMySessions(userId: string, viewerTimezone?: string | null) {
+    // Auto-transition past sessions to COMPLETED
+    const now = new Date();
+    if (typeof (this.prisma.session as any)?.updateMany === 'function') {
+      await this.prisma.session.updateMany({
+        where: {
+          status: { in: [SessionStatus.SCHEDULED, SessionStatus.ACTIVE] },
+          endTime: { lte: now },
+        },
+        data: {
+          status: SessionStatus.COMPLETED,
+        },
+      }).catch(() => {});
+    }
+
     // Parallelize independent enrolment and 1:1 session queries in a single round trip
     const [enrolments, oneOnOnes] = await Promise.all([
       this.prisma.enrolment.findMany({
@@ -1309,6 +1337,7 @@ export class SessionsService {
     const updated = await this.prisma.attendance.upsert({
       where: { sessionId_userId: { sessionId, userId } },
       update: {
+        ...(existing?.joinTime ? {} : { joinTime: now }),
         leaveTime: now,
         liveMinutes: Math.round(currentLiveMin * 100) / 100,
         minutesPresent: Math.round(totalMinutes),

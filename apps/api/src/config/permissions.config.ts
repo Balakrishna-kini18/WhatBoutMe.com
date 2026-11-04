@@ -492,9 +492,10 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     Permission.SESSIONS_BOOK,
     Permission.SESSIONS_CANCEL,
 
-    // Attendance (Viewing own attendance record)
+    // Attendance (Viewing own attendance record & transmitting live presence heartbeats)
     Permission.ATTENDANCE_READ,
     Permission.ATTENDANCE_VIEW,
+    Permission.ATTENDANCE_MARK,
 
     // Oral Assessments (Viewing own assessment booking/status)
     Permission.ORAL_ASSESSMENTS_READ,

@@ -1369,6 +1369,8 @@ export class AgreementsService {
 
     if (this.cacheHelper) {
       await this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`).catch(() => {});
+      await this.cacheHelper.invalidateNamespace('batches').catch(() => {});
+      await this.cacheHelper.invalidateNamespace('enrolments').catch(() => {});
     }
 
     if (this.emailService && user?.email) {

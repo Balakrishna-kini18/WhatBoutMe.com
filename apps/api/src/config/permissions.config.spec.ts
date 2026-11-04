@@ -347,8 +347,8 @@ describe('D1-026: ROLE_PERMISSIONS Matrix & Authorization Utilities', () => {
       expect(ROLE_PERMISSIONS.USER.has(Permission.QUIZZES_GRADE)).toBe(false);
       expect(ROLE_PERMISSIONS.USER.has(Permission.QUIZZES_RESET_ATTEMPTS)).toBe(false);
 
-      // Attendance marking
-      expect(ROLE_PERMISSIONS.USER.has(Permission.ATTENDANCE_MARK)).toBe(false);
+      // Attendance marking (USER transmits presence heartbeats / self check-in)
+      expect(ROLE_PERMISSIONS.USER.has(Permission.ATTENDANCE_MARK)).toBe(true);
       expect(ROLE_PERMISSIONS.USER.has(Permission.ATTENDANCE_CORRECT)).toBe(false);
       expect(ROLE_PERMISSIONS.USER.has(Permission.ATTENDANCE_RECONCILE)).toBe(false);
 

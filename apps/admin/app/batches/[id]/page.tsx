@@ -81,7 +81,7 @@ interface BatchSession {
   meetingProvider?: string | null;
   durationMinutes?: number | null;
   minAttendanceMinutes?: number | null;
-  status: "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED" | "RESCHEDULED";
+  status: "SCHEDULED" | "IN_PROGRESS" | "ACTIVE" | "COMPLETED" | "CANCELLED" | "RESCHEDULED" | string;
   startTime: string;
   endTime: string;
   timezone?: string | null;
@@ -220,11 +220,18 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
   const [sessionWallTime, setSessionWallTime] = useState("19:00");
   const [sessionDurationMinutes, setSessionDurationMinutes] = useState("60");
   const [sessionMinAttendance, setSessionMinAttendance] = useState("45");
-  const [selectedTz, setSelectedTz] = useState("Asia/Dubai");
+  const [selectedTz, setSelectedTz] = useState(() => (typeof window !== "undefined" ? getSystemTimezone() : "Asia/Kolkata"));
   const [isSubmittingSession, setIsSubmittingSession] = useState(false);
   const [editingRecordingSessionId, setEditingRecordingSessionId] = useState<string | null>(null);
   const [newRecordingUrl, setNewRecordingUrl] = useState("");
   const [syncingSessionId, setSyncingSessionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const detected = getSystemTimezone();
+      if (detected) setSelectedTz(detected);
+    }
+  }, []);
 
   const handleSyncZoomAttendance = async (sessionId: string) => {
     setSyncingSessionId(sessionId);
@@ -903,6 +910,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
         startTime: startUtc,
         endTime: endUtc,
         durationMinutes: durationNum,
+        timezone: selectedTz,
         capacity: batch?.capacity || 50,
       });
 
@@ -2430,19 +2438,20 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                     const startIso = sess.startTime;
                     const durationMin = sess.durationMinutes || 60;
                     const endIso = sess.endTime || (startIso ? new Date(new Date(startIso).getTime() + durationMin * 60000).toISOString() : "");
+                    const sessionTz = sess.timezone || selectedTz;
 
                     let dateDisplay = "TBD";
                     let timeDisplay = "";
                     if (startIso) {
                       try {
                         dateDisplay = new Date(startIso).toLocaleDateString(undefined, {
-                          timeZone: selectedTz,
+                          timeZone: sessionTz,
                           month: "short",
                           day: "numeric",
                           year: "numeric",
                         });
-                        const sTime = formatShortTimeInTz(startIso, selectedTz);
-                        const eTime = endIso ? formatShortTimeInTz(endIso, selectedTz) : "";
+                        const sTime = formatShortTimeInTz(startIso, sessionTz);
+                        const eTime = endIso ? formatShortTimeInTz(endIso, sessionTz) : "";
                         timeDisplay = eTime ? `${sTime} – ${eTime}` : sTime;
                       } catch {
                         dateDisplay = new Date(startIso).toLocaleDateString();
@@ -2464,7 +2473,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                               {dateDisplay}
                             </span>
                             <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                              {timeDisplay} ({selectedTz.replace(/_/g, " ")})
+                              {timeDisplay} ({sessionTz.split("/")[1]?.replace(/_/g, " ") || sessionTz})
                             </span>
                           </div>
                         </td>
@@ -2632,7 +2641,13 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                           )}
                         </td>
                         <td>
-                          <StatusBadge status={sess.status} />
+                          <StatusBadge status={(() => {
+                            const isPast = endIso && Date.now() > new Date(endIso).getTime();
+                            if ((sess.status === "SCHEDULED" || sess.status === "ACTIVE" || sess.status === "IN_PROGRESS") && isPast) {
+                              return "COMPLETED";
+                            }
+                            return sess.status;
+                          })()} />
                         </td>
                         <td style={{ textAlign: "right" }}>
                           <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", justifyContent: "flex-end" }}>

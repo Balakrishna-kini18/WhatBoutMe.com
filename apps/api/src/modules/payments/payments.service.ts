@@ -251,7 +251,7 @@ export class PaymentsService {
         });
 
         if (stalePendingPayment && stalePendingPayment.stripeSessionId.startsWith('cs_')) {
-          await this.stripeProvider.expireSession(stalePendingPayment.stripeSessionId).catch(() => {});
+          await this.stripeProvider.expireSession(stalePendingPayment.stripeSessionId).catch(() => { });
         }
       } catch (err: any) {
         this.logger.warn(`Could not expire prior stale session: ${err?.message}`);
@@ -351,8 +351,8 @@ export class PaymentsService {
       // Check Idempotency: suppress duplicate processing if the EXACT same idempotencyKey was already recorded
       const existingSuccess = dto.idempotencyKey
         ? enrolment.payments.find(
-            (p) => p.status === 'succeeded' && p.idempotencyKey === dto.idempotencyKey
-          )
+          (p) => p.status === 'succeeded' && p.idempotencyKey === dto.idempotencyKey
+        )
         : null;
 
       if (existingSuccess && dto.status === 'PAID') {
@@ -402,20 +402,20 @@ export class PaymentsService {
       } else {
         const batch = enrolment.batchId
           ? await this.prisma.batch.findUnique({
-              where: { id: enrolment.batchId },
-              include: {
-                _count: {
-                  select: {
-                    enrolments: {
-                      where: {
-                        id: { not: enrolment.id },
-                        status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED] },
-                      },
+            where: { id: enrolment.batchId },
+            include: {
+              _count: {
+                select: {
+                  enrolments: {
+                    where: {
+                      id: { not: enrolment.id },
+                      status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED] },
                     },
                   },
                 },
               },
-            })
+            },
+          })
           : null;
 
         const occupied = batch?._count?.enrolments ?? 0;
@@ -592,10 +592,10 @@ export class PaymentsService {
 
       // Clear Caches
       if (this.cacheHelper) {
-        await this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`).catch(() => {});
-        await this.cacheHelper.invalidateNamespace('enrolments').catch(() => {});
-        await this.cacheHelper.invalidateNamespace('invoices').catch(() => {});
-        await this.cacheHelper.invalidateNamespace('revenue').catch(() => {});
+        await this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`).catch(() => { });
+        await this.cacheHelper.invalidateNamespace('enrolments').catch(() => { });
+        await this.cacheHelper.invalidateNamespace('invoices').catch(() => { });
+        await this.cacheHelper.invalidateNamespace('revenue').catch(() => { });
       }
 
       // Send Emails
@@ -796,9 +796,9 @@ export class PaymentsService {
 
       // Clear caches
       if (this.cacheHelper) {
-        await this.cacheHelper.invalidateNamespace('events').catch(() => {});
-        await this.cacheHelper.invalidateNamespace('invoices').catch(() => {});
-        await this.cacheHelper.invalidateNamespace('revenue').catch(() => {});
+        await this.cacheHelper.invalidateNamespace('events').catch(() => { });
+        await this.cacheHelper.invalidateNamespace('invoices').catch(() => { });
+        await this.cacheHelper.invalidateNamespace('revenue').catch(() => { });
       }
 
       return {

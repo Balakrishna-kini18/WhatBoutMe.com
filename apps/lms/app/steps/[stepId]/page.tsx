@@ -2352,9 +2352,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     Module Knowledge Check Passed!
                   </h3>
                   <p style={{ margin: "0 0 18px", fontSize: "0.92rem", color: "#166534", maxWidth: 540, marginLeft: "auto", marginRight: "auto", lineHeight: 1.5 }}>
-                    {lastQuizResult?.score !== undefined
-                      ? `Great job! You achieved a score of ${lastQuizResult.score}% (Pass threshold: ${lastQuizResult.passMark ?? 75}%).`
-                      : "Great job! You have satisfied all requirements for this module."}{" "}
+                    {lastQuizResult?.score !== undefined ? `Great job! You achieved a score of ${lastQuizResult.score}%.` : "Great job! You have satisfied all requirements for this module."}{" "}
                     {nextStep ? `Step ${nextStep.sequence}: ${nextStep.title} is now unlocked.` : "You have completed all modules in this program."}
                   </p>
                   <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
@@ -2414,66 +2412,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               ) : (
                 /* ACTIVE QUIZ QUESTION CARD */
                 <>
-                  {lastQuizResult && !lastQuizResult.passed && lastQuizResult.status !== "IN_PROGRESS" && (
-                    <div
-                      style={{
-                        background: "#fee2e2",
-                        border: "1px solid #fca5a5",
-                        color: "#7f1d1d",
-                        padding: "16px 20px",
-                        borderRadius: 12,
-                        marginBottom: 20,
-                      }}
-                    >
-                      <h4 style={{ margin: "0 0 6px", fontSize: "1.05rem", fontWeight: 700 }}>
-                        Assessment Not Passed Yet
-                      </h4>
-                      <p style={{ margin: "0 0 12px", fontSize: "0.88rem" }}>
-                        Score: {lastQuizResult.score}% (Pass threshold: {lastQuizResult.passMark ?? 75}%).
-                        Please review the video lessons and try again.
-                      </p>
-                      <button
-                        type="button"
-                        disabled={isStartingQuiz}
-                        onClick={async () => {
-                          setQuizError(null);
-                          setQuizAnswers({});
-                          setActiveQuizIndex(0);
-                          setIsStartingQuiz(true);
-                          if (step?.quiz?.id) {
-                            hasAttemptedQuizStartRef.current[step.quiz.id] = false;
-                          }
-                          try {
-                            const startRes = await fetch(`${API_URL}/quizzes/${step?.quiz?.id}/start`, {
-                              method: "POST",
-                              headers: getAuthHeaders(),
-                            });
-                            const startData = await startRes.json();
-                            if (startRes.ok) {
-                              setLastQuizResult(null);
-                              setActiveAttemptId(startData.attemptId || startData.id);
-                              if (Array.isArray(startData.questions) && startData.questions.length > 0) {
-                                setAttemptQuestions(startData.questions);
-                              }
-                            } else {
-                              const errorMsg = Array.isArray(startData?.message)
-                                ? startData.message.join(", ")
-                                : startData?.message;
-                              setQuizError(errorMsg || "Failed to start a new quiz attempt");
-                            }
-                          } catch (e: any) {
-                            setQuizError(e.message || "Failed to start quiz attempt");
-                          } finally {
-                            setIsStartingQuiz(false);
-                          }
-                        }}
-                        className={styles.btnPrimaryOrange}
-                        style={{ padding: "8px 16px", fontSize: "0.85rem", cursor: isStartingQuiz ? "wait" : "pointer" }}
-                      >
-                        {isStartingQuiz ? "Starting..." : "Try Again →"}
-                      </button>
-                    </div>
-                  )}
+                  {/* Quiz completion feedback */}
 
                   {currentQuizQuestion && (
                     <div className={styles.quizGrid}>

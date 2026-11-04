@@ -35,9 +35,9 @@ function QuizForm() {
   const [selectedProgramId, setSelectedProgramId] = useState(initialProgramId);
   const [steps, setSteps] = useState<any[]>([]);
   const [selectedStepId, setSelectedStepId] = useState(initialStepId);
-  const [passMark, setPassMark] = useState(75);
+  const [passMark, setPassMark] = useState(0);
   const [maxAttempts, setMaxAttempts] = useState(3);
-  const [cooldownHours, setCooldownHours] = useState(24);
+  const [cooldownHours, setCooldownHours] = useState(0);
   const [questionPoolSize, setQuestionPoolSize] = useState<number | "">("");
 
   // Default 4 choices per question (expandable 2..8)
@@ -465,17 +465,7 @@ function QuizForm() {
             Configure passing threshold, attempt limits, cooldown lockouts, and randomized pooling.
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "1rem" }}>
-            <div className={styles.formGroup}>
-              <label>Passing Score (%) <span style={{ color: "#ef4444" }}>*</span></label>
-              <input
-                type="number"
-                min="1"
-                max="100"
-                value={passMark}
-                onChange={(e) => setPassMark(parseInt(e.target.value, 10) || 75)}
-                required
-              />
-            </div>
+            
             <div className={styles.formGroup}>
               <label>Max Retries <span style={{ color: "#ef4444" }}>*</span></label>
               <input
@@ -486,16 +476,7 @@ function QuizForm() {
                 required
               />
             </div>
-            <div className={styles.formGroup}>
-              <label>Cooldown (Hours) <span style={{ color: "#ef4444" }}>*</span></label>
-              <input
-                type="number"
-                min="0"
-                value={cooldownHours}
-                onChange={(e) => setCooldownHours(parseInt(e.target.value, 10) || 0)}
-                required
-              />
-            </div>
+            
             <div className={styles.formGroup}>
               <label>Question Pool Size</label>
               <input

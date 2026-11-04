@@ -27,6 +27,10 @@ export class TestSimulateWebhookDto {
   @IsOptional()
   idempotencyKey?: string;
 
+  @IsString()
+  @IsOptional()
+  stripeSessionId?: string;
+
   @IsEnum(['PAID', 'FAILED'], {
     message: 'status must be either PAID or FAILED',
   })

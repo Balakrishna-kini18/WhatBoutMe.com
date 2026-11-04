@@ -374,16 +374,33 @@ export class PaymentsService {
 
       // Handle Failed Simulation
       if (dto.status === 'FAILED') {
-        const failedPayment = await this.prisma.payment.create({
-          data: {
-            enrolmentId: enrolment.id,
-            stripeSessionId: `fail_${Date.now()}_${enrolment.id.slice(0, 8)}`,
-            amount: dto.amount || enrolment.program.price,
-            currency,
-            status: 'failed',
-            idempotencyKey,
-          },
-        });
+        let failedPayment: any = null;
+        if (typeof this.prisma.payment?.findUnique === 'function') {
+          if (idempotencyKey) {
+            failedPayment = await this.prisma.payment.findUnique({ where: { idempotencyKey } });
+          }
+          if (!failedPayment && dto.stripeSessionId) {
+            failedPayment = await this.prisma.payment.findUnique({ where: { stripeSessionId: dto.stripeSessionId } });
+          }
+        }
+
+        if (failedPayment && typeof this.prisma.payment?.update === 'function') {
+          failedPayment = await this.prisma.payment.update({
+            where: { id: failedPayment.id },
+            data: { status: 'failed' },
+          });
+        } else {
+          failedPayment = await this.prisma.payment.create({
+            data: {
+              enrolmentId: enrolment.id,
+              stripeSessionId: dto.stripeSessionId || `fail_${Date.now()}_${enrolment.id.slice(0, 8)}`,
+              amount: dto.amount || enrolment.program.price,
+              currency,
+              status: 'failed',
+              idempotencyKey,
+            },
+          });
+        }
 
         return {
           success: false,
@@ -528,46 +545,86 @@ export class PaymentsService {
           data: { status: targetEnrolmentStatus },
         });
 
-        // 2. Create Payment Record
-        const payment = await tx.payment.create({
-          data: {
-            enrolmentId: enrolment.id,
-            stripeSessionId: `sim_pay_${Date.now()}_${enrolment.id.slice(0, 8)}`,
-            amount: totalInvoiceAmount,
-            currency,
-            status: 'succeeded',
-            couponCode: dto.couponCode || null,
-            discountAmount: discount,
-            idempotencyKey,
-          },
-        });
+        // 2. Create or Update Payment Record
+        let payment: any = null;
+        if (typeof (tx.payment as any)?.findUnique === 'function') {
+          if (idempotencyKey) {
+            payment = await tx.payment.findUnique({ where: { idempotencyKey } });
+          }
+          if (!payment && dto.stripeSessionId) {
+            payment = await tx.payment.findUnique({ where: { stripeSessionId: dto.stripeSessionId } });
+          }
+        }
 
-        // 3. Create Numbered WhatBoutMe FZE Invoice
-        const invoice = await tx.invoice.create({
-          data: {
-            paymentId: payment.id,
-            enrolmentId: enrolment.id,
-            invoiceNumber,
-            amount: totalInvoiceAmount,
-            currency,
-            couponCode: dto.couponCode || null,
-            discountAmount: discount,
-            status: InvoiceStatus.PAID,
-            taxFields: {
-              company: 'WhatBoutMe FZE',
-              trn: '10049281900003',
-              location: 'Dubai Silicon Oasis, Dubai, UAE',
-              taxType,
-              taxRate,
-              taxAmount,
-              subtotal: subtotal,
-              discount,
-              total: totalInvoiceAmount,
-              currencySymbol,
+        if (payment && typeof (tx.payment as any)?.update === 'function') {
+          payment = await tx.payment.update({
+            where: { id: payment.id },
+            data: {
+              status: 'succeeded',
+              amount: totalInvoiceAmount,
+              currency,
+              couponCode: dto.couponCode || payment.couponCode || null,
+              discountAmount: discount || payment.discountAmount || 0,
+              stripeSessionId: dto.stripeSessionId || payment.stripeSessionId,
             },
-            pdfUrl: `/api/invoices/${payment.id}/pdf`,
-          },
-        });
+          });
+        } else {
+          payment = await tx.payment.create({
+            data: {
+              enrolmentId: enrolment.id,
+              stripeSessionId: dto.stripeSessionId || `sim_pay_${Date.now()}_${enrolment.id.slice(0, 8)}`,
+              amount: totalInvoiceAmount,
+              currency,
+              status: 'succeeded',
+              couponCode: dto.couponCode || null,
+              discountAmount: discount,
+              idempotencyKey,
+            },
+          });
+        }
+
+        // 3. Create Numbered WhatBoutMe FZE Invoice (or reuse if already exists)
+        let existingInvoice: any = null;
+        if (typeof (tx.invoice as any)?.findFirst === 'function') {
+          existingInvoice = await tx.invoice.findFirst({
+            where: { OR: [{ paymentId: payment.id }, { enrolmentId: enrolment.id }] },
+          });
+        }
+
+        const invoice = existingInvoice && typeof (tx.invoice as any)?.update === 'function'
+          ? await tx.invoice.update({
+              where: { id: existingInvoice.id },
+              data: {
+                status: InvoiceStatus.PAID,
+                amount: totalInvoiceAmount,
+                paymentId: payment.id,
+              },
+            })
+          : await tx.invoice.create({
+              data: {
+                paymentId: payment.id,
+                enrolmentId: enrolment.id,
+                invoiceNumber,
+                amount: totalInvoiceAmount,
+                currency,
+                couponCode: dto.couponCode || null,
+                discountAmount: discount,
+                status: InvoiceStatus.PAID,
+                taxFields: {
+                  company: 'WhatBoutMe FZE',
+                  trn: '10049281900003',
+                  location: 'Dubai Silicon Oasis, Dubai, UAE',
+                  taxType,
+                  taxRate,
+                  taxAmount,
+                  subtotal: subtotal,
+                  discount,
+                  total: totalInvoiceAmount,
+                  currencySymbol,
+                },
+                pdfUrl: `/api/invoices/${payment.id}/pdf`,
+              },
+            });
 
         // 4. Audit Log
         if (tx.auditLog?.create) {
@@ -870,6 +927,7 @@ export class PaymentsService {
           currency: (stripeSession.currency || 'USD').toUpperCase() as SupportedCurrency,
           couponCode: stripeSession.metadata?.couponCode,
           idempotencyKey: stripeSession.metadata?.idempotencyKey,
+          stripeSessionId: sessionId,
         });
 
         return {

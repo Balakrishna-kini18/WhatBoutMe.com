@@ -374,7 +374,7 @@ export class QuizzesService {
               const hasSufficientWatch =
                 (lp.progressPercent !== null && lp.progressPercent >= 80) ||
                 (effectiveDur > 0 && coveredSec >= effectiveDur * 0.8) ||
-                (effectiveDur <= 0 && coveredSec > 10) ||
+                (effectiveDur <= 0 && coveredSec > 0) ||
                 (lp.lastPositionSec !== null && effectiveDur > 0 && lp.lastPositionSec >= effectiveDur * 0.8);
 
               if (hasSufficientWatch && typeof this.prisma.userLessonProgress.update === 'function') {

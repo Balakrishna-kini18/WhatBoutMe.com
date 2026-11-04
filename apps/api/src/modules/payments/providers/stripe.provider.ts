@@ -192,7 +192,7 @@ export class StripePaymentProvider implements IPaymentProvider {
         status = 'PAID';
       } else if (
         event.type === 'charge.refunded' ||
-        event.type === 'payment.refunded'
+          (event.type as string) === 'payment.refunded'
       ) {
         status = 'REFUNDED';
       }
@@ -201,8 +201,8 @@ export class StripePaymentProvider implements IPaymentProvider {
         typeof dataObj?.amount_total === 'number'
           ? dataObj.amount_total / 100
           : typeof dataObj?.amount === 'number'
-          ? dataObj.amount / 100
-          : 0;
+            ? dataObj.amount / 100
+            : 0;
 
       const currency = (dataObj?.currency || 'USD').toUpperCase();
       const transactionId = dataObj?.payment_intent || dataObj?.id || `pi_${Date.now()}`;

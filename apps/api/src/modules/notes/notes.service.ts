@@ -9,7 +9,7 @@ import { CreateNoteDto, QueryNotesDto, UpdateNoteDto } from './dto/index.js';
 
 @Injectable()
 export class NotesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   /**
    * Creates a private personal note for the authenticated student.
@@ -80,159 +80,183 @@ export class NotesService {
 
   /**
    * Retrieves all notes owned by the student, with optional program/step/lesson/search filtering.
-   * Strictly enforces server-side ownership.
+   * Strictly enforces server-side ownership and Manager cohort scoping.
    */
-  async findAll(userId: string, query: QueryNotesDto) {
-    if (!userId) {
-      throw new ForbiddenException('Authentication required');
-    }
+  async findAll(userId: string, query: QueryNotesDto, callerUser ?: any) {
+      if (!userId) {
+        throw new ForbiddenException('Authentication required');
+      }
 
-    const where: any = { userId };
+      const callerId = callerUser?.sub || callerUser?.id;
+      const callerRole = callerUser?.role;
 
-    if (query.programId) {
-      where.programId = query.programId;
-    }
-    if (query.stepId) {
-      where.stepId = query.stepId;
-    }
-    if (query.lessonId) {
-      where.lessonId = query.lessonId;
-    }
-    if (query.search && query.search.trim()) {
-      const s = query.search.trim();
-      where.OR = [
-        { noteText: { contains: s, mode: 'insensitive' } },
-        { highlightSnippet: { contains: s, mode: 'insensitive' } },
-      ];
-    }
+      // Enforce Batch Manager Cohort Isolation (Section 2 RBAC mandate)
+      if (
+        callerUser &&
+        (callerRole === 'MANAGER' || callerRole === 'TEACHER') &&
+        userId !== callerId
+      ) {
+        const isLearnerInMyBatch = await this.prisma.enrolment.findFirst({
+          where: {
+            userId,
+            batch: { managerId: callerId },
+          },
+          select: { id: true },
+        });
 
-    return this.prisma.studentNote.findMany({
-      where,
-      orderBy: {
-        createdAt: query.sort === 'asc' ? 'asc' : 'desc',
-      },
-      include: {
-        step: {
-          select: { id: true, sequence: true, title: true },
+        if (!isLearnerInMyBatch) {
+          throw new ForbiddenException(
+            'Access denied: Managers can only view notes for learners enrolled in their assigned cohorts',
+          );
+        }
+      }
+
+      const where: any = { userId };
+
+      if (query.programId) {
+        where.programId = query.programId;
+      }
+      if (query.stepId) {
+        where.stepId = query.stepId;
+      }
+      if (query.lessonId) {
+        where.lessonId = query.lessonId;
+      }
+      if (query.search && query.search.trim()) {
+        const s = query.search.trim();
+        where.OR = [
+          { noteText: { contains: s, mode: 'insensitive' } },
+          { highlightSnippet: { contains: s, mode: 'insensitive' } },
+        ];
+      }
+
+      return this.prisma.studentNote.findMany({
+        where,
+        orderBy: {
+          createdAt: query.sort === 'asc' ? 'asc' : 'desc',
         },
-        lesson: {
-          select: { id: true, title: true, type: true },
+        include: {
+          step: {
+            select: { id: true, sequence: true, title: true },
+          },
+          lesson: {
+            select: { id: true, title: true, type: true },
+          },
+          program: {
+            select: { id: true, title: true, slug: true },
+          },
         },
-        program: {
-          select: { id: true, title: true, slug: true },
-        },
-      },
-    });
-  }
+      });
+    }
 
   /**
    * Retrieves all notes for a specific lesson owned by the student.
    */
   async findByLesson(userId: string, lessonId: string) {
-    if (!userId) {
-      throw new ForbiddenException('Authentication required');
-    }
+      if (!userId) {
+        throw new ForbiddenException('Authentication required');
+      }
 
-    return this.prisma.studentNote.findMany({
-      where: {
-        userId,
-        lessonId,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-      include: {
-        step: {
-          select: { id: true, sequence: true, title: true },
+      return this.prisma.studentNote.findMany({
+        where: {
+          userId,
+          lessonId,
         },
-        lesson: {
-          select: { id: true, title: true, type: true },
+        orderBy: {
+          createdAt: 'desc',
         },
-        program: {
-          select: { id: true, title: true, slug: true },
+        include: {
+          step: {
+            select: { id: true, sequence: true, title: true },
+          },
+          lesson: {
+            select: { id: true, title: true, type: true },
+          },
+          program: {
+            select: { id: true, title: true, slug: true },
+          },
         },
-      },
-    });
-  }
+      });
+    }
 
   /**
    * Retrieves a single note owned by the student.
    */
   async findOne(userId: string, id: string) {
-    if (!userId) {
-      throw new ForbiddenException('Authentication required');
+      if (!userId) {
+        throw new ForbiddenException('Authentication required');
+      }
+
+      const note = await this.prisma.studentNote.findUnique({
+        where: { id },
+        include: {
+          step: {
+            select: { id: true, sequence: true, title: true },
+          },
+          lesson: {
+            select: { id: true, title: true, type: true },
+          },
+          program: {
+            select: { id: true, title: true, slug: true },
+          },
+        },
+      });
+
+      if (!note || note.userId !== userId) {
+        throw new NotFoundException('Note not found');
+      }
+
+      return note;
     }
-
-    const note = await this.prisma.studentNote.findUnique({
-      where: { id },
-      include: {
-        step: {
-          select: { id: true, sequence: true, title: true },
-        },
-        lesson: {
-          select: { id: true, title: true, type: true },
-        },
-        program: {
-          select: { id: true, title: true, slug: true },
-        },
-      },
-    });
-
-    if (!note || note.userId !== userId) {
-      throw new NotFoundException('Note not found');
-    }
-
-    return note;
-  }
 
   /**
    * Updates an existing student note. Strictly enforces student ownership.
    */
   async update(userId: string, id: string, dto: UpdateNoteDto) {
-    await this.findOne(userId, id);
+      await this.findOne(userId, id);
 
-    const data: any = {};
-    if (dto.noteText !== undefined) {
-      const trimmed = dto.noteText.trim();
-      if (!trimmed) {
-        throw new BadRequestException('noteText cannot be empty');
+      const data: any = {};
+      if (dto.noteText !== undefined) {
+        const trimmed = dto.noteText.trim();
+        if (!trimmed) {
+          throw new BadRequestException('noteText cannot be empty');
+        }
+        data.noteText = trimmed;
       }
-      data.noteText = trimmed;
-    }
-    if (dto.highlightSnippet !== undefined) {
-      data.highlightSnippet = dto.highlightSnippet?.trim() || null;
-    }
-    if (dto.videoTimestampSeconds !== undefined) {
-      data.videoTimestampSeconds = dto.videoTimestampSeconds;
-    }
+      if (dto.highlightSnippet !== undefined) {
+        data.highlightSnippet = dto.highlightSnippet?.trim() || null;
+      }
+      if (dto.videoTimestampSeconds !== undefined) {
+        data.videoTimestampSeconds = dto.videoTimestampSeconds;
+      }
 
-    return this.prisma.studentNote.update({
-      where: { id },
-      data,
-      include: {
-        step: {
-          select: { id: true, sequence: true, title: true },
+      return this.prisma.studentNote.update({
+        where: { id },
+        data,
+        include: {
+          step: {
+            select: { id: true, sequence: true, title: true },
+          },
+          lesson: {
+            select: { id: true, title: true, type: true },
+          },
+          program: {
+            select: { id: true, title: true, slug: true },
+          },
         },
-        lesson: {
-          select: { id: true, title: true, type: true },
-        },
-        program: {
-          select: { id: true, title: true, slug: true },
-        },
-      },
-    });
-  }
+      });
+    }
 
   /**
    * Deletes a student note. Strictly enforces student ownership.
    */
-  async delete(userId: string, id: string) {
-    await this.findOne(userId, id);
+  async delete (userId: string, id: string) {
+      await this.findOne(userId, id);
 
-    await this.prisma.studentNote.delete({
-      where: { id },
-    });
+      await this.prisma.studentNote.delete({
+        where: { id },
+      });
 
-    return { success: true, id };
+      return { success: true, id };
+    }
   }
-}

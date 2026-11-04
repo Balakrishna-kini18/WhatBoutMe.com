@@ -871,8 +871,8 @@ export class PaymentsService {
         });
 
         return {
-          status: 'PAID',
           ...simulated,
+          status: 'PAID',
         };
       }
     }

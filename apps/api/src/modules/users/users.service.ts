@@ -592,6 +592,13 @@ export class UsersService {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
+    // Permissions modification rule: ONLY Super Admin can grant or alter user permissions
+    if (data.permissions !== undefined) {
+      if (!reqUser || (reqUser.role !== Role.SUPER_ADMIN && reqUser.role !== 'SUPER_ADMIN')) {
+        delete data.permissions;
+      }
+    }
+
     // Role modification rule: ONLY Super Admin can change a user's role (PDF Page 3-4)
     if (data.role && data.role !== currentUser.role) {
       if (!reqUser || (reqUser.role !== Role.SUPER_ADMIN && reqUser.role !== 'SUPER_ADMIN')) {

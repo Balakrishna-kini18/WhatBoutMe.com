@@ -10,7 +10,16 @@ import {
   type CurrencyCode,
   type CreateEventPayload,
 } from "../lib/api";
-import { Modal, StatusBadge, ConfirmDialog, useToast } from "../components";
+import {
+  Modal,
+  StatusBadge,
+  ConfirmDialog,
+  useToast,
+  CustomSelect,
+  DatePicker,
+  TimePicker,
+  EmptyState,
+} from "../components";
 import type { StatusTone } from "../components";
 
 const Icons = {
@@ -139,6 +148,7 @@ export default function EventsAdminPage() {
   const [startTimePart, setStartTimePart] = useState("10:00");
   const [endDatePart, setEndDatePart] = useState("");
   const [endTimePart, setEndTimePart] = useState("12:00");
+  const [timeFormat, setTimeFormat] = useState<"12h" | "24h">("12h");
   const [timezone, setTimezone] = useState("UTC");
 
   // Location Toggle & Fields
@@ -495,7 +505,7 @@ export default function EventsAdminPage() {
       {/* Header */}
       <div className={styles.header}>
         <div>
-          <h1 className={styles.headerTitle}>Events & Ticketing</h1>
+          <h1 className={styles.headerTitle}>Events &amp; Webinars</h1>
           {/* <p className={styles.headerSubtitle}>
             Manage community workshops, masterclasses, and live webinars with dynamic multi-currency pricing
           </p> */}
@@ -511,22 +521,18 @@ export default function EventsAdminPage() {
         <div className={styles.kpiCard}>
           <span className={styles.kpiLabel}>Total Events</span>
           <span className={styles.kpiValue}>{totalEvents}</span>
-          <span className={styles.kpiSub}>Workshops & sessions created</span>
         </div>
         <div className={styles.kpiCard}>
           <span className={styles.kpiLabel}>Published & Live</span>
           <span className={styles.kpiValue}>{publishedCount}</span>
-          <span className={styles.kpiSub}>Accepting learner tickets</span>
         </div>
         <div className={styles.kpiCard}>
           <span className={styles.kpiLabel}>Confirmed Bookings</span>
           <span className={styles.kpiValue}>{totalSeatsBooked}</span>
-          <span className={styles.kpiSub}>Total confirmed attendees</span>
         </div>
         <div className={styles.kpiCard}>
           <span className={styles.kpiLabel}>Online Sessions</span>
           <span className={styles.kpiValue}>{onlineCount}</span>
-          <span className={styles.kpiSub}>Virtual meetings with gated link</span>
         </div>
       </div>
 
@@ -557,16 +563,17 @@ export default function EventsAdminPage() {
             </button>
           </div>
 
-          <select
+          <CustomSelect
             value={publishFilter}
-            onChange={(e) => setPublishFilter(e.target.value)}
-            className={styles.select}
-            style={{ width: "auto" }}
-          >
-            <option value="ALL">All Visibility</option>
-            <option value="PUBLISHED">Published Only</option>
-            <option value="DRAFT">Drafts / Unpublished</option>
-          </select>
+            onChange={(val) => setPublishFilter(val)}
+            minWidth="175px"
+            ariaLabel="Filter events by visibility"
+            options={[
+              { value: "ALL", label: "All Visibility" },
+              { value: "PUBLISHED", label: "Published Only" },
+              { value: "DRAFT", label: "Drafts / Unpublished" },
+            ]}
+          />
         </div>
 
         <div className={styles.searchWrap}>
@@ -607,17 +614,30 @@ export default function EventsAdminPage() {
           ))}
         </div>
       ) : filteredEvents.length === 0 ? (
-        <div className={styles.emptyState}>
-          <span className={styles.emptyTitle}>No events found</span>
-          <p className={styles.emptySub}>
-            {search || locationTypeFilter !== "ALL" || publishFilter !== "ALL"
-              ? "Try adjusting your filters or search terms."
-              : "Get started by creating your first community event or webinar."}
-          </p>
-          <button type="button" className={styles.primaryBtn} onClick={openCreateModal}>
-            <Icons.Plus />
-            <span>Create Event</span>
-          </button>
+        <div style={{ background: "#ffffff", border: "1px solid var(--border-light, #ece4d7)", borderRadius: 12, padding: "3rem 1.5rem" }}>
+          <EmptyState
+            icon="calendar"
+            title="No events found"
+            description={
+              search || locationTypeFilter !== "ALL" || publishFilter !== "ALL"
+                ? "Try adjusting your filters or search terms."
+                : "Get started by creating your first community event or webinar."
+            }
+            actionLabel={
+              search || locationTypeFilter !== "ALL" || publishFilter !== "ALL"
+                ? "Reset Filters"
+                : "Create Event"
+            }
+            onAction={
+              search || locationTypeFilter !== "ALL" || publishFilter !== "ALL"
+                ? () => {
+                    setSearch("");
+                    setLocationTypeFilter("ALL");
+                    setPublishFilter("ALL");
+                  }
+                : openCreateModal
+            }
+          />
         </div>
       ) : (
         <div className={styles.eventsGrid}>
@@ -640,7 +660,12 @@ export default function EventsAdminPage() {
                     />
                   ) : (
                     <div className={styles.coverPlaceholder}>
-                      <span>{evt.title}</span>
+                      <div style={{ opacity: 0.85, transform: "scale(1.2)" }}>
+                        <Icons.Calendar />
+                      </div>
+                      <span style={{ maxWidth: "85%", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                        {evt.title}
+                      </span>
                     </div>
                   )}
 
@@ -675,7 +700,7 @@ export default function EventsAdminPage() {
                     {isOnline ? (
                       <div className={styles.metaItem}>
                         <Icons.Video />
-                        <span style={{ color: "#2563eb", fontWeight: 600 }}>
+                        <span style={{ color: "var(--accent-primary, #c97a1e)", fontWeight: 600 }}>
                           Meeting link private (emailed after payment)
                         </span>
                       </div>
@@ -825,7 +850,7 @@ export default function EventsAdminPage() {
                   className={styles.input}
                   required={locationType === "ONLINE"}
                 />
-                <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                <span style={{ fontSize: "0.75rem", color: "var(--text-muted, #78716a)" }}>
                   Kept secure and private from public APIs. Automatically sent via email upon verified payment.
                 </span>
               </div>
@@ -860,22 +885,66 @@ export default function EventsAdminPage() {
             <div className={styles.formRow}>
               <div className={styles.formGroup}>
                 <label className={styles.label}>Start Date *</label>
-                <input
-                  type="date"
+                <DatePicker
                   value={startDatePart}
-                  onChange={(e) => setStartDatePart(e.target.value)}
-                  className={styles.input}
-                  required
+                  onChange={(val) => {
+                    setStartDatePart(val);
+                    if (endDatePart && val && val > endDatePart) {
+                      setEndDatePart(val);
+                    }
+                  }}
+                  placeholder="Select Start Date"
+                  ariaLabel="Start Date"
+                  minWidth="100%"
                 />
               </div>
               <div className={styles.formGroup}>
-                <label className={styles.label}>Start Time *</label>
-                <input
-                  type="time"
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <label className={styles.label}>Start Time *</label>
+                  <div style={{ display: "inline-flex", background: "var(--bg-soft, #f5ece1)", padding: "1px", borderRadius: "5px", gap: "1px", border: "1px solid var(--border-light, #ece4d7)" }}>
+                    <button
+                      type="button"
+                      onClick={() => setTimeFormat("12h")}
+                      style={{
+                        border: "none",
+                        background: timeFormat === "12h" ? "#ffffff" : "transparent",
+                        color: timeFormat === "12h" ? "var(--text-primary, #14110f)" : "var(--text-muted, #78716a)",
+                        fontWeight: timeFormat === "12h" ? 700 : 500,
+                        fontSize: "0.68rem",
+                        padding: "2px 6px",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                        boxShadow: timeFormat === "12h" ? "0 1px 2px rgba(20, 17, 15, 0.06)" : "none",
+                      }}
+                      title="12-Hour Format (AM/PM)"
+                    >
+                      12h
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTimeFormat("24h")}
+                      style={{
+                        border: "none",
+                        background: timeFormat === "24h" ? "#ffffff" : "transparent",
+                        color: timeFormat === "24h" ? "var(--text-primary, #14110f)" : "var(--text-muted, #78716a)",
+                        fontWeight: timeFormat === "24h" ? 700 : 500,
+                        fontSize: "0.68rem",
+                        padding: "2px 6px",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                        boxShadow: timeFormat === "24h" ? "0 1px 2px rgba(20, 17, 15, 0.06)" : "none",
+                      }}
+                      title="24-Hour Military Format"
+                    >
+                      24h
+                    </button>
+                  </div>
+                </div>
+                <TimePicker
                   value={startTimePart}
-                  onChange={(e) => setStartTimePart(e.target.value)}
-                  className={styles.input}
-                  required
+                  onChange={setStartTimePart}
+                  format={timeFormat}
+                  ariaLabel="Start Time"
                 />
               </div>
             </div>
@@ -883,65 +952,101 @@ export default function EventsAdminPage() {
             <div className={styles.formRow}>
               <div className={styles.formGroup}>
                 <label className={styles.label}>End Date *</label>
-                <input
-                  type="date"
+                <DatePicker
                   value={endDatePart}
-                  onChange={(e) => setEndDatePart(e.target.value)}
-                  className={styles.input}
-                  required
+                  onChange={setEndDatePart}
+                  placeholder="Select End Date"
+                  ariaLabel="End Date"
+                  minWidth="100%"
+                  minDate={startDatePart || undefined}
                 />
               </div>
               <div className={styles.formGroup}>
-                <label className={styles.label}>End Time *</label>
-                <input
-                  type="time"
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <label className={styles.label}>End Time *</label>
+                  <div style={{ display: "inline-flex", background: "var(--bg-soft, #f5ece1)", padding: "1px", borderRadius: "5px", gap: "1px", border: "1px solid var(--border-light, #ece4d7)" }}>
+                    <button
+                      type="button"
+                      onClick={() => setTimeFormat("12h")}
+                      style={{
+                        border: "none",
+                        background: timeFormat === "12h" ? "#ffffff" : "transparent",
+                        color: timeFormat === "12h" ? "var(--text-primary, #14110f)" : "var(--text-muted, #78716a)",
+                        fontWeight: timeFormat === "12h" ? 700 : 500,
+                        fontSize: "0.68rem",
+                        padding: "2px 6px",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                        boxShadow: timeFormat === "12h" ? "0 1px 2px rgba(20, 17, 15, 0.06)" : "none",
+                      }}
+                      title="12-Hour Format (AM/PM)"
+                    >
+                      12h
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTimeFormat("24h")}
+                      style={{
+                        border: "none",
+                        background: timeFormat === "24h" ? "#ffffff" : "transparent",
+                        color: timeFormat === "24h" ? "var(--text-primary, #14110f)" : "var(--text-muted, #78716a)",
+                        fontWeight: timeFormat === "24h" ? 700 : 500,
+                        fontSize: "0.68rem",
+                        padding: "2px 6px",
+                        borderRadius: "4px",
+                        cursor: "pointer",
+                        boxShadow: timeFormat === "24h" ? "0 1px 2px rgba(20, 17, 15, 0.06)" : "none",
+                      }}
+                      title="24-Hour Military Format"
+                    >
+                      24h
+                    </button>
+                  </div>
+                </div>
+                <TimePicker
                   value={endTimePart}
-                  onChange={(e) => setEndTimePart(e.target.value)}
-                  className={styles.input}
-                  required
+                  onChange={setEndTimePart}
+                  format={timeFormat}
+                  ariaLabel="End Time"
                 />
               </div>
             </div>
 
-            {/* Dynamic Pricing & Multi-Currency Selector */}
+            {/* Pricing & Capacity */}
             <div className={styles.formRow}>
               <div className={styles.formGroup}>
-                <label className={styles.label}>Ticket Price *</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00 for free RSVP"
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                  className={styles.input}
-                  required
-                />
-                <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                <label className={styles.label}>Ticket Price ($ USD) *</label>
+                <div style={{ position: "relative" }}>
+                  <span
+                    style={{
+                      position: "absolute",
+                      left: "12px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      fontWeight: 700,
+                      color: "var(--text-muted, #78716a)",
+                      fontSize: "0.95rem",
+                    }}
+                  >
+                    $
+                  </span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00 for free RSVP"
+                    value={price}
+                    onChange={(e) => setPrice(e.target.value)}
+                    className={styles.input}
+                    style={{ paddingLeft: "26px" }}
+                    required
+                  />
+                </div>
+                <span style={{ fontSize: "0.75rem", color: "var(--text-muted, #78716a)" }}>
                   Set to 0 for a free registration session.
                 </span>
               </div>
 
-              <div className={styles.formGroup}>
-                <label className={styles.label}>Currency Selector *</label>
-                <select
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
-                  className={styles.select}
-                  required
-                >
-                  <option value="USD">USD — US Dollar ($)</option>
-                  <option value="AED">AED — UAE Dirham (AED)</option>
-                  <option value="INR">INR — Indian Rupee (₹)</option>
-                </select>
-                <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                  Currency passed to payment order and revenue reporting.
-                </span>
-              </div>
-            </div>
-
-            {/* Capacity & Publication */}
-            <div className={styles.formRow}>
               <div className={styles.formGroup}>
                 <label className={styles.label}>Seat Capacity Limit</label>
                 <input
@@ -952,19 +1057,25 @@ export default function EventsAdminPage() {
                   onChange={(e) => setSeatLimit(e.target.value)}
                   className={styles.input}
                 />
+                <span style={{ fontSize: "0.75rem", color: "var(--text-muted, #78716a)" }}>
+                  Leave empty for unlimited attendance.
+                </span>
               </div>
+            </div>
 
-              <div className={styles.formGroup}>
-                <label className={styles.label}>Publication Status</label>
-                <select
-                  value={isPublished ? "PUBLISHED" : "DRAFT"}
-                  onChange={(e) => setIsPublished(e.target.value === "PUBLISHED")}
-                  className={styles.select}
-                >
-                  <option value="PUBLISHED">Published (Visible to Learners)</option>
-                  <option value="DRAFT">Draft (Hidden from Public)</option>
-                </select>
-              </div>
+            {/* Publication Status */}
+            <div className={styles.formGroup}>
+              <label className={styles.label}>Publication Status</label>
+              <CustomSelect
+                value={isPublished ? "PUBLISHED" : "DRAFT"}
+                onChange={(val) => setIsPublished(val === "PUBLISHED")}
+                fullWidth
+                ariaLabel="Publication Status"
+                options={[
+                  { value: "PUBLISHED", label: "Published (Visible to Learners)" },
+                  { value: "DRAFT", label: "Draft (Hidden from Public)" },
+                ]}
+              />
             </div>
 
             {/* Banner Upload */}
@@ -1008,7 +1119,7 @@ export default function EventsAdminPage() {
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem", marginTop: "1rem" }}>
               <button
                 type="button"
-                className={styles.segmentBtn}
+                className={styles.secondaryBtn}
                 onClick={() => setIsModalOpen(false)}
                 disabled={isSubmitting}
               >

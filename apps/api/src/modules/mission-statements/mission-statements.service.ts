@@ -51,7 +51,7 @@ export class MissionStatementsService {
     @Optional()
     @Inject(OBJECT_STORAGE_PROVIDER)
     private readonly objectStorage?: IObjectStorageProvider,
-  ) {}
+  ) { }
 
   /**
    * Validates file size, MIME type, and binary magic bytes for tamper deterrence.
@@ -166,8 +166,17 @@ export class MissionStatementsService {
     const version = (lastSubmission?.version ?? 0) + 1;
 
     // 6. Upload file buffer to Object Storage and write local copy for static serving
-    const ext = file.originalname?.split('.').pop() || 'pdf';
-    const storageKey = `mission-statements/${enrolmentId}/v${version}_${Date.now()}.${ext}`;
+    // Map extension strictly from validated MIME type to prevent HTML/SVG polyglot Stored XSS
+    const mimeNormalized = (file.mimetype || '').toLowerCase();
+    const safeExt =
+      mimeNormalized === 'application/pdf'
+        ? 'pdf'
+        : mimeNormalized === 'image/png'
+          ? 'png'
+          : mimeNormalized === 'image/jpeg' || mimeNormalized === 'image/jpg'
+            ? 'jpg'
+            : 'pdf';
+    const storageKey = `mission-statements/${enrolmentId}/v${version}_${Date.now()}.${safeExt}`;
 
     let fileUrl = '';
     if (this.objectStorage && typeof this.objectStorage.uploadBuffer === 'function') {
@@ -214,7 +223,7 @@ export class MissionStatementsService {
         version,
         storageKey,
         fileUrl,
-        fileName: file.originalname || `mission_statement_v${version}.${ext}`,
+        fileName: (file.originalname || `mission_statement_v${version}.${safeExt}`).replace(/[^\w\s.-]/gi, '_'),
         mimeType: file.mimetype,
         sizeBytes: file.size ?? file.buffer.length,
         sha256,

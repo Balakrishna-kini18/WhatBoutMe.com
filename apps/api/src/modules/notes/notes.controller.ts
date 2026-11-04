@@ -17,7 +17,7 @@ import { CreateNoteDto, QueryNotesDto, UpdateNoteDto } from './dto/index.js';
 @Controller('notes')
 @UseGuards(JwtAuthGuard)
 export class NotesController {
-  constructor(private readonly notesService: NotesService) {}
+  constructor(private readonly notesService: NotesService) { }
 
   @Post()
   create(@Request() req: any, @Body() dto: CreateNoteDto) {
@@ -33,7 +33,7 @@ export class NotesController {
       (role === 'ADMIN' || role === 'SUPER_ADMIN' || role === 'MANAGER') && query.userId
         ? query.userId
         : callerId;
-    return this.notesService.findAll(targetUserId, query);
+    return this.notesService.findAll(targetUserId, query, req.user);
   }
 
   @Get('lessons/:lessonId')

@@ -23,6 +23,13 @@ export class PaymentsController {
   }
 
   @Public()
+  @Get('session-status/:sessionId')
+  getSessionStatus(@Req() req: any) {
+    const sessionId = req.params?.sessionId;
+    return this.paymentsService.getSessionStatus(sessionId);
+  }
+
+  @Public()
   @Post('checkout-session')
   createCheckoutSession(@Body() dto: CreateCheckoutSessionDto, @Req() req: any) {
     const user = req.user;

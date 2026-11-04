@@ -23,6 +23,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { EmailService } from '../email/email.service.js';
 import { AuditLogService } from '../../common/audit/audit-log.service.js';
 import { JwtService } from '@nestjs/jwt';
+import { Throttle } from '@nestjs/throttler';
 
 export class CreateLeadDto {
   @IsString() @IsNotEmpty() @MaxLength(120) name: string;
@@ -57,10 +58,11 @@ export class LeadsController {
     @Optional() private readonly emailService?: EmailService,
     @Optional() private readonly auditService?: AuditLogService,
     @Optional() private readonly jwtService?: JwtService,
-  ) {}
+  ) { }
 
-  // public form: keep it to a handful of submissions a minute per address
+  // Public inquiry form: throttled to 10 submissions per minute per client address to mitigate spam and mailer bombing
   @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post()
   async create(@Body() body: CreateLeadDto) {
     if (body.honeypot?.trim()) {
@@ -278,16 +280,16 @@ export class LeadsController {
 
     const batch = payload.batchId
       ? await this.prisma.batch.findUnique({
-          where: { id: payload.batchId },
-          select: { id: true, name: true, startDate: true, endDate: true },
-        })
+        where: { id: payload.batchId },
+        select: { id: true, name: true, startDate: true, endDate: true },
+      })
       : null;
 
     let enrolment = payload.enrolmentId
       ? await this.prisma.enrolment.findUnique({
-          where: { id: payload.enrolmentId },
-          select: { id: true, status: true },
-        })
+        where: { id: payload.enrolmentId },
+        select: { id: true, status: true },
+      })
       : null;
 
     if (!enrolment) {
@@ -402,12 +404,12 @@ export class LeadsController {
       specifiedBatch
         ? null
         : this.prisma.batch.findFirst({
-            where: {
-              programId: program.id,
-              status: { in: [BatchStatus.UPCOMING, BatchStatus.ACTIVE] },
-            },
-            orderBy: { startDate: 'asc' },
-          }),
+          where: {
+            programId: program.id,
+            status: { in: [BatchStatus.UPCOMING, BatchStatus.ACTIVE] },
+          },
+          orderBy: { startDate: 'asc' },
+        }),
     ]);
 
     let user = existingUser;
@@ -500,24 +502,24 @@ export class LeadsController {
       }),
       this.auditService
         ? this.auditService.log(this.prisma, {
-            actorId,
-            action: 'LEAD_CONVERT',
-            entityType: 'Lead',
-            entityId: lead.id,
-            reason:
-              body.note?.trim() ||
-              `Converted lead ${lead.name} and dispatched checkout link for ${program.title} (${currency} ${amount})`,
-            metadata: {
-              leadId: lead.id,
-              userId: user.id,
-              enrolmentId: enrolment.id,
-              programId: program.id,
-              batchId: batch?.id,
-              currency,
-              amount,
-              checkoutUrl,
-            },
-          })
+          actorId,
+          action: 'LEAD_CONVERT',
+          entityType: 'Lead',
+          entityId: lead.id,
+          reason:
+            body.note?.trim() ||
+            `Converted lead ${lead.name} and dispatched checkout link for ${program.title} (${currency} ${amount})`,
+          metadata: {
+            leadId: lead.id,
+            userId: user.id,
+            enrolmentId: enrolment.id,
+            programId: program.id,
+            batchId: batch?.id,
+            currency,
+            amount,
+            checkoutUrl,
+          },
+        })
         : Promise.resolve(),
     ]);
 
@@ -595,7 +597,9 @@ export class LeadsController {
 
   private generateLeadCheckoutToken(payload: Record<string, any>): string {
     const secret = this.getCheckoutSecret();
-    const payloadStr = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const exp = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days cryptographic expiration
+    const fullPayload = { ...payload, exp };
+    const payloadStr = Buffer.from(JSON.stringify(fullPayload)).toString('base64url');
     const signature = crypto.createHmac('sha256', secret).update(payloadStr).digest('base64url');
     return `${payloadStr}.${signature}`;
   }
@@ -608,16 +612,25 @@ export class LeadsController {
     }
     const [payloadStr, signature] = parts;
     const expectedSig = crypto.createHmac('sha256', secret).update(payloadStr).digest('base64url');
-    if (signature !== expectedSig) {
-      throw new BadRequestException('Invalid or tampered checkout token');
+
+      // Constant-time HMAC comparison to prevent timing attacks
+      const sigBuf = Buffer.from(signature);
+      const expBuf = Buffer.from(expectedSig);
+      if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+        throw new BadRequestException('Invalid or tampered checkout token');
+      }
+      try {
+        const json = Buffer.from(payloadStr, 'base64url').toString('utf8');
+        const parsed = JSON.parse(json);
+        if (parsed.exp && Date.now() > parsed.exp) {
+          throw new BadRequestException('This checkout link has expired. Please request a new consultation link.');
+        }
+        return parsed;
+      } catch (err: any) {
+        if (err instanceof BadRequestException) throw err;
+        throw new BadRequestException('Could not parse token payload');
+      }
     }
-    try {
-      const json = Buffer.from(payloadStr, 'base64url').toString('utf8');
-      return JSON.parse(json);
-    } catch {
-      throw new BadRequestException('Could not parse token payload');
-    }
-  }
 
   private getProgramPrice(program: any, currency: 'USD' | 'AED' | 'INR'): number {
     if (currency === 'INR' && program.priceINR !== undefined && program.priceINR !== null) {

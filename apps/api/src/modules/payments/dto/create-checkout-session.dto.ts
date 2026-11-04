@@ -11,6 +11,10 @@ export class CreateCheckoutSessionDto {
   @IsNotEmpty()
   targetId: string;
 
+  @IsString()
+  @IsOptional()
+  enrolmentId?: string;
+
   @IsNumber()
   @Min(0)
   @IsOptional()

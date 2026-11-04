@@ -1,4 +1,5 @@
 import { getAppUrls } from '../../common/config/app-urls.js';
+import Stripe from 'stripe';
 import {
   Controller,
   Post,
@@ -11,7 +12,7 @@ import {
   Req,
 } from '@nestjs/common';
 import * as crypto from 'crypto';
-import { AgreementStatus, EnrolmentStatus } from '@prisma/client';
+import { AgreementStatus, EnrolmentStatus, EventPaymentStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 import { isRegistrationDeadlinePassed } from '../../common/utils/deadline.util.js';
@@ -73,6 +74,7 @@ export class PaymentWebhookController {
     private readonly prisma: PrismaService,
     @Optional() private readonly cacheHelper?: CacheHelperService,
     @Optional() private readonly emailService?: EmailService,
+    @Optional() private readonly stripeClient?: Stripe,
   ) {}
 
   @Post()
@@ -103,9 +105,20 @@ export class PaymentWebhookController {
 
       // Check stripe-signature header
       if (!isVerified && stripeSignature) {
-        const rawBody = req?.rawBody || payload;
-        if (verifyStripeSignature(stripeSignature, rawBody, expectedSecret)) {
-          isVerified = true;
+        if (req?.rawBody && (Buffer.isBuffer(req.rawBody) || typeof req.rawBody === 'string')) {
+          try {
+            const stripe = this.stripeClient || new Stripe(process.env.STRIPE_SECRET_KEY || '');
+            stripe.webhooks.constructEvent(req.rawBody, stripeSignature, expectedSecret);
+            isVerified = true;
+          } catch (stripeErr: any) {
+            this.logger.warn(`Stripe constructEvent signature check failed: ${stripeErr?.message}`);
+          }
+        }
+        if (!isVerified) {
+          const rawBody = req?.rawBody || payload;
+          if (verifyStripeSignature(stripeSignature, rawBody, expectedSecret)) {
+            isVerified = true;
+          }
         }
       }
 
@@ -172,6 +185,44 @@ export class PaymentWebhookController {
           paymentId: existingPayment.id,
           enrolmentId: existingPayment.enrolmentId,
         };
+      }
+
+      // Handle Event Ticketing payments via Stripe
+      if (dataObj.metadata?.targetType === 'EVENT' || dataObj.metadata?.registrationId) {
+        const regId = dataObj.metadata?.registrationId;
+        const reg = await this.prisma.eventRegistration.findFirst({
+          where: {
+            OR: [
+              ...(regId ? [{ id: regId }] : []),
+              { gatewayOrderId: stripeSessionId },
+            ],
+          },
+          include: { event: true },
+        });
+
+        if (reg) {
+          if (reg.paymentStatus === EventPaymentStatus.PAID) {
+            this.logger.log(`Event registration ${reg.id} already paid. Skipping duplicate webhook.`);
+            return { received: true, idempotent: true, status: 'ALREADY_PROCESSED' };
+          }
+
+          await this.prisma.$transaction(async (tx) => {
+            await tx.eventRegistration.update({
+              where: { id: reg.id },
+              data: {
+                paymentStatus: EventPaymentStatus.PAID,
+                gatewayPaymentId: (dataObj.payment_intent as string) || stripeSessionId,
+              },
+            });
+            await tx.event.update({
+              where: { id: reg.eventId },
+              data: { seatsBooked: { increment: 1 } },
+            });
+          });
+
+          this.logger.log(`Event registration ${reg.id} confirmed via Stripe webhook.`);
+          return { received: true, status: 'EVENT_PAID', registrationId: reg.id };
+        }
       }
 
       // Locate enrolment
@@ -296,7 +347,77 @@ export class PaymentWebhookController {
       }
 
       // 6. Update Enrolment and Record Succeeded Payment
-      await this.prisma.$transaction(async (tx) => {
+      const txResult = await this.prisma.$transaction(async (tx) => {
+        // TIER 4: Check if enrolment already has an existing succeeded payment from a DIFFERENT session
+        const priorSucceededPayment = await tx.payment.findFirst({
+          where: {
+            enrolmentId: enrolment.id,
+            status: 'succeeded',
+            stripeSessionId: { not: stripeSessionId },
+          },
+        });
+
+        if (priorSucceededPayment) {
+          this.logger.warn(
+            `[DUPLICATE PAYMENT DETECTED] Session ${stripeSessionId} is duplicate for enrolment ${enrolment.id}. Initiating automated refund.`,
+          );
+
+          // Automated Stripe refund
+          const paymentIntentId = dataObj.payment_intent || dataObj.id;
+          if (typeof paymentIntentId === 'string' && paymentIntentId.startsWith('pi_') && process.env.STRIPE_SECRET_KEY) {
+            try {
+              const stripe = this.stripeClient || new Stripe(process.env.STRIPE_SECRET_KEY);
+              await stripe.refunds.create({
+                payment_intent: paymentIntentId,
+                reason: 'duplicate',
+                metadata: {
+                  enrolmentId: enrolment.id,
+                  originalSessionId: priorSucceededPayment.stripeSessionId,
+                  duplicateSessionId: stripeSessionId,
+                },
+              });
+              this.logger.log(`[Auto-Refund] Successfully refunded duplicate payment ${paymentIntentId}`);
+            } catch (refundErr: any) {
+              this.logger.error(`[Auto-Refund Warning] Could not auto-refund duplicate: ${refundErr?.message}`);
+            }
+          }
+
+          if (existingPayment) {
+            await tx.payment.update({
+              where: { id: existingPayment.id },
+              data: { status: 'refunded_duplicate' },
+            });
+          } else {
+            await tx.payment.create({
+              data: {
+                enrolmentId: enrolment.id,
+                stripeSessionId,
+                amount: amount || enrolment.program?.price || 0,
+                currency,
+                status: 'refunded_duplicate',
+              },
+            });
+          }
+
+          await tx.auditLog.create({
+            data: {
+              actorId: enrolment.userId,
+              action: 'DUPLICATE_PAYMENT_AUTO_REFUNDED',
+              entity: 'Enrolment',
+              entityId: enrolment.id,
+              meta: {
+                stripeSessionId,
+                originalSessionId: priorSucceededPayment.stripeSessionId,
+                amount,
+                currency,
+              },
+              ip: clientIp,
+            },
+          });
+
+          return { isDuplicate: true };
+        }
+
         await tx.enrolment.update({
           where: { id: enrolment.id },
           data: { status: targetEnrolmentStatus },
@@ -350,7 +471,20 @@ export class PaymentWebhookController {
             ip: clientIp,
           },
         });
+
+        return { isDuplicate: false };
       });
+
+      if (txResult?.isDuplicate) {
+        return {
+          received: true,
+          duplicateDetected: true,
+          refunded: true,
+          enrolmentId: enrolment.id,
+          enrolmentStatus: enrolment.status,
+          message: 'Duplicate payment detected and automatically refunded.',
+        };
+      }
 
       // Invalidate caches
       if (this.cacheHelper) {

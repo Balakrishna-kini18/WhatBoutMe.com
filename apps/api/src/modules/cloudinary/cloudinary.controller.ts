@@ -22,7 +22,7 @@ export class CloudinaryController {
     private readonly cloudinaryService: CloudinaryMediaProvider,
     private readonly objectStorage: CloudinaryObjectStorageProvider,
     private readonly prisma: PrismaService,
-  ) {}
+  ) { }
 
   // D2-008: Implement backend endpoint POST /media/upload-signature
   // Only admins should be able to upload course media. Managers cannot edit course content.
@@ -32,10 +32,10 @@ export class CloudinaryController {
     return this.cloudinaryService.createDirectUpload();
   }
 
-    /**
-   * Secure, inline PDF document viewer stream.
-   * Serves application/pdf with Content-Disposition: inline for native in-browser viewing.
-   */
+  /**
+ * Secure, inline PDF document viewer stream.
+ * Serves application/pdf with Content-Disposition: inline for native in-browser viewing.
+ */
   @Get(['document/:lessonId', 'pdf/:lessonId'])
   async streamDocument(
     @Param('lessonId') lessonId: string,
@@ -150,9 +150,12 @@ export class CloudinaryController {
       const contentType = isPdf ? 'application/pdf' : 'application/octet-stream';
       const safeFilename = docTitle.replace(/[^\w\s.-]/gi, '_');
 
-      // Force Content-Disposition: inline to render inside the browser viewer and allow framing
+      // Restrict document framing strictly to approved WhatBoutMe application origins (mitigates clickjacking & unauthorized third-party embedding)
       res.removeHeader('X-Frame-Options');
-      res.setHeader('Content-Security-Policy', "frame-ancestors *");
+      res.setHeader(
+        'Content-Security-Policy',
+        "frame-ancestors 'self' https://whatboutme.com https://*.whatboutme.com https://*.testfox.in http://localhost:*",
+      );
       res.setHeader('Content-Type', contentType);
       res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(safeFilename)}.pdf"`);
       res.setHeader('Content-Length', buffer.length);

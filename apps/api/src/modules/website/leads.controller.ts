@@ -452,13 +452,16 @@ export class LeadsController {
           userId: user.id,
           programId: program.id,
           batchId: batch?.id,
-          status: EnrolmentStatus.PENDING_PAYMENT,
+          status: EnrolmentStatus.PENDING_AGREEMENT,
         },
       });
-    } else if (batch && enrolment.batchId !== batch.id && enrolment.status === EnrolmentStatus.PENDING_PAYMENT) {
+    } else {
       const updated = await this.prisma.enrolment.update({
         where: { id: enrolment.id },
-        data: { batchId: batch.id },
+        data: {
+          batchId: batch?.id || enrolment.batchId,
+          status: enrolment.status === EnrolmentStatus.ACTIVE ? EnrolmentStatus.ACTIVE : EnrolmentStatus.PENDING_AGREEMENT,
+        },
       });
       if (updated) {
         enrolment = updated;
@@ -532,7 +535,7 @@ export class LeadsController {
       try {
         await this.emailService.sendEmail({
           to: lead.email,
-          subject: `Complete Your Enrolment: ${program.title} — WhatBoutMe`,
+          subject: `Welcome to ${program.title} — Sign Your Program Agreement`,
           html: `
             <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px 24px; color: #1c1917; background-color: #faf7f2; border-radius: 16px;">
               <div style="text-align: center; margin-bottom: 24px;">
@@ -555,7 +558,7 @@ export class LeadsController {
 
               <div style="text-align: center; margin-bottom: 24px;">
                 <a href="${checkoutUrl}" style="display: inline-block; background-color: #1c1917; color: #faf7f2; padding: 14px 32px; font-size: 15px; font-weight: 700; text-decoration: none; border-radius: 9999px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
-                  Proceed to Enrolment & Checkout &rarr;
+                  Review & Sign Program Agreement &rarr;
                 </a>
               </div>
 

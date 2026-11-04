@@ -85,6 +85,12 @@ export class BatchAttendanceController {
       throw new NotFoundException('Session not found for the specified batch');
     }
 
+    const sessionDurationMin =
+      session.durationMinutes ||
+      (session.startTime && session.endTime
+        ? Math.max(1, Math.round((session.endTime.getTime() - session.startTime.getTime()) / 60000))
+        : 60);
+
     const minAttendancePercentage =
       session.batch?.program?.minAttendancePercentage ??
       (session.batch as any)?.attendanceThreshold ??
@@ -111,8 +117,8 @@ export class BatchAttendanceController {
         recordedMinutes: att?.recordedMinutes ?? null,
         attendancePercentage:
           att?.attendancePercentage ??
-          (att?.minutesPresent && session.durationMinutes
-            ? (att.minutesPresent / session.durationMinutes) * 100
+          (att?.minutesPresent && sessionDurationMin > 0
+            ? Math.min(100, (att.minutesPresent / sessionDurationMin) * 100)
             : 0),
         status: att?.status ?? AttendanceStatus.ABSENT,
         source: att?.source ?? null,
@@ -153,7 +159,11 @@ export class BatchAttendanceController {
         status: session.status,
         startTimeUtc: session.startTime.toISOString(),
         endTimeUtc: session.endTime.toISOString(),
-        durationMinutes: session.durationMinutes || 60,
+        durationMinutes:
+          session.durationMinutes ||
+          (session.startTime && session.endTime
+            ? Math.max(1, Math.round((session.endTime.getTime() - session.startTime.getTime()) / 60000))
+            : 60),
         minAttendanceMinutes: session.minAttendanceMinutes ?? null,
         meetingProvider: session.meetingProvider,
         meetingLink: session.meetingLink || session.joinUrl,
@@ -260,6 +270,12 @@ export class BatchAttendanceController {
       throw new NotFoundException('Session not found for the specified batch');
     }
 
+    const sessionDurationMin =
+      session.durationMinutes ||
+      (session.startTime && session.endTime
+        ? Math.max(1, Math.round((session.endTime.getTime() - session.startTime.getTime()) / 60000))
+        : 60);
+
     const presentUserIds = new Set(
       attendances
         .filter(
@@ -285,7 +301,7 @@ export class BatchAttendanceController {
       session: {
         id: session.id,
         title: session.title,
-        durationMinutes: session.durationMinutes || 60,
+        durationMinutes: sessionDurationMin,
       },
       unmatched: unmatched.map((u) => ({
         id: u.id,

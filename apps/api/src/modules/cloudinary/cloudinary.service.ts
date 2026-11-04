@@ -13,26 +13,32 @@ export class CloudinaryMediaProvider implements IMediaProvider {
   }
 
   // D2-002: Configure video upload pipeline to store strictly as 'authenticated'
-  createDirectUpload() {
+  createDirectUpload(options?: { resourceType?: string; type?: string }) {
     const timestamp = Math.round(new Date().getTime() / 1000);
-    
+    const resourceType = options?.resourceType || 'video';
+    const type = options?.type || (resourceType === 'video' ? 'authenticated' : 'upload');
+
     // Generate a signature for a direct client-side upload.
-    // By enforcing 'type: authenticated' here, the video will not be publicly accessible
+    // By enforcing 'type: authenticated' for videos, the video will not be publicly accessible
     // via a standard Cloudinary URL.
+    const paramsToSign: Record<string, any> = {
+      timestamp,
+      type,
+    };
+
     const signature = cloudinary.utils.api_sign_request(
-      {
-        timestamp,
-        type: 'authenticated',
-      },
+      paramsToSign,
       process.env.CLOUDINARY_API_SECRET || ''
     );
 
     return {
       signature,
       timestamp,
+      type,
+      resourceType,
       cloudName: process.env.CLOUDINARY_CLOUD_NAME,
       apiKey: process.env.CLOUDINARY_API_KEY,
-      uploadUrl: `https://api.cloudinary.com/v1_1/${process.env.CLOUDINARY_CLOUD_NAME}/video/upload`
+      uploadUrl: `https://api.cloudinary.com/v1_1/${process.env.CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`,
     };
   }
 

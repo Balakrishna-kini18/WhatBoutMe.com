@@ -1179,23 +1179,24 @@ function ApprovalsContent() {
   };
 
   return (
-    <div className={styles.dashboardContainer}>
+    <div className={styles.dashboardContainer} style={{ marginTop: "-0.75rem", gap: "0.65rem" }}>
       {/* ─────────────────────────────────────────────────────────────────────────────
           PAGE HEADER (Clean — No subtitle, no extra clutter buttons)
          ───────────────────────────────────────────────────────────────────────────── */}
       <header
         className={styles.header}
         style={{
-          marginBottom: 0,
+          margin: 0,
+          padding: 0,
           alignItems: "center",
           display: "flex",
           justifyContent: "space-between",
           flexWrap: "wrap",
-          gap: "1rem",
+          gap: "0.75rem",
         }}
       >
         <div className={styles.headerText}>
-          <h1 className={styles.title} style={{ margin: 0 }}>
+          <h1 className={styles.title} style={{ margin: 0, lineHeight: 1.2 }}>
             Approvals &amp; Certification Gates
           </h1>
         </div>

@@ -976,9 +976,11 @@ export default function UserDetailPage({
   // Dynamic program/exam passing threshold and attendance requirements
   const dynamicExamPassMark =
     (stagesEval?.stages?.STAGE_2_EXAM?.details as any)?.passMark ??
+    (selectedEnrolment as any)?.program?.exams?.[0]?.passMark ??
     (selectedEnrolment as any)?.program?.exam?.passMark ??
+    (selectedEnrolment as any)?.batch?.program?.exams?.[0]?.passMark ??
     (selectedEnrolment as any)?.batch?.program?.passMark ??
-    75;
+    80;
 
   const dynamicAttendanceThreshold =
     (stagesEval?.stages?.STAGE_3_ATTENDANCE?.details as any)?.thresholdPercent ??
@@ -1206,7 +1208,7 @@ export default function UserDetailPage({
               {compliance && compliance.status !== "NOT_APPLICABLE" && (
                 <span className={styles.statItem}>
                   <span>Live Attendance:</span>
-                  <strong style={{ color: compliance.status === "COMPLIANT" ? "#15803d" : "#dc2626" }}>
+                  <strong style={{ color: compliance.status === "COMPLIANT" ? "#15803d" : compliance.attendancePercentage > 0 ? "#b45309" : "#dc2626" }}>
                     {Math.round(compliance.attendancePercentage)}%
                   </strong>
                 </span>
@@ -1266,7 +1268,7 @@ export default function UserDetailPage({
               {(() => {
                 const s2 = stagesEval?.stages?.STAGE_2_EXAM;
                 const isOverridden = Boolean(s2?.isOverridden);
-                const passMark = (s2?.details as any)?.passMark ?? 75;
+                const passMark = (s2?.details as any)?.passMark ?? dynamicExamPassMark;
                 const bestScore = (s2?.details as any)?.bestScore ?? (s2?.details as any)?.examScore ?? null;
                 const hasAttempted = Boolean((s2?.details as any)?.attemptCount > 0 || bestScore !== null);
                 const isPassed = Boolean(s2?.isCompleted || (bestScore !== null && bestScore >= passMark));
@@ -2060,7 +2062,10 @@ export default function UserDetailPage({
                         Live Session Attendance:{" "}
                         {hasScheduledSessions ? (
                           <>
-                            <strong style={{ color: isCompliant ? "#15803d" : "#991b1b" }}>{attPct}%</strong> ({attendedCount} of {requiredCount} Sessions Attended)
+                            <strong style={{ color: isCompliant ? "#15803d" : attPct > 0 ? "#b45309" : "#991b1b" }}>{attPct}%</strong>
+                            {attendedCount > 0 && (
+                              <span> ({attendedCount} of {requiredCount} Sessions Completed)</span>
+                            )}
                           </>
                         ) : (
                           <span style={{ color: "var(--text-muted)" }}>No cohort live sessions scheduled yet (0 required)</span>
@@ -2111,7 +2116,7 @@ export default function UserDetailPage({
                           className={styles.complianceFill}
                           style={{
                             width: `${hasScheduledSessions ? Math.min(100, Math.max(0, attPct)) : 0}%`,
-                            background: !hasScheduledSessions ? "#d6d3d1" : isCompliant ? "#16a34a" : "#dc2626",
+                            background: !hasScheduledSessions ? "#d6d3d1" : isCompliant ? "#16a34a" : attPct > 0 ? "#f59e0b" : "#dc2626",
                           }}
                         />
                         {hasScheduledSessions && (

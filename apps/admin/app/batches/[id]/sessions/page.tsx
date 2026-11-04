@@ -353,6 +353,7 @@ export default function BatchSessionsPage({ params }: { params: Promise<{ id: st
         title: title.trim(),
         startTime: start.toISOString(),
         endTime: end.toISOString(),
+        durationMinutes: durationMin,
         sessionType,
         capacity: sessionType === "ONE_ON_ONE" ? 1 : Number(capacity),
         minAttendanceMinutes: minAttendanceMinutes !== "" ? Number(minAttendanceMinutes) : undefined,

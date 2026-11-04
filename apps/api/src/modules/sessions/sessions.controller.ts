@@ -168,6 +168,17 @@ export class SessionsController {
   }
 
   /**
+   * Live Session Presence Heartbeat:
+   * POST /sessions/:id/live-heartbeat
+   * Increments actual elapsed live minutes, tracks leaveTime, and updates attendance progression.
+   */
+  @RequirePermission(Permission.ATTENDANCE_MARK)
+  @Post(':id/live-heartbeat')
+  recordLiveHeartbeat(@Param('id') id: string, @Request() req: any) {
+    return this.sessionsService.recordLiveHeartbeat(id, req.user.sub);
+  }
+
+  /**
    * Attendance: administrative override check-in.
    */
   @RequirePermission(Permission.ATTENDANCE_CORRECT)

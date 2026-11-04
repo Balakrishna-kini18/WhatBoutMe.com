@@ -33,6 +33,11 @@ export default function Step6AddPdfLesson({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size > 50 * 1024 * 1024) {
+      setErrorMsg(`Document size (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds the 50 MB limit. Please compress the PDF before uploading.`);
+      return;
+    }
+
     setSelectedFile(file);
     const localUrl = URL.createObjectURL(file);
     setPreviewUrl(localUrl);

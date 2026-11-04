@@ -602,7 +602,7 @@ export default function ProgramsPage() {
                   </h3>
 
                   <p className={pstyles.cardSummary}>
-                    {cleanCardSummary(prog.shortDescription || info.summary)}
+                    {cleanCardSummary(info.short || prog.shortDescription || info.summary)}
                   </p>
 
                   {/* Clean Metadata Statistics Row */}
@@ -708,7 +708,7 @@ export default function ProgramsPage() {
                         </Link>
                       </div>
                       <div style={{ fontSize: "0.75rem", color: "#78716a", marginTop: 2 }}>
-                        {cleanCardSummary(prog.shortDescription || info.summary)}
+                        {cleanCardSummary(info.short || prog.shortDescription || info.summary)}
                       </div>
                     </td>
                     <td>

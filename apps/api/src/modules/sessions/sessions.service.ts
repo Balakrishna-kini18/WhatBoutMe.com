@@ -292,6 +292,7 @@ export class SessionsService {
           description: data.description || null,
           startTime: start,
           endTime: end,
+          durationMinutes: (data as any).durationMinutes || Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000)),
           timezone: data.timezone || 'UTC',
           sessionType,
           status: SessionStatus.SCHEDULED,
@@ -621,6 +622,7 @@ export class SessionsService {
           description: data.description ?? undefined,
           startTime: start,
           endTime: end,
+          durationMinutes: data.durationMinutes ?? (data.startTime || data.endTime ? Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000)) : undefined),
           timezone: data.timezone ?? undefined,
           capacity: data.capacity ?? undefined,
           hostTrainerId: data.hostTrainerId ?? undefined,
@@ -1116,15 +1118,21 @@ export class SessionsService {
   async markAttendance(sessionId: string, userId: string, isAdminOverride: boolean = false) {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
-      include: { batch: true },
+      include: {
+        batch: {
+          include: {
+            program: true,
+          },
+        },
+      },
     });
 
     if (!session) throw new NotFoundException('Session not found');
 
     if (!isAdminOverride) {
       const now = new Date();
-      const windowStart = new Date(session.startTime.getTime() - 5 * 60000);
-      const windowEnd = session.endTime;
+      const windowStart = new Date(session.startTime.getTime() - 15 * 60000);
+      const windowEnd = new Date(session.endTime.getTime() + 30 * 60000);
 
       if (now < windowStart) {
         throw new BadRequestException('Attendance window has not opened yet.');
@@ -1147,20 +1155,197 @@ export class SessionsService {
     }
 
     if (isAdminOverride) {
-      // In a real scenario, the actorId should be the admin's ID.
-      // Since this legacy method signature only accepts `userId` (the learner),
-      // we assume the system or a generic admin ID for now, or use `userId` as fallback.
       return this.attendanceService.recordPresentManual(sessionId, enrolment.id, 'SYSTEM_ADMIN_OVERRIDE');
     } else {
-      const scheduledMin =
-        session.durationMinutes ||
-        Math.max(15, Math.round((new Date(session.endTime).getTime() - new Date(session.startTime).getTime()) / 60000));
-      return this.attendanceService.recordPresentAuto(sessionId, enrolment.id, {
-        joinTime: new Date(),
-        durationMin: scheduledMin,
-        attendancePercentage: 100,
+      const existing = await this.prisma.attendance.findUnique({
+        where: { sessionId_userId: { sessionId, userId } },
       });
+
+      const now = new Date();
+      if (!existing) {
+        // Initial check-in on join: start with 0 min, record joinTime & leaveTime, status ABSENT pending progression
+        return this.attendanceService.recordPresentAuto(sessionId, enrolment.id, {
+          isUserId: true,
+          joinTime: now,
+          leaveTime: now,
+          durationMin: 0,
+          attendancePercentage: 0,
+          status: AttendanceStatus.ABSENT,
+        });
+      } else {
+        // Reconnection or page reload: preserve earliest joinTime, update leaveTime, retain current liveMinutes
+        const currentLiveMin = existing.liveMinutes ?? (existing.minutesPresent ?? 0);
+        return this.attendanceService.recordPresentAuto(sessionId, enrolment.id, {
+          isUserId: true,
+          joinTime: existing.joinTime || now,
+          leaveTime: now,
+          durationMin: Math.round(currentLiveMin),
+          attendancePercentage: existing.attendancePercentage ?? 0,
+          status: existing.status,
+        });
+      }
     }
+  }
+
+  /**
+   * Records presence heartbeat for live sessions.
+   * Increments actual elapsed minutes, protects against disconnection gaps,
+   * updates leaveTime, and calculates live progression against the required threshold.
+   */
+  async recordLiveHeartbeat(sessionId: string, userId: string) {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      include: {
+        batch: {
+          include: {
+            program: true,
+          },
+        },
+      },
+    });
+
+    if (!session || session.status === SessionStatus.CANCELLED) {
+      throw new NotFoundException('Active session not found');
+    }
+
+    const now = new Date();
+    const windowStart = new Date(session.startTime.getTime() - 15 * 60000);
+    const windowEnd = new Date(session.endTime.getTime() + 30 * 60000);
+
+    if (now < windowStart || now > windowEnd) {
+      return { active: false, message: 'Session is outside active attendance window' };
+    }
+
+    let enrolmentId: string | null = null;
+    if (session.batchId) {
+      const enrolment = await this.prisma.enrolment.findUnique({
+        where: { userId_batchId: { userId, batchId: session.batchId } },
+      });
+      if (!enrolment) {
+        throw new BadRequestException('User is not enrolled in this batch.');
+      }
+      enrolmentId = enrolment.id;
+    } else {
+      const enrolment = await this.prisma.enrolment.findFirst({
+        where: { userId, status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.COMPLETED] } },
+        orderBy: { createdAt: 'desc' },
+      });
+      enrolmentId = enrolment?.id ?? null;
+    }
+
+    const scheduledMin =
+      session.durationMinutes ||
+      Math.max(15, Math.round((new Date(session.endTime).getTime() - new Date(session.startTime).getTime()) / 60000));
+
+    const existing = await this.prisma.attendance.findUnique({
+      where: { sessionId_userId: { sessionId, userId } },
+    });
+
+    let creditedMin = 0;
+    if (!existing) {
+      // If learner joins early before scheduled start time, do NOT credit early waiting-room minutes
+      creditedMin = now >= session.startTime ? 0.5 : 0;
+    } else {
+      const lastSeen = existing.leaveTime || existing.updatedAt || now;
+
+      // If current ping is still before class start time, learner is in early waiting room:
+      // Pings are accepted, but classroom attendance minutes DO NOT accrue before session.startTime!
+      if (now < session.startTime) {
+        creditedMin = 0;
+      } else {
+        // If lastSeen was before session.startTime, only credit elapsed time from session.startTime onwards
+        const effectiveLastSeen = new Date(Math.max(session.startTime.getTime(), new Date(lastSeen).getTime()));
+        const elapsedSec = Math.max(0, (now.getTime() - effectiveLastSeen.getTime()) / 1000);
+
+        if (elapsedSec < 5) {
+          // Debounce: duplicate or sub-5s heartbeat
+          creditedMin = 0;
+        } else if (elapsedSec <= 120) {
+          // Continuous session heartbeat (sent every 30-60s)
+          creditedMin = Math.round((elapsedSec / 60) * 100) / 100;
+        } else {
+          // Disconnection occurred! (learner was away / offline > 2 minutes)
+          // Progression stopped during disconnect, resume with 0.5m credit for current interval
+          creditedMin = 0.5;
+        }
+      }
+    }
+
+    const prevLiveMin = existing ? (existing.liveMinutes ?? (existing.minutesPresent ?? 0)) : 0;
+    const currentLiveMin = Math.min(scheduledMin, prevLiveMin + creditedMin);
+    const totalMinutes = currentLiveMin + (existing?.recordedMinutes ?? 0);
+    const attendancePercentage =
+      scheduledMin > 0 ? Math.min(100, Math.round((totalMinutes / scheduledMin) * 10000) / 100) : 0;
+
+    const batchThreshold = (session.batch as any)?.attendanceThreshold;
+    const programThreshold = (session.batch?.program as any)?.attendanceThreshold;
+    const thresholdPercent =
+      typeof batchThreshold === 'number' && !isNaN(batchThreshold)
+        ? batchThreshold
+        : typeof programThreshold === 'number' && !isNaN(programThreshold)
+          ? programThreshold
+          : 75;
+
+    const requiredMinutes =
+      session.minAttendanceMinutes && session.minAttendanceMinutes > 0
+        ? session.minAttendanceMinutes
+        : Math.round((scheduledMin * thresholdPercent) / 100);
+
+    const meetsThreshold = totalMinutes >= requiredMinutes;
+    const isManual =
+      existing &&
+      ([AttendanceStatus.PRESENT_MANUAL, AttendanceStatus.CORRECTED] as AttendanceStatus[]).includes(
+        existing.status,
+      );
+
+    const newStatus = isManual
+      ? existing.status
+      : meetsThreshold
+        ? AttendanceStatus.PRESENT_AUTO
+        : AttendanceStatus.ABSENT;
+
+    const joinTime = existing?.joinTime || now;
+
+    const updated = await this.prisma.attendance.upsert({
+      where: { sessionId_userId: { sessionId, userId } },
+      update: {
+        leaveTime: now,
+        liveMinutes: Math.round(currentLiveMin * 100) / 100,
+        minutesPresent: Math.round(totalMinutes),
+        durationMin: Math.round(totalMinutes),
+        attendancePercentage,
+        status: isManual ? existing.status : newStatus,
+      },
+      create: {
+        sessionId,
+        userId,
+        enrolmentId,
+        joinTime,
+        leaveTime: now,
+        liveMinutes: Math.round(currentLiveMin * 100) / 100,
+        minutesPresent: Math.round(totalMinutes),
+        durationMin: Math.round(totalMinutes),
+        attendancePercentage,
+        status: newStatus,
+        source: AttendanceSource.AUTO,
+      },
+    });
+
+    if (meetsThreshold && userId) {
+      await markDailyAttendance(this.prisma as any, userId, 'sessionJoined');
+    }
+
+    return {
+      success: true,
+      attendance: updated,
+      liveMinutes: Math.round(currentLiveMin * 100) / 100,
+      minutesPresent: Math.round(totalMinutes),
+      attendancePercentage,
+      status: updated.status,
+      meetsThreshold,
+      requiredMinutes,
+      thresholdPercent,
+    };
   }
 
   async getAttendanceForSession(sessionId: string, user: any) {

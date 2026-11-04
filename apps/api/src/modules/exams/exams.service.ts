@@ -88,7 +88,7 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
             description:
               '50-Mark Final Certification Exam (50 questions randomly shuffled from a 70-question pool).',
             questionCount: 50,
-            passMark: 75,
+            passMark: 80,
             timeLimitMin: 90,
             maxAttempts: 3,
             cooldownHours: 24,
@@ -655,7 +655,7 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
 
     const scorePercent =
       totalPossible > 0 ? Math.round((totalEarned / totalPossible) * 100) : 0;
-    const passMark = exam.passMark || 75;
+    const passMark = exam.passMark || 80;
     const passed = scorePercent >= passMark;
 
     // Step to revisit: step with the highest error count
@@ -1114,7 +1114,7 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
         title: dto.title,
         description: dto.description,
         questionCount: dto.questionCount ?? 50,
-        passMark: dto.passMark ?? 75,
+        passMark: dto.passMark ?? 80,
         timeLimitMin: dto.timeLimitMin ?? 90,
         maxAttempts: dto.maxAttempts ?? 3,
         cooldownHours: dto.cooldownHours ?? 24,
@@ -1355,7 +1355,7 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
           title: `${program.title} — Final Comprehensive Examination`,
           description: '50-Mark Final Certification Exam (50 questions randomly shuffled from a 70-question pool).',
           questionCount: 50,
-          passMark: 75,
+          passMark: 80,
           timeLimitMin: 90,
           maxAttempts: 3,
           cooldownHours: 24,

@@ -809,7 +809,7 @@ export function apiDelete<T = any>(
 /** The API wraps errors as { error: { code, message } }. */
 export async function errorMessage(res: Response, fallback: string): Promise<string> {
   if (res.status === 413) {
-    return "The uploaded file exceeds the allowed upload limit. Please choose a smaller file or compress it before uploading.";
+    return "The uploaded file exceeds the serverless hosting payload limit (4.5 MB). For video lessons, please use direct CDN upload or the Direct Video URL tab.";
   }
   const data = await res.json().catch(() => null);
   const raw = data?.error?.message ?? data?.message;
@@ -817,12 +817,113 @@ export async function errorMessage(res: Response, fallback: string): Promise<str
 }
 
 /** Uploads an image or PDF and returns its public address. */
-export async function uploadFile(file: File): Promise<string> {
+/**
+ * Direct signed upload to Cloudinary CDN.
+ * Bypasses serverless hosting (Vercel) 4.5 MB request payload limits, allowing
+ * large video (100MB+), audio, and document uploads with fine-grained progress reporting.
+ */
+export async function uploadDirectToCloudinary(
+  file: File,
+  resourceType: "video" | "image" | "raw" = "video",
+  onProgress?: (percent: number) => void
+): Promise<string> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const sigRes = await fetch(`${API_URL}/media/upload-signature`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ resourceType }),
+  });
+
+  if (!sigRes.ok) {
+    throw new Error(await errorMessage(sigRes, "Failed to get upload signature from server"));
+  }
+
+  const sigData = await sigRes.json();
+  const formData = new FormData();
+  formData.append("file", file);
+  if (sigData.type) {
+    formData.append("type", sigData.type);
+  } else if (resourceType === "video") {
+    formData.append("type", "authenticated");
+  }
+  formData.append("signature", sigData.signature);
+  formData.append("api_key", sigData.apiKey);
+  formData.append("timestamp", String(sigData.timestamp));
+
+  const uploadRes: any = await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", sigData.uploadUrl);
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (ev) => {
+        if (ev.lengthComputable && ev.total > 0) {
+          const percent = Math.min(99, Math.round((ev.loaded / ev.total) * 100));
+          onProgress(percent);
+        }
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          reject(new Error("Invalid response received from media storage"));
+        }
+      } else {
+        try {
+          const errData = JSON.parse(xhr.responseText);
+          reject(new Error(errData?.error?.message || `Upload rejected (${xhr.status})`));
+        } catch {
+          reject(new Error(`Upload rejected by media storage (${xhr.status})`));
+        }
+      }
+    };
+    xhr.onerror = () => reject(new Error("Network connection error during media upload. Please check your internet connection."));
+    xhr.ontimeout = () => reject(new Error("Media upload timed out."));
+    xhr.send(formData);
+  });
+
+  if (!uploadRes?.public_id) {
+    throw new Error("No public_id returned by media storage");
+  }
+
+  const ext = file.name.includes(".") ? file.name.split(".").pop()!.toLowerCase() : (resourceType === "video" ? "mp4" : "bin");
+  const publicId = uploadRes.public_id;
+  const publicName = publicId.endsWith(`.${ext}`) ? publicId : `${publicId}.${ext}`;
+  if (onProgress) onProgress(100);
+  return `upload:${publicName}`;
+}
+
+/** Uploads an image, PDF, or video and returns its public address with automatic direct CDN streaming for large files. */
+export async function uploadFile(
+  file: File,
+  onProgress?: (percent: number) => void
+): Promise<string> {
   const maxBytes = 250 * 1024 * 1024; // 250MB max limit
   if (file.size > maxBytes) {
     throw new Error(
       `File size (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds the maximum upload limit of 250 MB. Please compress or optimize the file.`
     );
+  }
+
+  const isVideo =
+    file.type.startsWith("video/") ||
+    /\.(mp4|mov|webm|avi|mkv|m4v)$/i.test(file.name);
+  const isAudio =
+    file.type.startsWith("audio/") ||
+    /\.(mp3|wav|ogg|m4a|aac)$/i.test(file.name);
+  const isLarge = file.size > 3.5 * 1024 * 1024; // >3.5MB exceeds Vercel Serverless 4.5MB payload limit
+
+  // 1. For videos, audios, and files >3.5MB: use direct CDN upload to bypass Vercel serverless function payload limits
+  if (isVideo || isAudio || isLarge) {
+    try {
+      const resourceType = isVideo || isAudio ? "video" : file.type.startsWith("image/") ? "image" : "raw";
+      return await uploadDirectToCloudinary(file, resourceType, onProgress);
+    } catch (directErr: any) {
+      console.warn("Direct Cloudinary upload failed, attempting fallback to server upload:", directErr);
+    }
   }
 
   const mimeType =
@@ -2182,6 +2283,7 @@ export interface CreateSessionInput {
   title: string;
   startTime: string;
   endTime: string;
+  durationMinutes?: number;
   sessionType: string;
   capacity?: number;
   minAttendanceMinutes?: number;

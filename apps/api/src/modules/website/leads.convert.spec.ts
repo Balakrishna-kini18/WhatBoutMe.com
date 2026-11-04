@@ -72,17 +72,17 @@ describe('LeadsController - One-Click Convert & Send Payment Link', () => {
         findFirst: vi.fn().mockResolvedValue(null),
         findUnique: vi.fn().mockResolvedValue({
           id: 'enrol-1',
-          status: EnrolmentStatus.PENDING_PAYMENT,
+          status: EnrolmentStatus.PENDING_AGREEMENT,
         }),
         create: vi.fn().mockResolvedValue({
           id: 'enrol-1',
-          status: EnrolmentStatus.PENDING_PAYMENT,
+          status: EnrolmentStatus.PENDING_AGREEMENT,
           userId: 'user-new-1',
           programId: 'prog-123',
         }),
         update: vi.fn().mockImplementation(({ where, data }: any) => ({
           id: where.id,
-          status: EnrolmentStatus.PENDING_PAYMENT,
+          status: EnrolmentStatus.PENDING_AGREEMENT,
           ...data,
         })),
       },
@@ -136,12 +136,12 @@ describe('LeadsController - One-Click Convert & Send Payment Link', () => {
       }),
     });
 
-    // Verify enrolment created with PENDING_PAYMENT
+    // Verify enrolment created with PENDING_AGREEMENT
     expect(prismaMock.enrolment.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         userId: 'user-new-1',
         programId: 'prog-123',
-        status: EnrolmentStatus.PENDING_PAYMENT,
+        status: EnrolmentStatus.PENDING_AGREEMENT,
       }),
     });
 
@@ -184,7 +184,7 @@ describe('LeadsController - One-Click Convert & Send Payment Link', () => {
       id: 'enrol-existing-1',
       userId: 'user-existing-1',
       programId: 'prog-123',
-      status: EnrolmentStatus.PENDING_PAYMENT,
+      status: EnrolmentStatus.PENDING_AGREEMENT,
     });
 
     const result = await controller.convertAndSendLink(

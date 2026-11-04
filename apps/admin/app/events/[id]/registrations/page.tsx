@@ -12,7 +12,7 @@ import {
   type CurrencyCode,
   type SupportedCurrency,
 } from "../../../lib/api";
-import { StatusBadge, useToast, TableSkeleton, EmptyState } from "../../../components";
+import { StatusBadge, useToast, TableSkeleton, EmptyState, CustomSelect } from "../../../components";
 import type { StatusTone } from "../../../components";
 
 const paymentStatusToneMap: Record<string, StatusTone> = {
@@ -170,18 +170,19 @@ export default function EventRegistrationsPage({
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <span
               style={{
-                fontSize: "0.7rem",
+                fontSize: "0.72rem",
                 fontWeight: 700,
                 textTransform: "uppercase",
                 background: event?.locationType === "ONLINE" ? "#ecfdf5" : "#fef3c7",
-                color: event?.locationType === "ONLINE" ? "#065f46" : "#92400e",
-                padding: "0.2rem 0.5rem",
+                color: event?.locationType === "ONLINE" ? "#15803d" : "#b45309",
+                border: event?.locationType === "ONLINE" ? "1px solid #bbf7d0" : "1px solid #fde68a",
+                padding: "0.18rem 0.55rem",
                 borderRadius: "6px",
               }}
             >
               {event?.locationType === "ONLINE" ? "Online Live Session" : "In-Person Event"}
             </span>
-            <span style={{ fontSize: "0.8rem", color: "#64748b", fontWeight: 600 }}>
+            <span style={{ fontSize: "0.8rem", color: "var(--text-muted, #78716a)", fontWeight: 600 }}>
               {event?.isPublished ? "PUBLISHED" : "DRAFT"}
             </span>
           </div>
@@ -232,19 +233,15 @@ export default function EventRegistrationsPage({
       <div className={styles.kpiGrid}>
         <div className={styles.kpiCard}>
           <span className={styles.kpiLabel}>Confirmed Attendees</span>
-          <span className={styles.kpiValue} style={{ color: "#059669" }}>
+          <span className={styles.kpiValue} style={{ color: "#15803d" }}>
             {kpis?.totalConfirmed ?? 0}
           </span>
-          <span className={styles.kpiSub}>Verified paid / confirmed tickets</span>
         </div>
 
         <div className={styles.kpiCard}>
           <span className={styles.kpiLabel}>Seats Remaining</span>
           <span className={styles.kpiValue}>
             {kpis?.seatsRemaining === null ? "Unlimited" : kpis?.seatsRemaining ?? "—"}
-          </span>
-          <span className={styles.kpiSub}>
-            {kpis?.seatLimit ? `out of ${kpis.seatLimit} total capacity` : "no capacity limit set"}
           </span>
         </div>
 
@@ -253,13 +250,11 @@ export default function EventRegistrationsPage({
           <span className={styles.kpiValue} style={{ fontSize: "1.35rem" }}>
             {revenueSummary}
           </span>
-          <span className={styles.kpiSub}>Synced with platform invoices & billing</span>
         </div>
 
         <div className={styles.kpiCard}>
           <span className={styles.kpiLabel}>Total Attempts</span>
           <span className={styles.kpiValue}>{kpis?.totalRegistrations ?? registrations.length}</span>
-          <span className={styles.kpiSub}>Includes pending checkouts</span>
         </div>
       </div>
 
@@ -271,25 +266,20 @@ export default function EventRegistrationsPage({
             <span>{kpis?.totalConfirmed ?? 0} Confirmed Attendees</span>
           </span>
 
-          <select
+          <CustomSelect
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            style={{
-              padding: "0.35rem 0.65rem",
-              borderRadius: "8px",
-              border: "1px solid #cbd5e1",
-              fontSize: "0.775rem",
-              fontWeight: 600,
-              background: "#ffffff",
-              color: "#334155",
-            }}
-          >
-            <option value="ALL">All Payment Statuses</option>
-            <option value="PAID">PAID</option>
-            <option value="PENDING">PENDING</option>
-            <option value="FAILED">FAILED</option>
-            <option value="REFUNDED">REFUNDED</option>
-          </select>
+            onChange={(val) => setStatusFilter(val)}
+            minWidth="180px"
+            size="sm"
+            ariaLabel="Filter registrations by payment status"
+            options={[
+              { value: "ALL", label: "All Payment Statuses" },
+              { value: "PAID", label: "Paid" },
+              { value: "PENDING", label: "Pending" },
+              { value: "FAILED", label: "Failed" },
+              { value: "REFUNDED", label: "Refunded" },
+            ]}
+          />
         </div>
 
         <div className={styles.searchWrap}>
@@ -351,7 +341,7 @@ export default function EventRegistrationsPage({
 
                 return (
                   <tr key={reg.id} className={styles.tr}>
-                    <td className={styles.td} style={{ color: "#94a3b8", fontWeight: 600 }}>
+                    <td className={styles.td} style={{ color: "var(--text-muted, #78716a)", fontWeight: 600 }}>
                       {index + 1}
                     </td>
                     <td className={styles.td}>
@@ -369,10 +359,10 @@ export default function EventRegistrationsPage({
                     </td>
                     <td className={styles.td}>
                       <div style={{ fontWeight: 500 }}>{email}</div>
-                      <div style={{ fontSize: "0.775rem", color: "#64748b" }}>{phone}</div>
+                      <div style={{ fontSize: "0.775rem", color: "var(--text-muted, #78716a)" }}>{phone}</div>
                     </td>
                     <td className={styles.td}>
-                      <span style={{ fontWeight: 700, color: isPaid ? "#0f172a" : "#64748b" }}>
+                      <span style={{ fontWeight: 700, color: isPaid ? "var(--text-primary, #14110f)" : "var(--text-muted, #78716a)" }}>
                         {formatPrice(reg.amount, reg.currency)}
                       </span>
                     </td>
@@ -383,7 +373,7 @@ export default function EventRegistrationsPage({
                       />
                     </td>
                     <td className={styles.td}>
-                      <div style={{ fontSize: "0.775rem", fontFamily: "monospace", color: "#475569" }}>
+                      <div style={{ fontSize: "0.775rem", fontFamily: "monospace", color: "var(--text-secondary, #4a443d)" }}>
                         {reg.gatewayPaymentId ? (
                           <span title="Gateway Payment ID">{reg.gatewayPaymentId}</span>
                         ) : reg.gatewayOrderId ? (
@@ -393,7 +383,7 @@ export default function EventRegistrationsPage({
                         )}
                       </div>
                     </td>
-                    <td className={styles.td} style={{ fontSize: "0.8rem", color: "#64748b" }}>
+                    <td className={styles.td} style={{ fontSize: "0.8rem", color: "var(--text-muted, #78716a)" }}>
                       {new Date(reg.registeredAt || reg.createdAt).toLocaleDateString(undefined, {
                         month: "short",
                         day: "numeric",

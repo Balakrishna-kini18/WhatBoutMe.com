@@ -28,6 +28,10 @@ export class UpdateSessionDto {
   endTime?: string;
 
   @IsOptional()
+  @IsInt()
+  durationMinutes?: number;
+
+  @IsOptional()
   @IsString()
   timezone?: string;
 

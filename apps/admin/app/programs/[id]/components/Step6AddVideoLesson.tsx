@@ -147,11 +147,14 @@ export default function Step6AddVideoLesson({
 
       // If a new file is chosen in FILE mode, upload it with in-form progress
       if (sourceMode === "FILE" && selectedFile) {
-        setUploadStatus("Uploading video asset...");
-        setUploadProgress(20);
+        setUploadStatus("Uploading video asset (0%)...");
+        setUploadProgress(5);
 
-        finalMediaUrl = await uploadFile(selectedFile);
-        setUploadProgress(85);
+        finalMediaUrl = await uploadFile(selectedFile, (percent) => {
+          setUploadProgress(Math.min(95, Math.max(5, percent)));
+          setUploadStatus(`Uploading video asset (${percent}%)...`);
+        });
+        setUploadProgress(95);
         setUploadStatus("Attaching lesson to module...");
       }
 

@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Post,
   Get,
@@ -28,8 +29,8 @@ export class CloudinaryController {
   // Only admins should be able to upload course media. Managers cannot edit course content.
   @Post('upload-signature')
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)
-  getUploadSignature() {
-    return this.cloudinaryService.createDirectUpload();
+  getUploadSignature(@Body() body?: { resourceType?: string; type?: string }) {
+    return this.cloudinaryService.createDirectUpload(body);
   }
 
   /**

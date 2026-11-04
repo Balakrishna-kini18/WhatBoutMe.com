@@ -75,8 +75,23 @@ function Notifications() {
 
   useEffect(() => {
     loadUnreadCountOnly();
-    const interval = setInterval(loadUnreadCountOnly, 60_000);
-    return () => clearInterval(interval);
+    // Guard against background tab resource drain: pause polling when tab is hidden
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      loadUnreadCountOnly();
+    }, 60_000);
+
+    const onVisible = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        loadUnreadCountOnly();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   useEffect(() => {

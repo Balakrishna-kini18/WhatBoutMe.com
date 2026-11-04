@@ -257,7 +257,51 @@ export default function CalendarShell<T extends CalendarMeeting>({
       </div>
 
       <div className={s.body}>
-        {/* ── Left Sidebar ── */}
+        {/* ── Main Calendar Body (Center / Left) ── */}
+        <section className={s.main}>
+          {(view === "week" || view === "day") && (
+            <TimeGrid
+              days={
+                view === "week"
+                  ? Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(anchor), i))
+                  : [anchor]
+              }
+              today={today}
+              meetings={shown}
+              timeZone={timeZone}
+              timeFormat={activeTimeFormat}
+              onSelect={onSelect}
+              onCreate={onCreate}
+              onOpenDay={openDay}
+            />
+          )}
+
+          {view === "month" && (
+            <MonthGrid
+              anchor={anchor}
+              today={today}
+              meetings={shown}
+              timeZone={timeZone}
+              timeFormat={activeTimeFormat}
+              onSelect={onSelect}
+              onCreate={onCreate}
+              onOpenDay={openDay}
+            />
+          )}
+
+          {view === "agenda" && (
+            <Agenda
+              today={today}
+              meetings={shown}
+              timeZone={timeZone}
+              timeFormat={activeTimeFormat}
+              onSelect={onSelect}
+              onResetFilters={() => setVisible({ discovery: true, one_on_one: true, live: true })}
+            />
+          )}
+        </section>
+
+        {/* ── Right Inspector / Sidebar ── */}
         <aside className={s.sidebar}>
           <MiniMonth
             month={miniMonth}
@@ -312,50 +356,6 @@ export default function CalendarShell<T extends CalendarMeeting>({
             })}
           </div>
         </aside>
-
-        {/* ── Main Calendar Body ── */}
-        <section className={s.main}>
-          {(view === "week" || view === "day") && (
-            <TimeGrid
-              days={
-                view === "week"
-                  ? Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(anchor), i))
-                  : [anchor]
-              }
-              today={today}
-              meetings={shown}
-              timeZone={timeZone}
-              timeFormat={activeTimeFormat}
-              onSelect={onSelect}
-              onCreate={onCreate}
-              onOpenDay={openDay}
-            />
-          )}
-
-          {view === "month" && (
-            <MonthGrid
-              anchor={anchor}
-              today={today}
-              meetings={shown}
-              timeZone={timeZone}
-              timeFormat={activeTimeFormat}
-              onSelect={onSelect}
-              onCreate={onCreate}
-              onOpenDay={openDay}
-            />
-          )}
-
-          {view === "agenda" && (
-            <Agenda
-              today={today}
-              meetings={shown}
-              timeZone={timeZone}
-              timeFormat={activeTimeFormat}
-              onSelect={onSelect}
-              onResetFilters={() => setVisible({ discovery: true, one_on_one: true, live: true })}
-            />
-          )}
-        </section>
       </div>
     </div>
   );
@@ -861,13 +861,13 @@ function Agenda<T extends CalendarMeeting>({
                           {showJoin && (
                             <a
                               className={s.joinBtn}
-                              href={m.joinUrl!}
+                              href={(m as any).hostUrl || (m.joinUrl!.includes("/zoom.us/j/") ? m.joinUrl!.replace("/zoom.us/j/", "/zoom.us/s/") : m.joinUrl!)}
                               target="_blank"
                               rel="noopener noreferrer"
                               onClick={(e) => e.stopPropagation()}
-                              title="Join video session"
+                              title="Start Zoom meeting as Host (Admin)"
                             >
-                              Join Call →
+                              Host Link →
                             </a>
                           )}
                         </div>

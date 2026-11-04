@@ -385,6 +385,87 @@ export default function LiveSessionsPage() {
     error: "",
   });
 
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("active_live_session");
+      if (stored) {
+        setActiveSessionId(stored);
+      }
+    } catch {}
+  }, []);
+
+  // Heartbeat tracking effect: sends presence pings while session is live
+  useEffect(() => {
+    if (!activeSessionId) return;
+
+    // Check if session has concluded
+    const sess = sessions.find((s) => s.id === activeSessionId);
+    if (sess) {
+      const endMs = new Date(sess.endTime).getTime();
+      if (Date.now() > endMs + 10 * 60000) {
+        setActiveSessionId(null);
+        try {
+          localStorage.removeItem("active_live_session");
+        } catch {}
+        return;
+      }
+    }
+
+    const sendHeartbeat = () => {
+      fetch(`${API_URL}/sessions/${activeSessionId}/live-heartbeat`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        keepalive: true,
+      }).catch(() => {});
+    };
+
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 30000); // 30s interval
+
+    const handleBeforeUnload = () => {
+      fetch(`${API_URL}/sessions/${activeSessionId}/live-heartbeat`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        keepalive: true,
+      }).catch(() => {});
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [activeSessionId, sessions]);
+
+  const handleJoinLiveSession = useCallback(async (s: Session) => {
+    try {
+      await fetch(`${API_URL}/sessions/${s.id}/attend`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        keepalive: true,
+      });
+    } catch {}
+    setActiveSessionId(s.id);
+    try {
+      localStorage.setItem("active_live_session", s.id);
+    } catch {}
+  }, []);
+
+  const handleLeaveLiveSession = useCallback((sessionId: string) => {
+    fetch(`${API_URL}/sessions/${sessionId}/live-heartbeat`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      keepalive: true,
+    }).catch(() => {});
+    setActiveSessionId(null);
+    try {
+      localStorage.removeItem("active_live_session");
+    } catch {}
+  }, []);
+
   const handleRescheduleStart = useCallback(
     (bookingId: string, currentSessionId: string) => {
       setRescheduleState((prev) => ({
@@ -973,26 +1054,56 @@ export default function LiveSessionsPage() {
 
                 {/* Card footer: join / book / recording */}
                 <div className={styles.cardFooter}>
-                  {/* Session is live — show join link */}
+                  {/* Session is live — show join link & active presence badge */}
                   {live && sanitizeExternalUrl(s.joinUrl) ? (
-                    <a
-                      href={buildLearnerJoinUrl(s.joinUrl)!}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => {
-                        fetch(`${API_URL}/sessions/${s.id}/attend`, {
-                          method: "POST",
-                          headers: getAuthHeaders(),
-                          keepalive: true,
-                        }).catch(() => {});
-                      }}
-                      className={`${styles.joinBtn} ${styles.joinBtnLive}`}
-                      aria-label={`Join ${s.title} — live now`}
-                    >
-                      {Icons.video}
-                      <span>Join Call Now</span>
-                      {Icons.arrowUpRight}
-                    </a>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px", width: "100%" }}>
+                      {activeSessionId === s.id && (
+                        <div style={{
+                          padding: "6px 12px",
+                          borderRadius: "8px",
+                          background: "#ecfdf5",
+                          border: "1px solid #a7f3d0",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          fontSize: "0.78rem",
+                          color: "#065f46",
+                        }}>
+                          <span style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 600 }}>
+                            <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#10b981", display: "inline-block" }} />
+                            Live Session Active (Tracking Attendance)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleLeaveLiveSession(s.id)}
+                            style={{
+                              background: "transparent",
+                              border: "1px solid #6ee7b7",
+                              borderRadius: "4px",
+                              padding: "2px 8px",
+                              fontSize: "0.72rem",
+                              color: "#047857",
+                              cursor: "pointer",
+                              fontWeight: 600,
+                            }}
+                          >
+                            Leave
+                          </button>
+                        </div>
+                      )}
+                      <a
+                        href={buildLearnerJoinUrl(s.joinUrl)!}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => handleJoinLiveSession(s)}
+                        className={`${styles.joinBtn} ${styles.joinBtnLive}`}
+                        aria-label={`Join ${s.title} — live now`}
+                      >
+                        {Icons.video}
+                        <span>{activeSessionId === s.id ? "Reopen Zoom Call" : "Join Call Now"}</span>
+                        {Icons.arrowUpRight}
+                      </a>
+                    </div>
                   ) : ended && sanitizeExternalUrl(s.recordingUrl) ? (
                     /* Ended with recording */
                     <a
@@ -1021,6 +1132,7 @@ export default function LiveSessionsPage() {
                         href={buildLearnerJoinUrl(s.joinUrl)!}
                         target="_blank"
                         rel="noopener noreferrer"
+                        onClick={() => handleJoinLiveSession(s)}
                         className={styles.joinBtn}
                         aria-label={`Join ${s.title}`}
                       >

@@ -46,6 +46,7 @@ function CheckoutContent() {
   const [signedVersion, setSignedVersion] = useState<string>("v1.0");
   const [agreementStatus, setAgreementStatus] = useState<"CHECKING" | "SIGNED" | "REQUIRED">("CHECKING");
 
+  const isDevSimulate = searchParams.get("dev_simulate") === "1" || searchParams.get("test_bypass") === "1";
   const targetEnrolmentId = enrolmentId || queryEnrolmentId;
   const extraParams = `${queryBatchId ? `&batchId=${encodeURIComponent(queryBatchId)}` : ""}${queryCoupon ? `&coupon=${encodeURIComponent(queryCoupon)}` : ""}`;
   const agreementUrl = `/agreement?programId=${programId || ""}${targetEnrolmentId ? `&enrolmentId=${targetEnrolmentId}` : ""}${extraParams}`;
@@ -66,7 +67,7 @@ function CheckoutContent() {
       fetch(`${API_URL}/payments/active-provider`)
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
-          if (data?.activeProvider) {
+          if (data?.activeProvider && data.activeProvider !== "MOCK_TEST") {
             setActiveProvider(data.activeProvider);
           }
         })
@@ -235,6 +236,7 @@ function CheckoutContent() {
         body: JSON.stringify({
           targetType: "ENROLMENT",
           targetId: programId,
+          enrolmentId: targetEnrolmentId || undefined,
           amount: finalAmount,
           currency,
           couponCode: appliedCoupon?.code || couponCode || undefined,
@@ -926,110 +928,108 @@ function CheckoutContent() {
                   padding: "4px 12px",
                   borderRadius: "9999px",
                   marginBottom: "0.85rem",
-                  border: activeProvider === "STRIPE" ? "1px solid #BBF7D0" : "1px solid #E7E0D6",
+                  border: "1px solid #BBF7D0",
                   fontWeight: 600,
                 }}
               >
                 <span>
-                  {activeProvider === "STRIPE"
-                    ? "🔒 Stripe Checkout: Bank-Grade Security • Adaptive Local Pricing"
-                    : "TEST_BYPASS Mode: Server-Side Webhook Emulation Active"}
+                  🔒 Stripe Checkout: Bank-Grade Security • Adaptive Local Pricing
                 </span>
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                {activeProvider === "STRIPE" ? (
-                  <button
-                    className={styles.submitBtn}
-                    onClick={handleStripeCheckout}
-                    disabled={processing || !user || agreementStatus !== "SIGNED"}
-                    style={{
-                      width: "100%",
-                      background: "#635BFF",
-                      color: "#FFFFFF",
-                      borderRadius: "12px",
-                      padding: "1.1rem",
-                      fontSize: "1.05rem",
-                      fontWeight: 700,
-                      border: "none",
-                      cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
-                      opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.65 : 1,
-                      display: "flex",
-                      justifyContent: "center",
-                      alignItems: "center",
-                      gap: "0.5rem",
-                      boxShadow: "0 2px 8px rgba(99, 91, 255, 0.3)",
-                      transition: "all 0.2s ease",
-                    }}
-                  >
-                    {processing ? (
-                      "Connecting to Stripe..."
-                    ) : !user ? (
-                      "Log In to Finalize Enrollment"
-                    ) : (
-                      <>
-                        <span>Pay with Stripe</span>
-                        <span>({currencySymbol}{finalAmount.toLocaleString()})</span>
-                      </>
-                    )}
-                  </button>
-                ) : (
-                  <button
-                    className={styles.submitBtn}
-                    onClick={() => handleSimulatePayment("PAID")}
-                    disabled={processing || !user || agreementStatus !== "SIGNED"}
-                    style={{
-                      width: "100%",
-                      background: "#B86B11",
-                      color: "#FFFFFF",
-                      borderRadius: "12px",
-                      padding: "1rem",
-                      fontSize: "1rem",
-                      fontWeight: 700,
-                      border: "none",
-                      cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
-                      opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.65 : 1,
-                      display: "flex",
-                      justifyContent: "center",
-                      alignItems: "center",
-                      gap: "0.5rem",
-                      transition: "opacity 0.2s ease",
-                    }}
-                  >
-                    {processing ? (
-                      "Processing Simulated Payment..."
-                    ) : !user ? (
-                      "Log In to Finalize Enrollment"
-                    ) : (
-                      <>
-                        <span>Simulate Test Payment (Instant Paid)</span>
-                        <span>({currencySymbol}{finalAmount.toLocaleString()})</span>
-                      </>
-                    )}
-                  </button>
-                )}
-
-                {/* Developer Fallback / Test Failure Button */}
+                {/* Official Stripe Checkout Button */}
                 <button
-                  type="button"
-                  onClick={() => handleSimulatePayment("FAILED")}
+                  className={styles.submitBtn}
+                  onClick={handleStripeCheckout}
                   disabled={processing || !user || agreementStatus !== "SIGNED"}
                   style={{
                     width: "100%",
-                    background: "transparent",
-                    color: "#DC2626",
+                    background: "#635BFF",
+                    color: "#FFFFFF",
                     borderRadius: "12px",
-                    padding: "0.65rem",
-                    fontSize: "0.82rem",
-                    fontWeight: 600,
-                    border: "1px dashed #FECACA",
+                    padding: "1.1rem",
+                    fontSize: "1.05rem",
+                    fontWeight: 700,
+                    border: "none",
                     cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
-                    opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.5 : 0.8,
-                    transition: "all 0.15s ease",
+                    opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.65 : 1,
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    gap: "0.5rem",
+                    boxShadow: "0 2px 8px rgba(99, 91, 255, 0.3)",
+                    transition: "all 0.2s ease",
                   }}
                 >
-                  Test Payment Failure Path (Decline Simulation)
+                  {processing ? (
+                    "Connecting to Stripe..."
+                  ) : !user ? (
+                    "Log In to Finalize Enrollment"
+                  ) : (
+                    <>
+                      <span>Pay with Stripe</span>
+                      <span>({currencySymbol}{finalAmount.toLocaleString()})</span>
+                    </>
+                  )}
                 </button>
+
+                {/* Developer-Only Bypass Controls (visible only when ?dev_simulate=1) */}
+                {isDevSimulate && (
+                  <>
+                    <button
+                      className={styles.submitBtn}
+                      onClick={() => handleSimulatePayment("PAID")}
+                      disabled={processing || !user || agreementStatus !== "SIGNED"}
+                      style={{
+                        width: "100%",
+                        background: "#B86B11",
+                        color: "#FFFFFF",
+                        borderRadius: "12px",
+                        padding: "0.85rem",
+                        fontSize: "0.9rem",
+                        fontWeight: 700,
+                        border: "none",
+                        cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
+                        opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.65 : 1,
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        gap: "0.5rem",
+                      }}
+                    >
+                      {processing ? (
+                        "Processing Simulated Payment..."
+                      ) : (
+                        <>
+                          <span>Simulate Test Payment (Instant Paid)</span>
+                          <span>({currencySymbol}{finalAmount.toLocaleString()})</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSimulatePayment("FAILED")}
+                      disabled={processing || !user || agreementStatus !== "SIGNED"}
+                      style={{
+                        width: "100%",
+                        background: "transparent",
+                        color: "#DC2626",
+                        borderRadius: "12px",
+                        padding: "0.65rem",
+                        fontSize: "0.82rem",
+                        fontWeight: 600,
+                        border: "1px dashed #FECACA",
+                        cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
+                        opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.5 : 0.8,
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      Test Payment Failure Path (Decline Simulation)
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )

@@ -1,7 +1,7 @@
 export interface ParsedLeadMessage {
   originalMessage: string;
   courseInquiry?: { title: string; id?: string };
-  discovery?: { scheduledAt?: string; zoomUrl?: string };
+  discovery?: { scheduledAt?: string; zoomUrl?: string; hostUrl?: string };
   conversion?: {
     enrolmentId: string;
     courseTitle: string;
@@ -49,13 +49,43 @@ export function parseLeadMessage(raw: string | null): ParsedLeadMessage {
 
   // 2. Extract Discovery Call notice (if present)
   let discovery: ParsedLeadMessage["discovery"] | undefined;
-  const discMatch = text.match(/📅\s*Discovery Call (?:Scheduled|Requested):\s*([^|\n]+)(?:\|\s*Zoom:\s*(\S*))?/i);
+  const discMatch = text.match(/📅\s*Discovery Call (?:Scheduled|Requested):\s*([^|\n]+)(?:\|\s*Zoom:\s*(\S+))?(?:\s*\|\s*Host:\s*(\S+))?/i);
   if (discMatch && discMatch[1]) {
+    const rawZoom = discMatch[2] ? discMatch[2].trim() : undefined;
+    const rawHost = discMatch[3] ? discMatch[3].trim() : undefined;
+    const derivedHost = rawHost || (rawZoom && rawZoom.includes('/zoom.us/j/') ? rawZoom.replace('/zoom.us/j/', '/zoom.us/s/') : rawZoom);
     discovery = {
       scheduledAt: discMatch[1].trim(),
-      zoomUrl: discMatch[2] ? discMatch[2].trim() : undefined,
+      zoomUrl: rawZoom,
+      hostUrl: derivedHost,
     };
     text = text.replace(/📅\s*Discovery Call (?:Scheduled|Requested):[^\n]+(\n|$)/gi, "").trim();
+  }
+
+  // 2b. Extract standalone markdown join link e.g. [Join Discovery Call &nearr;](https://us05web.zoom.us/...)
+  const joinMatch = text.match(/\[Join Discovery Call[^\]]*\]\((https:\/\/[^\s)]+)\)/i);
+  if (joinMatch && joinMatch[1]) {
+    const rawZoom = joinMatch[1].trim();
+    if (!discovery) discovery = {};
+    if (!discovery.zoomUrl) {
+      discovery.zoomUrl = rawZoom;
+      discovery.hostUrl = rawZoom.includes('/zoom.us/j/') ? rawZoom.replace('/zoom.us/j/', '/zoom.us/s/') : rawZoom;
+    }
+    text = text.replace(/\[Join Discovery Call[^\]]*\]\([^\)]+\)/gi, "").trim();
+  }
+
+  // Clean any residual text like "Join Discovery Call &nearr;" or "Join Discovery Call ↗"
+  text = text.replace(/Join Discovery Call\s*(?:&nearr;|↗|\^)?/gi, "").trim();
+
+  // If there is still a raw zoom link in text, extract and strip it from the customer message
+  const rawZoomMatch = text.match(/(https:\/\/(?:[a-zA-Z0-9-]+\.)?zoom\.us\/[^\s)]+)/i);
+  if (rawZoomMatch && rawZoomMatch[1]) {
+    if (!discovery) discovery = {};
+    if (!discovery.zoomUrl) {
+      discovery.zoomUrl = rawZoomMatch[1].trim();
+      discovery.hostUrl = rawZoomMatch[1].includes('/zoom.us/j/') ? rawZoomMatch[1].replace('/zoom.us/j/', '/zoom.us/s/') : rawZoomMatch[1];
+    }
+    text = text.replace(/(https:\/\/(?:[a-zA-Z0-9-]+\.)?zoom\.us\/[^\s)]+)/gi, "").trim();
   }
 
   // 3. Extract Course Inquiry header (if present)

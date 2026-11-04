@@ -43,6 +43,20 @@ describe("lead-parser", () => {
     expect(parsed.originalMessage).toBe("Looking forward to speaking.");
   });
 
+  it("strips Join Discovery Call markdown links from customer message", () => {
+    const raw =
+      "Course Inquiry: Sigma 1 (ID: c8539415-d2b1-48b0-a314-b665c23691ff)\n\n" +
+      "fsdfs fsdf\n\n" +
+      "[Join Discovery Call &nearr;](https://us05web.zoom.us/j/84651822996?pwd=APKEhqAw8uFf4t8wuwyIGr5fKbUDrK.1)";
+
+    const parsed = parseLeadMessage(raw);
+
+    expect(parsed.originalMessage).toBe("fsdfs fsdf");
+    expect(parsed.discovery?.zoomUrl).toBe(
+      "https://us05web.zoom.us/j/84651822996?pwd=APKEhqAw8uFf4t8wuwyIGr5fKbUDrK.1"
+    );
+  });
+
   it("handles empty or null messages gracefully", () => {
     expect(parseLeadMessage(null)).toEqual({
       originalMessage: "",

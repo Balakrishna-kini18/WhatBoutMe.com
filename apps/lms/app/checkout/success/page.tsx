@@ -119,7 +119,7 @@ function CheckoutSuccessContent() {
               {error || "Could not locate a valid Stripe payment session."}
             </p>
             <Link
-              href="/dashboard"
+              href="/"
               style={{
                 display: "inline-block",
                 padding: "0.85rem 1.75rem",
@@ -237,7 +237,7 @@ function CheckoutSuccessContent() {
             {isSigned ? (
               <button
                 type="button"
-                onClick={() => router.push(programId ? `/programs/${programId}/steps` : "/dashboard")}
+                onClick={() => router.push(programId ? `/programs/${programId}/steps` : "/")}
                 style={{
                   padding: "1rem",
                   borderRadius: "12px",
@@ -272,7 +272,7 @@ function CheckoutSuccessContent() {
             )}
 
             <Link
-              href="/dashboard"
+              href="/"
               style={{
                 marginTop: "0.5rem",
                 color: "#78716A",

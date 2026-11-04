@@ -27,6 +27,11 @@ const nextConfig = {
   async redirects() {
     return [
       {
+        source: "/dashboard",
+        destination: "/",
+        permanent: false,
+      },
+      {
         source: "/org/:path*",
         destination: "/",
         permanent: false,

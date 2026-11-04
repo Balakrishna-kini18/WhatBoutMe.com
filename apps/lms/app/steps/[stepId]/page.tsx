@@ -854,7 +854,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       }
 
       // 6. Otherwise navigate back to dashboard
-      router.push("/dashboard");
+      router.push("/");
     },
     [
       handleMaterialComplete,

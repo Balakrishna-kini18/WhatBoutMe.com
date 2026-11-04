@@ -363,7 +363,7 @@ export default function LmsSidebar() {
             <Link
               href="/"
               prefetch={false}
-              className={`${styles.navItem} ${pathname === "/" ? styles.active : ""}`}
+              className={`${styles.navItem} ${pathname === "/" || pathname === "/dashboard" ? styles.active : ""}`}
               title={collapsed ? "Dashboard" : undefined}
             >
               <Icons.Dashboard />

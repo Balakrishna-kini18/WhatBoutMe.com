@@ -189,8 +189,9 @@ export function buildExamAnswersPayload(
     const rawAns = selectedAnswers[q.id];
     if (typeof rawAns !== "string" || !rawAns.trim()) continue;
 
-    const isMulti = q.type === "MULTI_SELECT";
-    const isText = q.type === "SHORT_ANSWER" || q.type === "TEXT_BOX";
+    const rawType = String(q.type || "").toUpperCase();
+    const isText = rawType === "SHORT_ANSWER" || rawType === "TEXT_BOX";
+    const isMulti = !isText && (rawType === "MULTI_SELECT" || rawType === "MULTIPLE_CHOICE");
 
     if (isMulti) {
       const ids = rawAns

@@ -1671,10 +1671,6 @@ export class ProgressionService {
       }
     }
 
-    // Authoritative duration from server (Bug #2 fix: client never mutates lesson.durationSec)
-    const effectiveDuration = lesson.durationSec;
-    const minWatchPercent = (lesson as any).minWatchPercent ?? DEFAULT_MEDIA_COMPLETION_THRESHOLD_PERCENT;
-
     const existingProgress = await this.prisma.userLessonProgress.findUnique({
       where: {
         enrolmentId_lessonId: {
@@ -1684,8 +1680,32 @@ export class ProgressionService {
       },
     });
 
-    const isAlreadyCompleted = Boolean(existingProgress?.viewed);
     const existingRanges = (existingProgress?.watchedRanges as TimeRange[]) || [];
+
+    // Authoritative duration from server (with self-healing fallback if durationSec <= 0)
+    let effectiveDuration = lesson.durationSec;
+    if ((!effectiveDuration || effectiveDuration <= 0) && videoDurationSec && videoDurationSec > 0 && Number.isFinite(videoDurationSec)) {
+      effectiveDuration = Math.round(videoDurationSec);
+      void this.prisma.lesson.update({
+        where: { id: lesson.id },
+        data: { durationSec: effectiveDuration },
+      }).catch((err) => {
+        console.warn(`[ProgressionService] Auto-backfill lesson duration failed for ${lesson.id}:`, err?.message);
+      });
+      this.lessonMetaCache.delete(lessonId);
+    } else if (!effectiveDuration || effectiveDuration <= 0) {
+      const candidateDuration = Math.max(
+        positionSec ?? 0,
+        toSec ?? 0,
+        WatchIntervalTracker.getFurthestWatchedSec(existingRanges),
+      );
+      if (candidateDuration > 0 && isEnded) {
+        effectiveDuration = Math.round(candidateDuration);
+      }
+    }
+
+    const minWatchPercent = (lesson as any).minWatchPercent ?? DEFAULT_MEDIA_COMPLETION_THRESHOLD_PERCENT;
+    const isAlreadyCompleted = Boolean(existingProgress?.viewed);
 
     const trackerResult = WatchIntervalTracker.validateAndCreditHeartbeat({
       existingRanges,
@@ -1703,8 +1723,13 @@ export class ProgressionService {
     });
 
     // Authoritative completion rule:
-    // Only earned when interval coverage meets threshold against authoritative duration
-    const isFinished = Boolean(isEnded && effectiveDuration && effectiveDuration > 0 && positionSec >= Math.min(effectiveDuration, Math.floor(effectiveDuration * (minWatchPercent / 100))));
+    // Earned when interval coverage meets threshold against authoritative duration OR video reached end
+    const isFinished = Boolean(
+      isEnded && (
+        (effectiveDuration && effectiveDuration > 0 && positionSec >= Math.min(effectiveDuration, Math.floor(effectiveDuration * (minWatchPercent / 100))))
+        || (!effectiveDuration || effectiveDuration <= 0)
+      )
+    );
     const earnedCompletion = isAlreadyCompleted || trackerResult.earnedCompletion || isFinished;
     const viewed = earnedCompletion;
     const newProgressPercent = Math.max(existingProgress?.progressPercent ?? 0, trackerResult.progressPercent, isFinished ? 100 : 0);

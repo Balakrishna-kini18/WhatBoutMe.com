@@ -599,6 +599,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const isManuallyUnlocked = (currentStepProg as any)?.overrideState === "MANUAL_UNLOCKED";
   const isQuizAlreadyPassed = Boolean(
     lastQuizResult?.passed ||
+    (lastQuizResult && lastQuizResult.score !== undefined) ||
     (currentStepProg as any)?.quiz?.isPassed ||
     (currentStepProg?.isCompleted && lastQuizResult?.passed !== false)
   );
@@ -1280,14 +1281,15 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       attemptId: activeAttemptId || undefined,
       answers: questionsList.map((q) => {
         const rawAns = quizAnswers[q.id] || "";
-        const qType = (q as any).type || "MULTIPLE_CHOICE";
-        const isMulti = qType === "MULTI_SELECT";
-        const isText = qType === "SHORT_ANSWER" || qType === "TEXT_BOX";
+        const rawType = String((q as any).type || "").toUpperCase();
+        const isText = rawType === "SHORT_ANSWER" || rawType === "TEXT_BOX";
+        const isMulti = !isText && (rawType === "MULTI_SELECT" || rawType === "MULTIPLE_CHOICE");
+        const multiArray = rawAns ? rawAns.split(",").map((s) => s.trim()).filter(Boolean) : [];
         return {
           questionId: q.id,
           optionId: !isMulti && !isText ? rawAns || undefined : undefined,
           selectedOptionId: !isMulti && !isText ? rawAns || undefined : undefined,
-          selectedOptionIds: isMulti ? rawAns.split(",").filter(Boolean) : undefined,
+          selectedOptionIds: isMulti ? multiArray : undefined,
           textResponse: isText ? rawAns.trim() : undefined,
           textAnswer: isText ? rawAns.trim() : undefined,
         };
@@ -1310,15 +1312,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       try {
         localStorage.removeItem(`wbm_step_quiz_${stepId}`);
       } catch (e) {}
-      if (data.passed) {
-        invalidateCache("/progression");
-        invalidateCache("/programs");
-        void fetchStepAndProgression(false, true);
-        setCelebrationMode("module");
-        setIsCelebrationOpen(true);
-        if (nextStepId) {
-          setRedirectCountdown(4);
-        }
+      invalidateCache("/progression");
+      invalidateCache("/programs");
+      void fetchStepAndProgression(false, true);
+      setCelebrationMode("module");
+      setIsCelebrationOpen(true);
+      if (nextStepId) {
+        setRedirectCountdown(3);
       }
     } catch (err: any) {
       setQuizError(err.message || "Failed to submit quiz");
@@ -2418,8 +2418,31 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     <div className={styles.quizGrid}>
                       {/* Left Column: Question Card */}
                       <div className={styles.questionCard}>
-                        <div className={styles.questionNumberLabel}>
-                          Question {safeActiveIndex + 1} of {quizQuestions.length}
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                          <div className={styles.questionNumberLabel}>
+                            Question {safeActiveIndex + 1} of {quizQuestions.length}
+                          </div>
+                          {(() => {
+                            const rawType = String((currentQuizQuestion as any)?.type || "").toUpperCase();
+                            const isText = rawType === "SHORT_ANSWER" || rawType === "TEXT_BOX";
+                            const isMulti = !isText && (rawType === "MULTI_SELECT" || rawType === "MULTIPLE_CHOICE");
+                            return (
+                              <span
+                                style={{
+                                  fontSize: "0.72rem",
+                                  fontWeight: 600,
+                                  padding: "3px 10px",
+                                  borderRadius: 6,
+                                  background: isText ? "#eff6ff" : isMulti ? "#fef3c7" : "#f1f5f9",
+                                  color: isText ? "#1d4ed8" : isMulti ? "#92400e" : "#475569",
+                                  border: isText ? "1px solid #bfdbfe" : isMulti ? "1px solid #fde68a" : "1px solid #e2e8f0",
+                                  letterSpacing: "0.02em",
+                                }}
+                              >
+                                {isText ? "Short Answer" : isMulti ? "Multiple Choice • Select all that apply" : "Single Choice"}
+                              </span>
+                            );
+                          })()}
                         </div>
                         {(currentQuizQuestion as any).imageUrl && (
                           <div style={{ marginBottom: "1.25rem", borderRadius: 10, overflow: "hidden", border: "1px solid #ece6dd", maxWidth: 640, background: "#faf8f5" }}>
@@ -2438,12 +2461,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                         </h3>
 
                         {(() => {
-                          const qType = (currentQuizQuestion as any).type || "MULTIPLE_CHOICE";
-                          const isText = qType === "SHORT_ANSWER" || qType === "TEXT_BOX";
-                          const isMulti = qType === "MULTI_SELECT";
+                          const rawType = String((currentQuizQuestion as any).type || "").toUpperCase();
+                          const isText = rawType === "SHORT_ANSWER" || rawType === "TEXT_BOX";
+                          const isMulti = !isText && (rawType === "MULTI_SELECT" || rawType === "MULTIPLE_CHOICE");
                           const selectedMultiList =
                             isMulti && quizAnswers[currentQuizQuestion.id]
-                              ? (quizAnswers[currentQuizQuestion.id] || "").split(",").filter(Boolean)
+                              ? (quizAnswers[currentQuizQuestion.id] || "").split(",").map((s) => s.trim()).filter(Boolean)
                               : [];
 
                           if (isText) {
@@ -2557,9 +2580,31 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                                       </div>
                                     )}
                                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                                      <div className={styles.optionRadioCircle}>
-                                        {isSelected && <div className={styles.optionRadioInnerDot} />}
-                                      </div>
+                                      {isMulti ? (
+                                        <div
+                                          style={{
+                                            width: 20,
+                                            height: 20,
+                                            borderRadius: 5,
+                                            border: isSelected ? "2px solid #e06d2d" : "2px solid #cbd5e1",
+                                            background: isSelected ? "#e06d2d" : "#ffffff",
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                            color: "#ffffff",
+                                            fontSize: 13,
+                                            fontWeight: 800,
+                                            flexShrink: 0,
+                                            transition: "all 0.15s ease",
+                                          }}
+                                        >
+                                          {isSelected && "✓"}
+                                        </div>
+                                      ) : (
+                                        <div className={styles.optionRadioCircle}>
+                                          {isSelected && <div className={styles.optionRadioInnerDot} />}
+                                        </div>
+                                      )}
                                       <span className={styles.optionText}>{opt.text || `Option ${String.fromCharCode(65 + optIdx)}`}</span>
                                     </div>
                                   </div>

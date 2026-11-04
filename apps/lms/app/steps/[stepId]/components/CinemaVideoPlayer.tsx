@@ -133,7 +133,7 @@ export default function CinemaVideoPlayer({
         {/* Brand Logo & Dynamic Anti-Piracy Watermark */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/brand/logo-dark.png"
+          src="/brand/logo-white.png"
           alt="WhatBoutMe"
           className={styles.brandLogoWatermark}
         />

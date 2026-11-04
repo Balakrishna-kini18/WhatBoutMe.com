@@ -961,16 +961,17 @@ export default function CompulsoryVideoPlayer({
 
       {/* 2. Official Brand Logo Watermark */}
       <img
-        src="/brand/logo-dark.png"
+        src="/brand/logo-white.png"
         alt="WhatBoutMe"
         style={{
           position: "absolute",
           top: "16px",
           right: "18px",
-          height: "22px",
-          opacity: 0.65,
+          height: "24px",
+          opacity: 0.85,
           pointerEvents: "none",
           zIndex: 30,
+          filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
         }}
         onError={(e) => {
           (e.currentTarget as HTMLElement).style.display = "none";

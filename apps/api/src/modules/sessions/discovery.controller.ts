@@ -10,6 +10,25 @@ export class DiscoveryController {
 
   @Public()
   @Get('slots')
+  @Public()
+  @Get('my-call')
+  getMyCall(
+    @Query('email') email?: string,
+    @Query('userId') userId?: string,
+    @Query('sessionId') sessionId?: string,
+    @Query('timezone') timezone?: string,
+    @Req() req?: any,
+  ) {
+    const actorEmail = req?.user?.email || email;
+    const actorId = req?.user?.sub || req?.user?.id || userId;
+    return this.discoveryService.getUserLatestDiscoveryCall({
+      email: actorEmail,
+      userId: actorId,
+      sessionId,
+      timezone,
+    });
+  }
+
   getSlots(
     @Query('date') date: string,
     @Query('timezone') timezone?: string,
@@ -51,6 +70,25 @@ export class SessionsDiscoveryController {
 
   @Public()
   @Get('slots')
+  @Public()
+  @Get('my-call')
+  getMyCall(
+    @Query('email') email?: string,
+    @Query('userId') userId?: string,
+    @Query('sessionId') sessionId?: string,
+    @Query('timezone') timezone?: string,
+    @Req() req?: any,
+  ) {
+    const actorEmail = req?.user?.email || email;
+    const actorId = req?.user?.sub || req?.user?.id || userId;
+    return this.discoveryService.getUserLatestDiscoveryCall({
+      email: actorEmail,
+      userId: actorId,
+      sessionId,
+      timezone,
+    });
+  }
+
   getSlots(
     @Query('date') date: string,
     @Query('timezone') timezone?: string,

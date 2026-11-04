@@ -599,6 +599,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const isManuallyUnlocked = (currentStepProg as any)?.overrideState === "MANUAL_UNLOCKED";
   const isQuizAlreadyPassed = Boolean(
     lastQuizResult?.passed ||
+    (lastQuizResult && lastQuizResult.score !== undefined) ||
     (currentStepProg as any)?.quiz?.isPassed ||
     (currentStepProg?.isCompleted && lastQuizResult?.passed !== false)
   );
@@ -1280,14 +1281,15 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       attemptId: activeAttemptId || undefined,
       answers: questionsList.map((q) => {
         const rawAns = quizAnswers[q.id] || "";
-        const qType = (q as any).type || "MULTIPLE_CHOICE";
-        const isMulti = qType === "MULTI_SELECT";
-        const isText = qType === "SHORT_ANSWER" || qType === "TEXT_BOX";
+        const rawType = String((q as any).type || "").toUpperCase();
+        const isText = rawType === "SHORT_ANSWER" || rawType === "TEXT_BOX";
+        const isMulti = !isText && (rawType === "MULTI_SELECT" || rawType === "MULTIPLE_CHOICE");
+        const multiArray = rawAns ? rawAns.split(",").map((s) => s.trim()).filter(Boolean) : [];
         return {
           questionId: q.id,
           optionId: !isMulti && !isText ? rawAns || undefined : undefined,
           selectedOptionId: !isMulti && !isText ? rawAns || undefined : undefined,
-          selectedOptionIds: isMulti ? rawAns.split(",").filter(Boolean) : undefined,
+          selectedOptionIds: isMulti ? multiArray : undefined,
           textResponse: isText ? rawAns.trim() : undefined,
           textAnswer: isText ? rawAns.trim() : undefined,
         };
@@ -1310,15 +1312,13 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       try {
         localStorage.removeItem(`wbm_step_quiz_${stepId}`);
       } catch (e) {}
-      if (data.passed) {
-        invalidateCache("/progression");
-        invalidateCache("/programs");
-        void fetchStepAndProgression(false, true);
-        setCelebrationMode("module");
-        setIsCelebrationOpen(true);
-        if (nextStepId) {
-          setRedirectCountdown(4);
-        }
+      invalidateCache("/progression");
+      invalidateCache("/programs");
+      void fetchStepAndProgression(false, true);
+      setCelebrationMode("module");
+      setIsCelebrationOpen(true);
+      if (nextStepId) {
+        setRedirectCountdown(3);
       }
     } catch (err: any) {
       setQuizError(err.message || "Failed to submit quiz");
@@ -2352,9 +2352,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     Module Knowledge Check Passed!
                   </h3>
                   <p style={{ margin: "0 0 18px", fontSize: "0.92rem", color: "#166534", maxWidth: 540, marginLeft: "auto", marginRight: "auto", lineHeight: 1.5 }}>
-                    {lastQuizResult?.score !== undefined
-                      ? `Great job! You achieved a score of ${lastQuizResult.score}% (Pass threshold: ${lastQuizResult.passMark ?? 75}%).`
-                      : "Great job! You have satisfied all requirements for this module."}{" "}
+                    {lastQuizResult?.score !== undefined ? `Great job! You achieved a score of ${lastQuizResult.score}%.` : "Great job! You have satisfied all requirements for this module."}{" "}
                     {nextStep ? `Step ${nextStep.sequence}: ${nextStep.title} is now unlocked.` : "You have completed all modules in this program."}
                   </p>
                   <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
@@ -2414,73 +2412,37 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               ) : (
                 /* ACTIVE QUIZ QUESTION CARD */
                 <>
-                  {lastQuizResult && !lastQuizResult.passed && lastQuizResult.status !== "IN_PROGRESS" && (
-                    <div
-                      style={{
-                        background: "#fee2e2",
-                        border: "1px solid #fca5a5",
-                        color: "#7f1d1d",
-                        padding: "16px 20px",
-                        borderRadius: 12,
-                        marginBottom: 20,
-                      }}
-                    >
-                      <h4 style={{ margin: "0 0 6px", fontSize: "1.05rem", fontWeight: 700 }}>
-                        Assessment Not Passed Yet
-                      </h4>
-                      <p style={{ margin: "0 0 12px", fontSize: "0.88rem" }}>
-                        Score: {lastQuizResult.score}% (Pass threshold: {lastQuizResult.passMark ?? 75}%).
-                        Please review the video lessons and try again.
-                      </p>
-                      <button
-                        type="button"
-                        disabled={isStartingQuiz}
-                        onClick={async () => {
-                          setQuizError(null);
-                          setQuizAnswers({});
-                          setActiveQuizIndex(0);
-                          setIsStartingQuiz(true);
-                          if (step?.quiz?.id) {
-                            hasAttemptedQuizStartRef.current[step.quiz.id] = false;
-                          }
-                          try {
-                            const startRes = await fetch(`${API_URL}/quizzes/${step?.quiz?.id}/start`, {
-                              method: "POST",
-                              headers: getAuthHeaders(),
-                            });
-                            const startData = await startRes.json();
-                            if (startRes.ok) {
-                              setLastQuizResult(null);
-                              setActiveAttemptId(startData.attemptId || startData.id);
-                              if (Array.isArray(startData.questions) && startData.questions.length > 0) {
-                                setAttemptQuestions(startData.questions);
-                              }
-                            } else {
-                              const errorMsg = Array.isArray(startData?.message)
-                                ? startData.message.join(", ")
-                                : startData?.message;
-                              setQuizError(errorMsg || "Failed to start a new quiz attempt");
-                            }
-                          } catch (e: any) {
-                            setQuizError(e.message || "Failed to start quiz attempt");
-                          } finally {
-                            setIsStartingQuiz(false);
-                          }
-                        }}
-                        className={styles.btnPrimaryOrange}
-                        style={{ padding: "8px 16px", fontSize: "0.85rem", cursor: isStartingQuiz ? "wait" : "pointer" }}
-                      >
-                        {isStartingQuiz ? "Starting..." : "Try Again →"}
-                      </button>
-                    </div>
-                  )}
+                  {/* Quiz completion feedback */}
 
                   {currentQuizQuestion && (
                     <div className={styles.quizGrid}>
                       {/* Left Column: Question Card */}
                       <div className={styles.questionCard}>
-                        <div className={styles.questionNumberLabel}>
-                          Question {safeActiveIndex + 1} of {quizQuestions.length}
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                          <div className={styles.questionNumberLabel}>
+                            Question {safeActiveIndex + 1} of {quizQuestions.length}
+                          </div>
+                          {(() => {
+                            const rawType = String((currentQuizQuestion as any)?.type || "").toUpperCase();
+                            const isText = rawType === "SHORT_ANSWER" || rawType === "TEXT_BOX";
+                            const isMulti = !isText && (rawType === "MULTI_SELECT" || rawType === "MULTIPLE_CHOICE");
+                            return (
+                              <span
+                                style={{
+                                  fontSize: "0.72rem",
+                                  fontWeight: 600,
+                                  padding: "3px 10px",
+                                  borderRadius: 6,
+                                  background: isText ? "#eff6ff" : isMulti ? "#fef3c7" : "#f1f5f9",
+                                  color: isText ? "#1d4ed8" : isMulti ? "#92400e" : "#475569",
+                                  border: isText ? "1px solid #bfdbfe" : isMulti ? "1px solid #fde68a" : "1px solid #e2e8f0",
+                                  letterSpacing: "0.02em",
+                                }}
+                              >
+                                {isText ? "Short Answer" : isMulti ? "Multiple Choice • Select all that apply" : "Single Choice"}
+                              </span>
+                            );
+                          })()}
                         </div>
                         {(currentQuizQuestion as any).imageUrl && (
                           <div style={{ marginBottom: "1.25rem", borderRadius: 10, overflow: "hidden", border: "1px solid #ece6dd", maxWidth: 640, background: "#faf8f5" }}>
@@ -2499,12 +2461,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                         </h3>
 
                         {(() => {
-                          const qType = (currentQuizQuestion as any).type || "MULTIPLE_CHOICE";
-                          const isText = qType === "SHORT_ANSWER" || qType === "TEXT_BOX";
-                          const isMulti = qType === "MULTI_SELECT";
+                          const rawType = String((currentQuizQuestion as any).type || "").toUpperCase();
+                          const isText = rawType === "SHORT_ANSWER" || rawType === "TEXT_BOX";
+                          const isMulti = !isText && (rawType === "MULTI_SELECT" || rawType === "MULTIPLE_CHOICE");
                           const selectedMultiList =
                             isMulti && quizAnswers[currentQuizQuestion.id]
-                              ? (quizAnswers[currentQuizQuestion.id] || "").split(",").filter(Boolean)
+                              ? (quizAnswers[currentQuizQuestion.id] || "").split(",").map((s) => s.trim()).filter(Boolean)
                               : [];
 
                           if (isText) {
@@ -2618,9 +2580,31 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                                       </div>
                                     )}
                                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                                      <div className={styles.optionRadioCircle}>
-                                        {isSelected && <div className={styles.optionRadioInnerDot} />}
-                                      </div>
+                                      {isMulti ? (
+                                        <div
+                                          style={{
+                                            width: 20,
+                                            height: 20,
+                                            borderRadius: 5,
+                                            border: isSelected ? "2px solid #e06d2d" : "2px solid #cbd5e1",
+                                            background: isSelected ? "#e06d2d" : "#ffffff",
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                            color: "#ffffff",
+                                            fontSize: 13,
+                                            fontWeight: 800,
+                                            flexShrink: 0,
+                                            transition: "all 0.15s ease",
+                                          }}
+                                        >
+                                          {isSelected && "✓"}
+                                        </div>
+                                      ) : (
+                                        <div className={styles.optionRadioCircle}>
+                                          {isSelected && <div className={styles.optionRadioInnerDot} />}
+                                        </div>
+                                      )}
                                       <span className={styles.optionText}>{opt.text || `Option ${String.fromCharCode(65 + optIdx)}`}</span>
                                     </div>
                                   </div>

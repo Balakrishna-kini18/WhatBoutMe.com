@@ -224,4 +224,78 @@ describe('DiscoveryService - 15-Minute Slot Calculation & Booking', () => {
       );
     });
   });
+
+  describe('getUserLatestDiscoveryCall - Retrieve Booked Session for User', () => {
+    it('returns hasBooking: false when neither email, userId, nor sessionId is provided', async () => {
+      const res = await service.getUserLatestDiscoveryCall({});
+      expect(res.hasBooking).toBe(false);
+      expect(res.booking).toBeNull();
+    });
+
+    it('returns hasBooking: true with session details and pending status when call is awaiting coach acceptance', async () => {
+      const startTime = new Date('2026-11-20T10:00:00.000Z');
+      const endTime = new Date('2026-11-20T10:15:00.000Z');
+      prismaMock.session.findFirst.mockResolvedValueOnce({
+        id: 'sess-discovery-123',
+        title: '1-to-1 Discovery Call: Roweena & Bk',
+        description: 'Discovery session',
+        sessionType: 'SPEAKER_DISCOVERY_CALL',
+        status: 'SCHEDULED',
+        startTime,
+        endTime,
+        joinUrl: null,
+        meetingLink: null,
+        learner: {
+          id: 'user-bk',
+          name: 'Bk',
+          email: 'balakrishna@foxwel.ai',
+          phone: '+919999999999',
+        },
+      });
+
+      const res = await service.getUserLatestDiscoveryCall({
+        email: 'balakrishna@foxwel.ai',
+        userId: 'user-bk',
+      });
+
+      expect(res.hasBooking).toBe(true);
+      expect(res.booking?.sessionId).toBe('sess-discovery-123');
+      expect(res.booking?.isPendingApproval).toBe(true);
+      expect(res.booking?.zoomJoinUrl).toBe('');
+      expect(res.booking?.leadName).toBe('Bk');
+      expect(res.booking?.leadEmail).toBe('balakrishna@foxwel.ai');
+    });
+
+    it('returns hasBooking: true with Zoom joinUrl and ICS invite when coach has accepted', async () => {
+      const startTime = new Date('2026-11-20T10:00:00.000Z');
+      const endTime = new Date('2026-11-20T10:15:00.000Z');
+      prismaMock.session.findFirst.mockResolvedValueOnce({
+        id: 'sess-discovery-456',
+        title: '1-to-1 Discovery Call: Roweena & Bk',
+        description: 'Discovery session',
+        sessionType: 'SPEAKER_DISCOVERY_CALL',
+        status: 'SCHEDULED',
+        startTime,
+        endTime,
+        joinUrl: 'https://zoom.us/j/999888777',
+        meetingLink: 'https://zoom.us/j/999888777',
+        learner: {
+          id: 'user-bk',
+          name: 'Bk',
+          email: 'balakrishna@foxwel.ai',
+          phone: '+919999999999',
+        },
+      });
+
+      const res = await service.getUserLatestDiscoveryCall({
+        email: 'balakrishna@foxwel.ai',
+      });
+
+      expect(res.hasBooking).toBe(true);
+      expect(res.booking?.isPendingApproval).toBe(false);
+      expect(res.booking?.zoomJoinUrl).toBe('https://zoom.us/j/999888777');
+      expect(res.booking?.icsContent).toContain('BEGIN:VCALENDAR');
+      expect(res.booking?.icsContent).toContain('https://zoom.us/j/999888777');
+    });
+  });
 });

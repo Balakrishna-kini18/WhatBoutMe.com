@@ -517,6 +517,136 @@ export class DiscoveryService {
    * 4. Dispatches calendar sync and confirmed email with Zoom link and .ics to prospect
    * 5. Creates immutable AuditLog
    */
+
+  /**
+   * Fetches the latest upcoming or active 1-on-1 discovery call for a prospect/learner
+   * so they can view status and access their Zoom meeting link directly on the contact page.
+   */
+  async getUserLatestDiscoveryCall(params: {
+    email?: string;
+    userId?: string;
+    sessionId?: string;
+    timezone?: string;
+  }) {
+    const { email, userId, sessionId, timezone } = params;
+    const cleanEmail = email?.trim().toLowerCase();
+
+    if (!cleanEmail && !userId && !sessionId) {
+      return { hasBooking: false, booking: null };
+    }
+
+    const orConditions: any[] = [];
+    if (sessionId) {
+      orConditions.push({ id: sessionId });
+    }
+    if (userId) {
+      orConditions.push({ learnerId: userId });
+    }
+    if (cleanEmail) {
+      orConditions.push({ learner: { email: cleanEmail } });
+      orConditions.push({ agenda: { contains: cleanEmail } });
+    }
+
+    const session = await this.prisma.session.findFirst({
+      where: {
+        sessionType: SessionType.SPEAKER_DISCOVERY_CALL,
+        status: { in: [SessionStatus.SCHEDULED, SessionStatus.ACTIVE] },
+        OR: orConditions,
+      },
+      include: {
+        learner: {
+          select: { id: true, name: true, email: true, phone: true },
+        },
+      },
+      orderBy: { startTime: 'desc' },
+    });
+
+    if (!session) {
+      return { hasBooking: false, booking: null };
+    }
+
+    const tz = timezone?.trim() || 'Asia/Dubai';
+    const slotStart = session.startTime;
+    const slotEnd = session.endTime;
+
+    const timeLocal = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(slotStart);
+
+    const timeGst =
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Dubai',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).format(slotStart) + ' GST (Dubai)';
+
+    const timeIst =
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Kolkata',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).format(slotStart) + ' IST (India)';
+
+    const dateFormatted = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(slotStart);
+
+    const zoomJoinUrl = session.joinUrl || session.meetingLink || '';
+    const isPendingApproval = !zoomJoinUrl;
+    const leadName = session.learner?.name || 'Prospective Learner';
+    const leadEmail = session.learner?.email || cleanEmail || '';
+
+    const icsContent = zoomJoinUrl
+      ? generateIcsInvite({
+          sessionId: session.id,
+          title: session.title,
+          description:
+            session.description || '15-Minute 1-to-1 Discovery Call with Roweena Kini',
+          location: zoomJoinUrl,
+          startTime: session.startTime,
+          endTime: session.endTime,
+          attendeeName: leadName,
+          attendeeEmail: leadEmail,
+          organizerEmail: 'share@whatboutme.com',
+        })
+      : '';
+
+    return {
+      hasBooking: true,
+      booking: {
+        success: true,
+        sessionId: session.id,
+        title: session.title,
+        startTimeUtc: slotStart.toISOString(),
+        endTimeUtc: slotEnd.toISOString(),
+        dateFormatted,
+        timeLocal,
+        timeGst,
+        timeIst,
+        timezone: tz,
+        zoomJoinUrl,
+        icsContent,
+        message: zoomJoinUrl
+          ? 'Your 1-to-1 discovery consultation has been confirmed!'
+          : 'Your 1-to-1 discovery call request has been received & is pending coach confirmation.',
+        leadName,
+        leadEmail,
+        phone: session.learner?.phone || undefined,
+        status: session.status,
+        isPendingApproval,
+      },
+    };
+  }
+
   async acceptDiscoveryCall(identifier: { sessionId?: string; leadId?: string }, actorUser?: any) {
     let session: any = null;
     let lead: any = null;

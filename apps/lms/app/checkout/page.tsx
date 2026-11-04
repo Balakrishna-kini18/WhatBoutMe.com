@@ -177,7 +177,8 @@ function CheckoutContent() {
   const currencySymbol = currency === "INR" ? "₹" : currency === "AED" ? "AED " : "$";
 
   const handleApplyCoupon = async () => {
-    if (!couponCode.trim()) return;
+    const cleanCode = couponCode.trim().toUpperCase().replace(/\s+/g, "-");
+    if (!cleanCode) return;
     setIsApplyingCoupon(true);
     setCouponError(null);
     try {
@@ -189,11 +190,10 @@ function CheckoutContent() {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          code: couponCode.trim(),
+          code: cleanCode,
           programId,
           currency,
           userId: user?.id || user?.sub,
-          paymentPlanType: "FULL",
         }),
       });
 
@@ -546,7 +546,7 @@ function CheckoutContent() {
               type="text"
               placeholder="Enter coupon code (e.g. WELCOME10)"
               value={couponCode}
-              onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+              onChange={(e) => setCouponCode(e.target.value.toUpperCase().replace(/\s+/g, "-"))}
               disabled={isApplyingCoupon || !!appliedCoupon}
               style={{
                 flex: 1,

@@ -162,10 +162,11 @@ export class PaymentsService {
     let couponId: string | undefined = undefined;
 
     // Validate Coupon if provided
-    if (dto.couponCode && this.couponsService) {
+    const cleanCouponCode = dto.couponCode ? dto.couponCode.trim().toUpperCase().replace(/\s+/g, '-') : undefined;
+    if (cleanCouponCode && this.couponsService) {
       try {
         const validated = await this.couponsService.validateCoupon({
-          code: dto.couponCode,
+          code: cleanCouponCode,
           programId: (pricing as any).programId,
           currency: pricing.currency,
           userId: user?.sub || user?.id,
@@ -260,6 +261,35 @@ export class PaymentsService {
       }
     }
 
+    if (finalAmount <= 0) {
+      const freeSessionId = `free_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+      await this.simulateTestWebhook({
+        targetType: dto.targetType,
+        targetId: dto.targetId,
+        enrolmentId: targetEnrolmentId,
+        status: 'PAID',
+        amount: 0,
+        currency: pricing.currency,
+        couponCode: cleanCouponCode,
+        idempotencyKey: dto.idempotencyKey || `idem_${freeSessionId}`,
+        stripeSessionId: freeSessionId,
+      });
+
+      const { lmsUrl } = getAppUrls();
+      return {
+        provider: 'STRIPE',
+        orderId: freeSessionId,
+        amount: 0,
+        currency: pricing.currency,
+        status: 'PAID',
+        checkoutUrl: `${lmsUrl}/checkout/success?session_id=${freeSessionId}`,
+        simulationBypass: true,
+        title: pricing.title,
+        currencySymbol: getCurrencySymbol(pricing.currency),
+        discountAmount,
+      };
+    }
+
     const provider = this.getActiveProvider();
     const orderResult = await provider.createOrder({
       amount: finalAmount,
@@ -277,7 +307,7 @@ export class PaymentsService {
         baseAmountUSD: (pricing as any).amount,
         enrolmentId: dto.enrolmentId || (pricing as any).enrolmentId,
         discountAmount,
-        couponCode: dto.couponCode,
+        couponCode: cleanCouponCode,
         couponId,
       },
     });
@@ -292,7 +322,7 @@ export class PaymentsService {
           amount: finalAmount,
           currency: pricing.currency,
           status: 'pending',
-          couponCode: dto.couponCode || null,
+          couponCode: cleanCouponCode || null,
           discountAmount,
           idempotencyKey: dto.idempotencyKey || null,
         },
@@ -480,10 +510,12 @@ export class PaymentsService {
 
       // 2. Authoritative Coupon Discount Calculation
       let discount = 0;
-      if (dto.couponCode && this.couponsService) {
+      let appliedCouponId: string | undefined = undefined;
+      const cleanCouponCode = dto.couponCode ? dto.couponCode.trim().toUpperCase().replace(/\s+/g, '-') : undefined;
+      if (cleanCouponCode && this.couponsService) {
         try {
           const couponValidation = await this.couponsService.validateCoupon({
-            code: dto.couponCode,
+            code: cleanCouponCode,
             programId: program.id,
             currency,
             userId: enrolment.userId,
@@ -492,6 +524,7 @@ export class PaymentsService {
           });
           if (couponValidation && typeof couponValidation.discountAmount === 'number') {
             discount = couponValidation.discountAmount;
+            appliedCouponId = couponValidation.couponId;
           }
         } catch (couponErr: any) {
           this.logger.warn(`Coupon validation warning in simulation: ${couponErr?.message}`);
@@ -547,12 +580,17 @@ export class PaymentsService {
 
         // 2. Create or Update Payment Record
         let payment: any = null;
-        if (typeof (tx.payment as any)?.findUnique === 'function') {
-          if (idempotencyKey) {
-            payment = await tx.payment.findUnique({ where: { idempotencyKey } });
-          }
-          if (!payment && dto.stripeSessionId) {
-            payment = await tx.payment.findUnique({ where: { stripeSessionId: dto.stripeSessionId } });
+        if (typeof (tx.payment as any)?.findFirst === 'function') {
+          const orConditions: any[] = [];
+          if (dto.stripeSessionId) orConditions.push({ stripeSessionId: dto.stripeSessionId });
+          if (idempotencyKey) orConditions.push({ idempotencyKey });
+          if (enrolment?.id) orConditions.push({ enrolmentId: enrolment.id, status: 'pending' });
+
+          if (orConditions.length > 0) {
+            payment = await tx.payment.findFirst({
+              where: { OR: orConditions },
+              orderBy: { createdAt: 'desc' },
+            });
           }
         }
 
@@ -563,7 +601,7 @@ export class PaymentsService {
               status: 'succeeded',
               amount: totalInvoiceAmount,
               currency,
-              couponCode: dto.couponCode || payment.couponCode || null,
+              couponCode: cleanCouponCode || payment.couponCode || null,
               discountAmount: discount || payment.discountAmount || 0,
               stripeSessionId: dto.stripeSessionId || payment.stripeSessionId,
             },
@@ -576,7 +614,7 @@ export class PaymentsService {
               amount: totalInvoiceAmount,
               currency,
               status: 'succeeded',
-              couponCode: dto.couponCode || null,
+              couponCode: cleanCouponCode || null,
               discountAmount: discount,
               idempotencyKey,
             },
@@ -607,7 +645,7 @@ export class PaymentsService {
                 invoiceNumber,
                 amount: totalInvoiceAmount,
                 currency,
-                couponCode: dto.couponCode || null,
+                couponCode: cleanCouponCode || null,
                 discountAmount: discount,
                 status: InvoiceStatus.PAID,
                 taxFields: {
@@ -626,7 +664,25 @@ export class PaymentsService {
               },
             });
 
-        // 4. Audit Log
+        // 4. Atomically redeem coupon if applied
+        if (appliedCouponId && this.couponsService) {
+          try {
+            await this.couponsService.redeemCouponAtomic(tx, {
+              couponId: appliedCouponId,
+              userId: enrolment.userId,
+              enrolmentId: enrolment.id,
+              paymentId: payment.id,
+              orderAmount: authoritativePrice,
+              discountAmount: discount,
+              finalAmount: totalInvoiceAmount,
+              currency,
+            });
+          } catch (redeemErr: any) {
+            this.logger.warn(`Could not atomically redeem coupon ${appliedCouponId}: ${redeemErr?.message}`);
+          }
+        }
+
+        // 5. Audit Log
         if (tx.auditLog?.create) {
           await tx.auditLog.create({
             data: {
@@ -925,8 +981,8 @@ export class PaymentsService {
           status: 'PAID',
           amount: (stripeSession.amount_total || 0) / 100,
           currency: (stripeSession.currency || 'USD').toUpperCase() as SupportedCurrency,
-          couponCode: stripeSession.metadata?.couponCode,
-          idempotencyKey: stripeSession.metadata?.idempotencyKey,
+          couponCode: stripeSession.metadata?.couponCode || undefined,
+          idempotencyKey: stripeSession.metadata?.idempotencyKey || undefined,
           stripeSessionId: sessionId,
         });
 

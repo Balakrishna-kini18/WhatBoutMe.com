@@ -255,9 +255,14 @@ export default function CouponsPage() {
     e.preventDefault();
     setFormError(null);
 
-    const normalizedCode = formCode.trim().toUpperCase();
+    const normalizedCode = formCode.trim().toUpperCase().replace(/\s+/g, '-');
     if (!normalizedCode || normalizedCode.length < 3) {
       setFormError("Coupon code must be at least 3 characters");
+      return;
+    }
+
+    if (!/^[A-Z0-9_-]{3,30}$/.test(normalizedCode)) {
+      setFormError("Coupon code must be 3-30 characters using letters, numbers, hyphens (-) or underscores (_)");
       return;
     }
 
@@ -313,7 +318,11 @@ export default function CouponsPage() {
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => null);
-        throw new Error(errJson?.message || `Failed to save coupon (${res.status})`);
+        const errorMsg =
+          errJson?.error?.message ||
+          (Array.isArray(errJson?.message) ? errJson.message.join(", ") : errJson?.message) ||
+          `Failed to save coupon (${res.status})`;
+        throw new Error(errorMsg);
       }
 
       setIsCreateModalOpen(false);
@@ -845,10 +854,10 @@ export default function CouponsPage() {
                 className={styles.formInput}
                 placeholder="e.g. ROWEENA20"
                 value={formCode}
-                onChange={(e) => setFormCode(e.target.value.toUpperCase())}
+                onChange={(e) => setFormCode(e.target.value.toUpperCase().replace(/\s+/g, "-"))}
                 required
               />
-              <span className={styles.formHelp}>Normalized to uppercase automatically.</span>
+              <span className={styles.formHelp}>Normalized to uppercase automatically (spaces become hyphens).</span>
             </div>
 
             <div className={styles.formGroup}>

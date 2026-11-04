@@ -26,6 +26,7 @@ import {
   formatMultiTimezoneSummary,
 } from "@/lib/timezone";
 import { buildWhatsAppEnquiryUrl, openWhatsAppSafely } from "@/lib/whatsapp";
+import { useUser } from "@/lib/auth";
 
 // URL course subscription
 const subscribe = () => () => { };
@@ -73,6 +74,10 @@ interface BookingResponse {
   zoomJoinUrl: string;
   icsContent: string;
   message: string;
+  leadName?: string;
+  leadEmail?: string;
+  status?: string;
+  isPendingApproval?: boolean;
 }
 
 /**
@@ -131,6 +136,8 @@ function ConsultationHeaderGraphic() {
     onCourseChange,
   }: ContactFormProps = {}) {
     const urlCourseParam = useSyncExternalStore(subscribe, getCourseFromUrl, getServerCourse);
+    const user = useUser();
+    const [showEnquiryForm, setShowEnquiryForm] = useState(false);
 
     // 1. Shared Form State
     const [inquiryType, setInquiryType] = useState<"GENERAL" | "COURSE">("GENERAL");
@@ -144,6 +151,7 @@ function ConsultationHeaderGraphic() {
     const [courses, setCourses] = useState<ProgramOption[]>(initialCourses || []);
     const [selectedCourseId, setSelectedCourseId] = useState("");
     const [isLoadingCourses, setIsLoadingCourses] = useState(false);
+
 
     // Synchronize initialCourses if passed
     useEffect(() => {
@@ -208,6 +216,108 @@ function ConsultationHeaderGraphic() {
     const [waUrl, setWaUrl] = useState("");
     const [bookingResult, setBookingResult] = useState<BookingResponse | null>(null);
     const [copiedZoom, setCopiedZoom] = useState(false);
+
+    // Synchronize logged-in user details into form fields
+    useEffect(() => {
+      if (user?.name && !name) setName(user.name);
+      if (user?.email && !email) setEmail(user.email);
+    }, [user]);
+
+    // Check for existing upcoming 1-to-1 discovery session on mount
+    useEffect(() => {
+      let isMounted = true;
+
+      // 1. Check local storage for immediate display
+      if (typeof window !== "undefined") {
+        try {
+          const localRaw = localStorage.getItem("wbm_discovery_call");
+          if (localRaw) {
+            const parsed = JSON.parse(localRaw);
+            if (parsed?.startTimeUtc) {
+              const startTime = new Date(parsed.startTimeUtc).getTime();
+              if (startTime > Date.now() - 24 * 3600 * 1000) {
+                setBookingResult(parsed);
+                if (parsed.leadName && !name) setName(parsed.leadName);
+                if (parsed.leadEmail && !email) setEmail(parsed.leadEmail);
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // 2. Fetch fresh status from backend API
+      const lookupEmail = user?.email || (typeof window !== "undefined" ? localStorage.getItem("wbm_user_email") || "" : "");
+      let lookupSessionId = "";
+      if (typeof window !== "undefined") {
+        try {
+          const localRaw = localStorage.getItem("wbm_discovery_call");
+          if (localRaw) lookupSessionId = JSON.parse(localRaw)?.sessionId || "";
+        } catch {}
+      }
+
+      if (lookupEmail || lookupSessionId || user?.id) {
+        const query = new URLSearchParams();
+        if (lookupEmail) query.set("email", lookupEmail);
+        if (user?.id) query.set("userId", user.id);
+        if (lookupSessionId) query.set("sessionId", lookupSessionId);
+        query.set("timezone", selectedTz || getSystemTimezone());
+
+        fetch(`${API_BASE_URL}/meetings/discovery/my-call?${query.toString()}`, {
+          headers: {
+            ...(typeof window !== "undefined" && localStorage.getItem("wbm_token")
+              ? { Authorization: `Bearer ${localStorage.getItem("wbm_token")}` }
+              : {}),
+          },
+        })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => {
+            if (isMounted && data?.hasBooking && data?.booking) {
+              setBookingResult(data.booking);
+              if (data.booking.leadName && !name) setName(data.booking.leadName);
+              if (data.booking.leadEmail && !email) setEmail(data.booking.leadEmail);
+              try {
+                localStorage.setItem("wbm_discovery_call", JSON.stringify(data.booking));
+              } catch {}
+            }
+          })
+          .catch((err) => {
+            console.warn("Could not check existing discovery booking:", err);
+          });
+      }
+
+      return () => {
+        isMounted = false;
+      };
+    }, [user?.email, user?.id]);
+
+    // Polling interval if call is pending coach acceptance (reveals Zoom link as soon as accepted)
+    useEffect(() => {
+      if (!bookingResult || bookingResult.zoomJoinUrl) return;
+
+      const interval = setInterval(async () => {
+        try {
+          const lookupEmail = user?.email || (typeof window !== "undefined" ? localStorage.getItem("wbm_user_email") || "" : "");
+          const query = new URLSearchParams();
+          if (lookupEmail) query.set("email", lookupEmail);
+          if (bookingResult.sessionId) query.set("sessionId", bookingResult.sessionId);
+          query.set("timezone", selectedTz || getSystemTimezone());
+
+          const res = await fetch(`${API_BASE_URL}/meetings/discovery/my-call?${query.toString()}`).catch(() => null);
+          if (res && res.ok) {
+            const data = await res.json();
+            if (data?.hasBooking && data?.booking) {
+              setBookingResult(data.booking);
+              try {
+                localStorage.setItem("wbm_discovery_call", JSON.stringify(data.booking));
+              } catch {}
+            }
+          }
+        } catch {}
+      }, 15000);
+
+      return () => clearInterval(interval);
+    }, [bookingResult?.sessionId, bookingResult?.zoomJoinUrl, user?.email, selectedTz]);
+
 
     // URL query parameter pre-selection
     useEffect(() => {
@@ -428,6 +538,15 @@ function ConsultationHeaderGraphic() {
         if (res.ok) {
           const data: BookingResponse = await res.json();
           setBookingResult(data);
+          setShowEnquiryForm(false);
+          try {
+            localStorage.setItem("wbm_discovery_call", JSON.stringify({
+              ...data,
+              leadName: name.trim(),
+              leadEmail: email.trim().toLowerCase(),
+            }));
+            localStorage.setItem("wbm_user_email", email.trim().toLowerCase());
+          } catch {}
         } else if (res.status === 409) {
           const errJson = await res.json().catch(() => null);
           setError(
@@ -451,7 +570,7 @@ function ConsultationHeaderGraphic() {
 
     const handleReset = () => {
       setGeneralSubmitted(false);
-      setBookingResult(null);
+      setShowEnquiryForm(true);
       setError("");
       setMessage("");
       setSelectedSlot(null);
@@ -524,7 +643,7 @@ function ConsultationHeaderGraphic() {
     }
 
     // SUCCESS STATE: Course Enquiry (Confirmed 1-on-1 Discovery Call)
-    if (bookingResult) {
+    if (bookingResult && !showEnquiryForm) {
       const timeSummary = formatMultiTimezoneSummary(
         bookingResult.startTimeUtc,
         bookingResult.timezone,
@@ -549,7 +668,7 @@ function ConsultationHeaderGraphic() {
               </div>
 
               <p className="text-sm text-ink-soft mb-6 leading-relaxed">
-                Thank you, <strong className="text-ink">{name}</strong>! Your 15-minute discovery consultation has been confirmed.
+                Thank you, <strong className="text-ink">{name || bookingResult.leadName || "there"}</strong>! Your 15-minute discovery consultation has been confirmed.
               </p>
 
               {/* Multi-Timezone Schedule Card */}
@@ -660,7 +779,7 @@ function ConsultationHeaderGraphic() {
                 <div>
                   <p className="font-bold text-amber-950 text-sm">Status: Pending Coach Confirmation</p>
                   <p className="mt-1 text-amber-900">
-                    Thank you, <strong>{name}</strong>! We have received your consultation request. Roweena and our team will review the slot and confirm your request. Once accepted, your official Zoom meeting link and calendar invite will be emailed to <strong>{email}</strong>.
+                    Thank you, <strong>{name || bookingResult.leadName || "there"}</strong>! We have received your consultation request. Roweena and our team will review the slot and confirm your request. Once accepted, your official Zoom meeting link and calendar invite will be emailed to <strong>{email || bookingResult.leadEmail}</strong>.
                   </p>
                 </div>
               </div>
@@ -726,6 +845,24 @@ function ConsultationHeaderGraphic() {
     // ── MAIN INTERACTIVE CONSULTATION FORM ────────────────────────────────
     return (
       <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-4.5" noValidate>
+        {bookingResult && (
+          <div className="rounded-2xl border border-amber-300/80 bg-amber-50/90 p-3.5 mb-4 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-xs">
+            <div className="flex items-center gap-2 text-amber-950 font-medium">
+              <Calendar className="h-4 w-4 text-amber-600 shrink-0" />
+              <span>
+                You have a 1-to-1 discovery call {bookingResult.zoomJoinUrl ? "confirmed" : "requested"} for <strong>{bookingResult.dateFormatted || formatMultiTimezoneSummary(bookingResult.startTimeUtc, bookingResult.timezone).fullDate}</strong>.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowEnquiryForm(false)}
+              className="inline-flex items-center justify-center gap-1 shrink-0 rounded-xl bg-ink text-white px-3.5 py-1.5 text-xs font-bold hover:bg-gold hover:text-ink transition cursor-pointer"
+            >
+              <span>View Meeting &amp; Zoom Link</span>
+              <ArrowRight className="h-3 w-3" />
+            </button>
+          </div>
+        )}
         {/* 1. Card Header with Floating Graphic */}
         <div className="relative pb-0.5">
           {/* Top-Right Decorative Vector Graphic (hidden on small phones to preserve title width) */}

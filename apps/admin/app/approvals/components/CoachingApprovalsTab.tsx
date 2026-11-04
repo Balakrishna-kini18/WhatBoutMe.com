@@ -443,55 +443,6 @@ export default function CoachingApprovalsTab({
 
   return (
     <section className={styles.tableSection}>
-      {/* Scope Clarification Banner */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-          gap: "8px",
-          padding: "8px 14px",
-          marginBottom: "12px",
-          background: "#fdf8ee",
-          border: "1px solid #f2e3c6",
-          borderRadius: "8px",
-          fontSize: "0.82rem",
-          color: "var(--text-secondary, #6b5844)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ fontSize: "0.95rem" }}>💡</span>
-          <span>
-            This tab is for <strong>Stage 4 Curriculum 1-on-1 Coaching Calls</strong> (enrolled students).
-          </span>
-        </div>
-        <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
-          <span>Looking for website 15-min discovery calls?</span>
-          <Link
-            href="/leads"
-            style={{
-              color: "var(--accent-primary, #b8860b)",
-              fontWeight: 600,
-              textDecoration: "underline",
-            }}
-          >
-            Enquiries (Leads) &rarr;
-          </Link>
-          <span style={{ color: "#d6c2a8" }}>•</span>
-          <Link
-            href="/meetings"
-            style={{
-              color: "var(--accent-primary, #b8860b)",
-              fontWeight: 600,
-              textDecoration: "underline",
-            }}
-          >
-            Calendar &amp; Sessions &rarr;
-          </Link>
-        </div>
-      </div>
-
       {/* Search & Filters Header */}
       <div
         className={styles.sectionHeader}
@@ -726,23 +677,47 @@ export default function CoachingApprovalsTab({
                           </span>
                         )}
                         {hostMeetingUrl && !isCompleted && (
-                          <a
-                            href={hostMeetingUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              fontSize: "0.76rem",
-                              color: "var(--accent-primary, #c97a1e)",
-                              fontWeight: 600,
-                              textDecoration: "none",
-                              marginTop: "2px",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "3px",
-                            }}
-                          >
-                            Start Call (Host) &nearr;
-                          </a>
+                          <div style={{ display: "flex", gap: "6px", alignItems: "center", marginTop: "2px", flexWrap: "wrap" }}>
+                            <a
+                              href={hostMeetingUrl.includes("/zoom.us/j/") && !hostMeetingUrl.includes("/zoom.us/s/") ? hostMeetingUrl.replace("/zoom.us/j/", "/zoom.us/s/") : hostMeetingUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                fontSize: "0.76rem",
+                                color: "var(--accent-primary, #c97a1e)",
+                                fontWeight: 700,
+                                textDecoration: "none",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                              }}
+                              title="Start call as Host (Instructor/Admin)"
+                            >
+                              Start Call (Host) &nearr;
+                            </a>
+                            {req.session?.joinUrl && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(req.session!.joinUrl!);
+                                  toastSuccess("Learner guest link copied to clipboard!");
+                                }}
+                                style={{
+                                  background: "#f0f9ff",
+                                  border: "1px solid #bae6fd",
+                                  padding: "1px 6px",
+                                  borderRadius: "4px",
+                                  fontSize: "0.72rem",
+                                  fontWeight: 600,
+                                  color: "#0369a1",
+                                  cursor: "pointer",
+                                }}
+                                title="Copy guest link to share with learner"
+                              >
+                                Copy Guest Link
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     </td>

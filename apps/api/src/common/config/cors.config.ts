@@ -33,6 +33,14 @@ export const APPROVED_APPLICATION_ORIGINS = new Set([
   'https://lms.whatboutme.com',
   'https://marketing.whatboutme.com',
   'https://api.whatboutme.com',
+
+  // Active Vercel Application deployments
+  'https://what-bout-me-com-admin.vercel.app',
+  'https://what-bout-me-com-lms.vercel.app',
+  'https://what-bout-me-com-marketing.vercel.app',
+  'https://whatboutme-admin.vercel.app',
+  'https://whatboutme-lms.vercel.app',
+  'https://whatboutme-marketing.vercel.app',
 ]);
 
 export function isAllowedCorsOrigin(
@@ -84,7 +92,7 @@ export function isAllowedCorsOrigin(
     if (
       process.env.NODE_ENV !== 'production'
         ? /\.vercel\.app(?::\d+)?$/i.test(normalizedOrigin)
-        : /^https?:\/\/(?:[a-zA-Z0-9-]+\.)*(?:whatboutme|testfox)[a-zA-Z0-9-]*\.vercel\.app(?::\d+)?$/i.test(normalizedOrigin)
+        : /^https?:\/\/(?:[a-zA-Z0-9-]+\.)*(?:what-?bout-?me|testfox)[a-zA-Z0-9-]*\.vercel\.app(?::\d+)?$/i.test(normalizedOrigin)
     ) {
       return true;
     }

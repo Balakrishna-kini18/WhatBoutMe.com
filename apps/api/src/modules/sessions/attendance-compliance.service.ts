@@ -65,7 +65,7 @@ export class AttendanceComplianceService {
           not: SessionStatus.CANCELLED
         }
       },
-      select: { id: true, durationMinutes: true, minAttendanceMinutes: true }
+      select: { id: true, durationMinutes: true, minAttendanceMinutes: true, startTime: true, endTime: true }
     });
 
     const requiredSessionCount = requiredSessions.length;
@@ -94,9 +94,34 @@ export class AttendanceComplianceService {
       }
     });
 
+    let totalScheduledMinutes = 0;
+    let totalAttendedMinutes = 0;
+
+    for (const s of requiredSessions) {
+      const dur =
+        s.durationMinutes ||
+        (s.startTime && s.endTime
+          ? Math.max(1, Math.round((new Date(s.endTime).getTime() - new Date(s.startTime).getTime()) / 60000))
+          : 60);
+      totalScheduledMinutes += dur;
+    }
+
+    const attendanceBySession = new Map<string, (typeof attendances)[0]>();
+    for (const a of attendances) {
+      attendanceBySession.set(a.sessionId, a);
+    }
+
     let attendedSessionCount = 0;
 
-    for (const record of attendances) {
+    for (const s of requiredSessions) {
+      const dur =
+        s.durationMinutes ||
+        (s.startTime && s.endTime
+          ? Math.max(1, Math.round((new Date(s.endTime).getTime() - new Date(s.startTime).getTime()) / 60000))
+          : 60);
+      const record = attendanceBySession.get(s.id);
+      if (!record) continue;
+
       const isPresentStatus =
         record.status === AttendanceStatus.PRESENT ||
         record.status === AttendanceStatus.PRESENT_AUTO ||
@@ -105,32 +130,35 @@ export class AttendanceComplianceService {
         record.status === (AttendanceStatus as any).PRESENT_LIVE ||
         record.status === (AttendanceStatus as any).PRESENT_RECORDED;
 
-      if (isPresentStatus) {
+      const totalMins = (record.liveMinutes ?? 0) + (record.recordedMinutes ?? 0);
+      const creditedMins = isPresentStatus
+        ? Math.max(totalMins, dur)
+        : Math.min(dur, totalMins);
+
+      totalAttendedMinutes += creditedMins;
+
+      const requiredSessionMinutes =
+        s.minAttendanceMinutes ?? Math.round((dur * threshold) / 100);
+
+      if (isPresentStatus || (totalMins >= requiredSessionMinutes && requiredSessionMinutes > 0)) {
         attendedSessionCount++;
-        continue;
-      }
-
-      // Hybrid minutes evaluation (D4: Cumulative live + recorded minutes >= session threshold)
-      const session = sessionMap.get(record.sessionId);
-      if (session && (record.liveMinutes != null || record.recordedMinutes != null)) {
-        const totalMinutes = (record.liveMinutes ?? 0) + (record.recordedMinutes ?? 0);
-        const durationMin = session.durationMinutes || 60;
-        const requiredSessionMinutes =
-          session.minAttendanceMinutes ?? Math.round((durationMin * threshold) / 100);
-
-        if (totalMinutes >= requiredSessionMinutes && requiredSessionMinutes > 0) {
-          attendedSessionCount++;
-        }
       }
     }
 
     // 3. Apply the threshold
-    const attendancePercentage = (attendedSessionCount / requiredSessionCount) * 100;
-    
-    // We do a strict mathematical evaluation. Floating point issues might be a minor concern, 
-    // but a round could be dangerous if 79.9% passes an 80% threshold. 
-    // Usually, you must hit >= threshold.
-    const isCompliant = attendancePercentage >= threshold;
+    const sessionPassPercentage = (attendedSessionCount / requiredSessionCount) * 100;
+    const minutesPercentage =
+      totalScheduledMinutes > 0
+        ? Math.min(100, Math.round((totalAttendedMinutes / totalScheduledMinutes) * 10000) / 100)
+        : 0;
+
+    // Use session pass percentage if discrete sessions passed, otherwise reflect real progressive minutes percentage
+    const attendancePercentage =
+      attendedSessionCount > 0
+        ? sessionPassPercentage
+        : minutesPercentage;
+
+    const isCompliant = sessionPassPercentage >= threshold || minutesPercentage >= threshold;
 
     return {
       status: isCompliant ? 'COMPLIANT' : 'NOT_COMPLIANT',

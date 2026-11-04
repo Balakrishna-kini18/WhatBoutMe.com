@@ -902,6 +902,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
         sessionType: "GROUP_COHORT",
         startTime: startUtc,
         endTime: endUtc,
+        durationMinutes: durationNum,
         capacity: batch?.capacity || 50,
       });
 

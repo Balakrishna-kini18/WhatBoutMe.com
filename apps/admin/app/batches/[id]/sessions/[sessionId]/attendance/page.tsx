@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, use } from "react";
+import { useEffect, useState, useMemo, use, useRef } from "react";
 import styles from "../../../../../page.module.css";
 import Link from "next/link";
 import {
@@ -211,10 +211,62 @@ export default function SessionAttendancePage({
     }
   };
 
+  const dataRef = useRef<AttendanceResponse | null>(null);
+  dataRef.current = data;
+
   useEffect(() => {
     const controller = new AbortController();
     fetchAttendanceData(controller.signal);
-    return () => controller.abort();
+
+    // Smart background poll every 30s:
+    // Only polls if:
+    // 1. Browser tab is currently visible (stops completely when tab is minimized/hidden)
+    // 2. Session is currently live (never polls past/completed sessions to eliminate wasted queries)
+    const interval = setInterval(async () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+
+      const sess = dataRef.current?.session;
+      if (sess) {
+        const isCompleted = sess.status === "COMPLETED" || sess.status === "CANCELLED";
+        const endTime = sess.endTimeUtc ? new Date(sess.endTimeUtc).getTime() : 0;
+        const hasEnded = endTime > 0 && Date.now() > endTime + 15 * 60 * 1000;
+        if (isCompleted || hasEnded) {
+          return;
+        }
+      }
+
+      try {
+        const res = await fetch(`${API_URL}/batches/${batchId}/sessions/${sessionId}/attendance`, {
+          headers: getAuthHeaders(),
+        });
+        if (res.ok) {
+          const json: AttendanceResponse = await res.json();
+          setData(json);
+        }
+      } catch {}
+    }, 30000);
+
+    // Refresh immediately when returning to tab from another window
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        const sess = dataRef.current?.session;
+        if (sess) {
+          const isCompleted = sess.status === "COMPLETED" || sess.status === "CANCELLED";
+          const endTime = sess.endTimeUtc ? new Date(sess.endTimeUtc).getTime() : 0;
+          if (!isCompleted && (!endTime || Date.now() <= endTime + 15 * 60 * 1000)) {
+            fetchAttendanceData();
+          }
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      controller.abort();
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [batchId, sessionId]);
 
   const isLearnerPresent = (status: string) =>
@@ -585,6 +637,29 @@ export default function SessionAttendancePage({
           </div>
 
           <div className={styles.welcomeActions}>
+            <button
+              type="button"
+              className={styles.exportBtn}
+              onClick={() => fetchAttendanceData()}
+              disabled={isLoading}
+              title="Refresh attendance data"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ animation: isLoading ? "spin 1s linear infinite" : undefined }}
+              >
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+              </svg>
+              <span>{isLoading ? "Refreshing..." : "Refresh"}</span>
+            </button>
+
             <button
               type="button"
               className={styles.exportBtn}

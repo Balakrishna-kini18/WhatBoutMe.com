@@ -158,13 +158,28 @@ export class AttendanceService {
         return existing;
       }
 
+      // Preserve earliest joinTime and latest leaveTime to protect against disconnections & reloads
+      const earlierJoinTime =
+        existing?.joinTime && data?.joinTime
+          ? new Date(existing.joinTime) < new Date(data.joinTime)
+            ? existing.joinTime
+            : data.joinTime
+          : (existing?.joinTime ?? data?.joinTime);
+
+      const laterLeaveTime =
+        existing?.leaveTime && data?.leaveTime
+          ? new Date(existing.leaveTime) > new Date(data.leaveTime)
+            ? existing.leaveTime
+            : data.leaveTime
+          : (data?.leaveTime ?? existing?.leaveTime);
+
       const result = await tx.attendance.upsert({
         where: { sessionId_userId: { sessionId, userId } },
         update: {
           status: targetStatus,
           source: AttendanceSource.AUTO,
-          joinTime: data?.joinTime ?? existing?.joinTime,
-          leaveTime: data?.leaveTime ?? existing?.leaveTime,
+          joinTime: earlierJoinTime,
+          leaveTime: laterLeaveTime,
           durationMin: data?.durationMin ?? existing?.durationMin,
           minutesPresent: data?.durationMin ?? existing?.minutesPresent,
           liveMinutes: data?.durationMin ?? existing?.liveMinutes,
@@ -176,8 +191,8 @@ export class AttendanceService {
           enrolmentId,
           status: targetStatus,
           source: AttendanceSource.AUTO,
-          joinTime: data?.joinTime,
-          leaveTime: data?.leaveTime,
+          joinTime: earlierJoinTime,
+          leaveTime: laterLeaveTime,
           durationMin: data?.durationMin,
           minutesPresent: data?.durationMin,
           liveMinutes: data?.durationMin,

@@ -12,7 +12,7 @@ import {
   Req,
 } from '@nestjs/common';
 import * as crypto from 'crypto';
-import { AgreementStatus, EnrolmentStatus, EventPaymentStatus } from '@prisma/client';
+import { AgreementStatus, EnrolmentStatus, EventPaymentStatus, InvoiceStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 import { isRegistrationDeadlinePassed } from '../../common/utils/deadline.util.js';
@@ -324,26 +324,53 @@ export class PaymentWebhookController {
         }
       }
 
-      // 5.5 INDEPENDENT AMOUNT AND CURRENCY VALIDATION AGAINST TRUSTED RECORDS
+      // 5.5 INDEPENDENT AMOUNT AND CURRENCY VALIDATION (WITH ADAPTIVE PRICING SUPPORT)
       const expectedAmount = existingPayment?.amount ?? enrolment.batch?.price ?? enrolment.program?.price;
       const expectedCurrency = existingPayment?.currency ?? enrolment.program?.currency ?? 'USD';
 
-      if (expectedAmount !== undefined && expectedAmount !== null && amount > 0) {
-        const receivedMinor = Math.round(amount * 100);
-        const expectedMinor = Math.round(Number(expectedAmount) * 100);
-        if (receivedMinor < expectedMinor) {
-          this.logger.error(
-            `Webhook underpayment detected for session ${stripeSessionId}: expected ${expectedAmount} ${expectedCurrency}, got ${amount} ${currency}`,
-          );
-          throw new HttpException('Webhook payment amount is less than expected order amount', HttpStatus.BAD_REQUEST);
-        }
-      }
+      // Detect Stripe Adaptive Pricing (Customer charged locally in INR/AED while core settles in USD)
+      const currencyConversion = dataObj.currency_conversion;
+      const isAdaptivePricing = !!(
+        (currencyConversion && currencyConversion.source_currency?.toLowerCase() === 'usd') ||
+        (dataObj.metadata?.baseAmountUSD && (expectedCurrency === 'USD' || !existingPayment))
+      );
 
-      if (existingPayment?.currency && currency && existingPayment.currency.toUpperCase() !== currency.toUpperCase()) {
-        this.logger.error(
-          `Webhook currency mismatch for session ${stripeSessionId}: expected ${existingPayment.currency}, got ${currency}`,
-        );
-        throw new HttpException('Webhook payment currency does not match order currency', HttpStatus.BAD_REQUEST);
+      const authoritativeAmount = isAdaptivePricing
+        ? Number(dataObj.metadata?.baseAmountUSD || expectedAmount)
+        : (amount || Number(expectedAmount));
+      const authoritativeCurrency = isAdaptivePricing ? 'USD' : (currency || expectedCurrency || 'USD').toUpperCase();
+
+      if (expectedAmount !== undefined && expectedAmount !== null && amount > 0) {
+        if (isAdaptivePricing) {
+          // Under Adaptive Pricing, validate that authoritative USD amount meets expected order price
+          const baseMinor = Math.round(authoritativeAmount * 100);
+          const expectedMinor = Math.round(Number(expectedAmount) * 100);
+          if (baseMinor < expectedMinor) {
+            this.logger.error(
+              `Webhook underpayment detected for adaptive session ${stripeSessionId}: expected $${expectedAmount} USD, got $${authoritativeAmount} USD (paid ${amount} ${currency})`,
+            );
+            throw new HttpException('Webhook payment amount is less than expected order amount', HttpStatus.BAD_REQUEST);
+          }
+          this.logger.log(
+            `[Stripe Adaptive Pricing Webhook] Learner paid ${amount} ${currency}. Authoritative settlement: $${authoritativeAmount} USD (FX: ${currencyConversion?.fx_rate || 'mid-market'}).`,
+          );
+        } else {
+          const receivedMinor = Math.round(amount * 100);
+          const expectedMinor = Math.round(Number(expectedAmount) * 100);
+          if (receivedMinor < expectedMinor) {
+            this.logger.error(
+              `Webhook underpayment detected for session ${stripeSessionId}: expected ${expectedAmount} ${expectedCurrency}, got ${amount} ${currency}`,
+            );
+            throw new HttpException('Webhook payment amount is less than expected order amount', HttpStatus.BAD_REQUEST);
+          }
+
+          if (existingPayment?.currency && currency && existingPayment.currency.toUpperCase() !== currency.toUpperCase()) {
+            this.logger.error(
+              `Webhook currency mismatch for session ${stripeSessionId}: expected ${existingPayment.currency}, got ${currency}`,
+            );
+            throw new HttpException('Webhook payment currency does not match order currency', HttpStatus.BAD_REQUEST);
+          }
+        }
       }
 
       // 6. Update Enrolment and Record Succeeded Payment
@@ -423,36 +450,65 @@ export class PaymentWebhookController {
           data: { status: targetEnrolmentStatus },
         });
 
-        if (existingPayment) {
-          await tx.payment.update({
-            where: { id: existingPayment.id },
-            data: {
-              status: 'succeeded',
-              amount: amount || existingPayment.amount,
-              currency,
-            },
-          });
-        } else {
-          const payment = await tx.payment.create({
-            data: {
-              enrolmentId: enrolment.id,
-              stripeSessionId,
-              amount: amount || enrolment.program?.price || 0,
-              currency,
-              status: 'succeeded',
-            },
-          });
+        // Atomic Payment Upsert to prevent race conditions with synchronous return
+        const paymentRecord = await tx.payment.upsert({
+          where: { stripeSessionId },
+          update: {
+            status: 'succeeded',
+            amount: authoritativeAmount,
+            currency: authoritativeCurrency,
+            enrolmentId: enrolment.id,
+          },
+          create: {
+            enrolmentId: enrolment.id,
+            stripeSessionId,
+            amount: authoritativeAmount,
+            currency: authoritativeCurrency,
+            status: 'succeeded',
+          },
+        });
 
-          await tx.invoice.create({
-            data: {
-              paymentId: payment.id,
-              invoiceNumber: `INV-${Date.now()}-${enrolment.id.slice(0, 4)}`,
-              amount: amount || enrolment.program?.price || 0,
-              currency,
-              status: 'PAID',
+        // Atomic Invoice Upsert with Adaptive Pricing metadata disclosure
+        const invoiceNumber = `INV-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
+        const localPaymentDisclosure = isAdaptivePricing
+          ? {
+              paidCurrency: currency.toUpperCase(),
+              paidAmount: amount,
+              fxRate: currencyConversion?.fx_rate || null,
+              provider: 'Stripe Adaptive Pricing',
+            }
+          : undefined;
+
+        await tx.invoice.upsert({
+          where: { paymentId: paymentRecord.id },
+          update: {
+            amount: authoritativeAmount,
+            currency: authoritativeCurrency,
+            status: InvoiceStatus.PAID,
+            taxFields: {
+              company: 'WhatBoutMe FZE',
+              total: authoritativeAmount,
+              currency: authoritativeCurrency,
+              currencySymbol: '$',
+              ...(localPaymentDisclosure ? { localPayment: localPaymentDisclosure } : {}),
             },
-          });
-        }
+          },
+          create: {
+            paymentId: paymentRecord.id,
+            enrolmentId: enrolment.id,
+            invoiceNumber,
+            amount: authoritativeAmount,
+            currency: authoritativeCurrency,
+            status: InvoiceStatus.PAID,
+            taxFields: {
+              company: 'WhatBoutMe FZE',
+              total: authoritativeAmount,
+              currency: authoritativeCurrency,
+              currencySymbol: '$',
+              ...(localPaymentDisclosure ? { localPayment: localPaymentDisclosure } : {}),
+            },
+          },
+        });
 
         // Record audit trail
         await tx.auditLog.create({

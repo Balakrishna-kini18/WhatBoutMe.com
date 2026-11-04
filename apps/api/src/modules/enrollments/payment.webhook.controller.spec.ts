@@ -27,6 +27,7 @@ describe('PaymentWebhookController - Independent Amount & Currency Validation', 
 
   beforeEach(() => {
     vi.clearAllMocks();
+    delete process.env.STRIPE_WEBHOOK_SECRET;
 
     prismaMock = {
       $transaction: vi.fn().mockImplementation(async (cb: any) => cb(prismaMock)),
@@ -39,16 +40,26 @@ describe('PaymentWebhookController - Independent Amount & Currency Validation', 
       },
       payment: {
         findUnique: vi.fn().mockResolvedValue(null),
+        findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockImplementation(async ({ data }: any) => ({
           id: 'pay-wh-1',
           ...data,
         })),
         update: vi.fn().mockResolvedValue({ id: 'pay-wh-1', status: 'succeeded' }),
+        upsert: vi.fn().mockImplementation(async ({ create, update }: any) => ({
+          id: 'pay-wh-1',
+          ...(update || create),
+        })),
       },
       invoice: {
         create: vi.fn().mockImplementation(async ({ data }: any) => ({
           id: 'inv-wh-1',
           ...data,
+        })),
+        update: vi.fn().mockResolvedValue({ id: 'inv-wh-1', status: 'PAID' }),
+        upsert: vi.fn().mockImplementation(async ({ create, update }: any) => ({
+          id: 'inv-wh-1',
+          ...(update || create),
         })),
       },
       auditLog: {

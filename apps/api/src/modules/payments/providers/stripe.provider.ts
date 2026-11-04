@@ -82,8 +82,9 @@ export class StripePaymentProvider implements IPaymentProvider {
         ? `${baseReturnUrl}/events/${params.targetId}?cancelled=1`
         : `${lmsUrl}/checkout?programId=${params.targetId}&cancelled=1`;
 
-      const unitAmountMinor = Math.round(Number(params.amount) * 100);
-      const currencyLower = (params.currency || 'USD').toLowerCase();
+      // Base currency is always USD for WhatBoutMe FZE core with Stripe Adaptive Pricing enabled
+      const unitAmountMinor = Math.round(Number(params.metadata?.baseAmountUSD || params.amount) * 100);
+      const currencyLower = 'usd';
 
       // Clean metadata strings (Stripe metadata values must be strings <= 500 chars)
       const sanitizedMetadata: Record<string, string> = {
@@ -92,6 +93,7 @@ export class StripePaymentProvider implements IPaymentProvider {
         enrolmentId: String(params.metadata?.enrolmentId || ''),
         userId: String(params.userId || ''),
         baseAmountUSD: String(params.metadata?.baseAmountUSD || params.amount),
+        requestedCurrency: String(params.currency || 'USD'),
         couponCode: String(params.metadata?.couponCode || ''),
         couponId: String(params.metadata?.couponId || ''),
         idempotencyKey: String(params.idempotencyKey || ''),
@@ -115,6 +117,9 @@ export class StripePaymentProvider implements IPaymentProvider {
             quantity: 1,
           },
         ],
+        adaptive_pricing: {
+          enabled: true,
+        },
         metadata: sanitizedMetadata,
         client_reference_id: params.metadata?.enrolmentId || params.targetId,
         expires_at: Math.floor(Date.now() / 1000) + 1800, // 30 minutes
@@ -256,7 +261,9 @@ export class StripePaymentProvider implements IPaymentProvider {
     if (!stripe || !orderId) return null;
 
     try {
-      return await stripe.checkout.sessions.retrieve(orderId);
+      return await stripe.checkout.sessions.retrieve(orderId, {
+        expand: ['line_items'],
+      });
     } catch (err: any) {
       this.logger.warn(`[StripeProvider] Could not retrieve session ${orderId}: ${err?.message}`);
       return null;

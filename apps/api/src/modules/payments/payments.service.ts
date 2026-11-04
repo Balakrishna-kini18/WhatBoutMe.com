@@ -314,21 +314,57 @@ export class PaymentsService {
 
     // Ledger pending payment row in database to guarantee tracking
     if (orderResult.orderId && !orderResult.simulationBypass) {
-      const eid = dto.enrolmentId || (pricing as any).enrolmentId || (dto.targetType === 'ENROLMENT' ? dto.targetId : undefined);
-      await this.prisma.payment.create({
-        data: {
-          enrolmentId: eid || null,
-          stripeSessionId: orderResult.orderId,
-          amount: finalAmount,
-          currency: pricing.currency,
-          status: 'pending',
-          couponCode: cleanCouponCode || null,
-          discountAmount,
-          idempotencyKey: dto.idempotencyKey || null,
-        },
-      }).catch((err) => {
-        this.logger.warn(`Could not ledger pending payment row: ${err?.message}`);
-      });
+      const candidateEid = dto.enrolmentId || (pricing as any).enrolmentId || (dto.targetType === 'ENROLMENT' ? dto.targetId : undefined);
+      let validEnrolmentId: string | null = null;
+      if (candidateEid) {
+        const checkEnrol = await this.prisma.enrolment.findUnique({
+          where: { id: candidateEid },
+          select: { id: true },
+        }).catch(() => null);
+        if (checkEnrol) validEnrolmentId = checkEnrol.id;
+      }
+
+      if (typeof (this.prisma.payment as any)?.upsert === 'function') {
+        await this.prisma.payment.upsert({
+          where: { stripeSessionId: orderResult.orderId },
+          update: {
+            enrolmentId: validEnrolmentId,
+            amount: finalAmount,
+            currency: pricing.currency,
+            status: 'pending',
+            couponCode: cleanCouponCode || null,
+            discountAmount,
+            idempotencyKey: dto.idempotencyKey || null,
+          },
+          create: {
+            enrolmentId: validEnrolmentId,
+            stripeSessionId: orderResult.orderId,
+            amount: finalAmount,
+            currency: pricing.currency,
+            status: 'pending',
+            couponCode: cleanCouponCode || null,
+            discountAmount,
+            idempotencyKey: dto.idempotencyKey || null,
+          },
+        }).catch((err) => {
+          this.logger.warn(`Could not ledger pending payment row: ${err?.message}`);
+        });
+      } else if (typeof (this.prisma.payment as any)?.create === 'function') {
+        await this.prisma.payment.create({
+          data: {
+            enrolmentId: validEnrolmentId,
+            stripeSessionId: orderResult.orderId,
+            amount: finalAmount,
+            currency: pricing.currency,
+            status: 'pending',
+            couponCode: cleanCouponCode || null,
+            discountAmount,
+            idempotencyKey: dto.idempotencyKey || null,
+          },
+        }).catch((err) => {
+          this.logger.warn(`Could not ledger pending payment row: ${err?.message}`);
+        });
+      }
     }
 
     return {
@@ -578,11 +614,18 @@ export class PaymentsService {
           data: { status: targetEnrolmentStatus },
         });
 
-        // 2. Create or Update Payment Record
+        // 2. Create or Update Payment Record (Atomic to prevent unique constraint race conditions)
+        const sId = dto.stripeSessionId || `sim_pay_${Date.now()}_${enrolment.id.slice(0, 8)}`;
         let payment: any = null;
-        if (typeof (tx.payment as any)?.findFirst === 'function') {
+
+        if (dto.stripeSessionId && typeof (tx.payment as any)?.findUnique === 'function') {
+          payment = await tx.payment.findUnique({
+            where: { stripeSessionId: dto.stripeSessionId },
+          }).catch(() => null);
+        }
+
+        if (!payment && typeof (tx.payment as any)?.findFirst === 'function') {
           const orConditions: any[] = [];
-          if (dto.stripeSessionId) orConditions.push({ stripeSessionId: dto.stripeSessionId });
           if (idempotencyKey) orConditions.push({ idempotencyKey });
           if (enrolment?.id) orConditions.push({ enrolmentId: enrolment.id, status: 'pending' });
 
@@ -590,7 +633,7 @@ export class PaymentsService {
             payment = await tx.payment.findFirst({
               where: { OR: orConditions },
               orderBy: { createdAt: 'desc' },
-            });
+            }).catch(() => null);
           }
         }
 
@@ -606,11 +649,33 @@ export class PaymentsService {
               stripeSessionId: dto.stripeSessionId || payment.stripeSessionId,
             },
           });
+        } else if (typeof (tx.payment as any)?.upsert === 'function') {
+          payment = await tx.payment.upsert({
+            where: { stripeSessionId: sId },
+            update: {
+              status: 'succeeded',
+              amount: totalInvoiceAmount,
+              currency,
+              couponCode: cleanCouponCode || null,
+              discountAmount: discount,
+              enrolmentId: enrolment.id,
+            },
+            create: {
+              enrolmentId: enrolment.id,
+              stripeSessionId: sId,
+              amount: totalInvoiceAmount,
+              currency,
+              status: 'succeeded',
+              couponCode: cleanCouponCode || null,
+              discountAmount: discount,
+              idempotencyKey,
+            },
+          });
         } else {
           payment = await tx.payment.create({
             data: {
               enrolmentId: enrolment.id,
-              stripeSessionId: dto.stripeSessionId || `sim_pay_${Date.now()}_${enrolment.id.slice(0, 8)}`,
+              stripeSessionId: sId,
               amount: totalInvoiceAmount,
               currency,
               status: 'succeeded',
@@ -626,7 +691,7 @@ export class PaymentsService {
         if (typeof (tx.invoice as any)?.findFirst === 'function') {
           existingInvoice = await tx.invoice.findFirst({
             where: { OR: [{ paymentId: payment.id }, { enrolmentId: enrolment.id }] },
-          });
+          }).catch(() => null);
         }
 
         const invoice = existingInvoice && typeof (tx.invoice as any)?.update === 'function'
@@ -638,31 +703,63 @@ export class PaymentsService {
                 paymentId: payment.id,
               },
             })
-          : await tx.invoice.create({
-              data: {
-                paymentId: payment.id,
-                enrolmentId: enrolment.id,
-                invoiceNumber,
-                amount: totalInvoiceAmount,
-                currency,
-                couponCode: cleanCouponCode || null,
-                discountAmount: discount,
-                status: InvoiceStatus.PAID,
-                taxFields: {
-                  company: 'WhatBoutMe FZE',
-                  trn: '10049281900003',
-                  location: 'Dubai Silicon Oasis, Dubai, UAE',
-                  taxType,
-                  taxRate,
-                  taxAmount,
-                  subtotal: subtotal,
-                  discount,
-                  total: totalInvoiceAmount,
-                  currencySymbol,
-                },
-                pdfUrl: `/api/invoices/${payment.id}/pdf`,
-              },
-            });
+          : await (typeof (tx.invoice as any)?.upsert === 'function'
+              ? tx.invoice.upsert({
+                  where: { paymentId: payment.id },
+                  update: {
+                    status: InvoiceStatus.PAID,
+                    amount: totalInvoiceAmount,
+                  },
+                  create: {
+                    paymentId: payment.id,
+                    enrolmentId: enrolment.id,
+                    invoiceNumber,
+                    amount: totalInvoiceAmount,
+                    currency,
+                    couponCode: cleanCouponCode || null,
+                    discountAmount: discount,
+                    status: InvoiceStatus.PAID,
+                    taxFields: {
+                      company: 'WhatBoutMe FZE',
+                      trn: '10049281900003',
+                      location: 'Dubai Silicon Oasis, Dubai, UAE',
+                      taxType,
+                      taxRate,
+                      taxAmount,
+                      subtotal: subtotal,
+                      discount,
+                      total: totalInvoiceAmount,
+                      currencySymbol,
+                      currency,
+                    },
+                  },
+                })
+              : tx.invoice.create({
+                  data: {
+                    paymentId: payment.id,
+                    enrolmentId: enrolment.id,
+                    invoiceNumber,
+                    amount: totalInvoiceAmount,
+                    currency,
+                    couponCode: cleanCouponCode || null,
+                    discountAmount: discount,
+                    status: InvoiceStatus.PAID,
+                    taxFields: {
+                      company: 'WhatBoutMe FZE',
+                      trn: '10049281900003',
+                      location: 'Dubai Silicon Oasis, Dubai, UAE',
+                      taxType,
+                      taxRate,
+                      taxAmount,
+                      subtotal: subtotal,
+                      discount,
+                      total: totalInvoiceAmount,
+                      currencySymbol,
+                      currency,
+                    },
+                    pdfUrl: `/api/invoices/${payment.id}/pdf`,
+                  },
+                }));
 
         // 4. Atomically redeem coupon if applied
         if (appliedCouponId && this.couponsService) {
@@ -974,13 +1071,33 @@ export class PaymentsService {
       const stripeSession = await this.stripeProvider.retrieveSession(sessionId);
       if (stripeSession && stripeSession.payment_status === 'paid') {
         this.logger.log(`[Dual-Path Fallback] Reconciling paid Stripe session ${sessionId} synchronously.`);
+
+        // Determine if Adaptive Pricing was used (customer charged in local currency like INR/AED)
+        const currencyConversion = stripeSession.currency_conversion;
+        const isAdaptive = !!(
+          (currencyConversion && currencyConversion.source_currency?.toLowerCase() === 'usd') ||
+          stripeSession.metadata?.baseAmountUSD
+        );
+
+        const authoritativeAmount = isAdaptive
+          ? Number(stripeSession.metadata?.baseAmountUSD) || (currencyConversion ? (currencyConversion.amount_total / 100) : ((stripeSession.amount_total || 0) / 100))
+          : ((stripeSession.amount_total || 0) / 100);
+
+        const authoritativeCurrency: SupportedCurrency = isAdaptive ? 'USD' : ((stripeSession.currency || 'USD').toUpperCase() as SupportedCurrency);
+
+        const localPaymentInfo = isAdaptive && stripeSession.currency && stripeSession.currency.toLowerCase() !== 'usd' ? {
+          localCurrency: stripeSession.currency.toUpperCase(),
+          localAmount: (stripeSession.amount_total || 0) / 100,
+          fxRate: currencyConversion?.fx_rate || null,
+        } : null;
+
         const simulated = await this.simulateTestWebhook({
           targetType: (stripeSession.metadata?.targetType as any) || 'ENROLMENT',
           targetId: stripeSession.metadata?.targetId,
           enrolmentId: stripeSession.metadata?.enrolmentId || payment?.enrolmentId || undefined,
           status: 'PAID',
-          amount: (stripeSession.amount_total || 0) / 100,
-          currency: (stripeSession.currency || 'USD').toUpperCase() as SupportedCurrency,
+          amount: authoritativeAmount,
+          currency: authoritativeCurrency,
           couponCode: stripeSession.metadata?.couponCode || undefined,
           idempotencyKey: stripeSession.metadata?.idempotencyKey || undefined,
           stripeSessionId: sessionId,
@@ -989,6 +1106,10 @@ export class PaymentsService {
         return {
           ...simulated,
           status: 'PAID',
+          amount: authoritativeAmount,
+          currency: authoritativeCurrency,
+          currencySymbol: getCurrencySymbol(authoritativeCurrency),
+          localPayment: localPaymentInfo,
         };
       }
     }

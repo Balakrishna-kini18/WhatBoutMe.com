@@ -724,6 +724,14 @@ export default function AttendancePage() {
                                 href={sanitizeExternalUrl(s.joinUrl)!}
                                 target="_blank"
                                 rel="noopener noreferrer"
+                                onClick={() => {
+                                  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+                                  fetch(`${API_URL}/sessions/${s.id}/attend`, {
+                                    method: "POST",
+                                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                                    keepalive: true,
+                                  }).catch(() => {});
+                                }}
                                 className={styles.joinNowBtn}
                               >
                                 {Icons.video}

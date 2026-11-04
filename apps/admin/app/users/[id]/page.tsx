@@ -1206,7 +1206,7 @@ export default function UserDetailPage({
               {compliance && compliance.status !== "NOT_APPLICABLE" && (
                 <span className={styles.statItem}>
                   <span>Live Attendance:</span>
-                  <strong style={{ color: compliance.status === "COMPLIANT" ? "#15803d" : "#dc2626" }}>
+                  <strong style={{ color: compliance.status === "COMPLIANT" ? "#15803d" : compliance.attendancePercentage > 0 ? "#b45309" : "#dc2626" }}>
                     {Math.round(compliance.attendancePercentage)}%
                   </strong>
                 </span>
@@ -2060,7 +2060,14 @@ export default function UserDetailPage({
                         Live Session Attendance:{" "}
                         {hasScheduledSessions ? (
                           <>
-                            <strong style={{ color: isCompliant ? "#15803d" : "#991b1b" }}>{attPct}%</strong> ({attendedCount} of {requiredCount} Sessions Attended)
+                            <strong style={{ color: isCompliant ? "#15803d" : attPct > 0 ? "#b45309" : "#991b1b" }}>{attPct}%</strong>
+                            {attendedCount > 0 ? (
+                              <span> ({attendedCount} of {requiredCount} Sessions Completed)</span>
+                            ) : attPct > 0 ? (
+                              <span style={{ color: "#b45309" }}> ({attPct}% Attended · Below {reqPct}% Threshold)</span>
+                            ) : (
+                              <span> (0 of {requiredCount} Sessions Attended)</span>
+                            )}
                           </>
                         ) : (
                           <span style={{ color: "var(--text-muted)" }}>No cohort live sessions scheduled yet (0 required)</span>
@@ -2111,7 +2118,7 @@ export default function UserDetailPage({
                           className={styles.complianceFill}
                           style={{
                             width: `${hasScheduledSessions ? Math.min(100, Math.max(0, attPct)) : 0}%`,
-                            background: !hasScheduledSessions ? "#d6d3d1" : isCompliant ? "#16a34a" : "#dc2626",
+                            background: !hasScheduledSessions ? "#d6d3d1" : isCompliant ? "#16a34a" : attPct > 0 ? "#f59e0b" : "#dc2626",
                           }}
                         />
                         {hasScheduledSessions && (

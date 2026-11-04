@@ -158,15 +158,16 @@
   align-items: center;
 }
 
-/* ─── Body Layout ─── */
+/* ─── Body Layout (Center Calendar + Right Inspector) ─── */
 .body {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 1fr 280px;
   min-height: 0;
   background: #fff;
 }
 .sidebar {
-  border-right: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  border-right: none;
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -983,8 +984,8 @@
     grid-template-columns: 1fr;
   }
   .sidebar {
-    border-right: none;
-    border-bottom: 1px solid var(--line);
+    border-left: none;
+    border-top: 1px solid var(--line);
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     max-height: none;

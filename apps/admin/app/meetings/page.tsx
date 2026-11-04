@@ -1502,23 +1502,44 @@ export default function MeetingsPage() {
                       </td>
                       <td>
                         {m.joinUrl ? (
-                          <a
-                            href={m.joinUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              fontSize: "0.82rem",
-                              color: "var(--accent-primary)",
-                              textDecoration: "underline",
-                              fontWeight: 600,
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "4px",
-                            }}
-                          >
-                            Open Link
-                            <Icons.ExternalLink />
-                          </a>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "3px", alignItems: "flex-start" }}>
+                            <a
+                              href={m.hostUrl || (m.joinUrl.includes("/zoom.us/j/") ? m.joinUrl.replace("/zoom.us/j/", "/zoom.us/s/") : m.joinUrl)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                fontSize: "0.8rem",
+                                color: "var(--accent-primary)",
+                                fontWeight: 700,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "3px",
+                                textDecoration: "none",
+                              }}
+                              title="Start session as Host (Admin/Instructor)"
+                            >
+                              Host Link ↗
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(m.joinUrl!);
+                                toastSuccess("Guest link copied for learner!");
+                              }}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                padding: 0,
+                                fontSize: "0.74rem",
+                                color: "#0284c7",
+                                cursor: "pointer",
+                                textDecoration: "underline",
+                              }}
+                              title="Copy guest link to share with learner"
+                            >
+                              Copy Guest Link
+                            </button>
+                          </div>
                         ) : (
                           <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
                             Zoom auto-synced
@@ -1806,22 +1827,44 @@ export default function MeetingsPage() {
                             </>
                           )}
                           {req.status === "APPROVED" && req.session?.joinUrl && (
-                            <a
-                              href={req.session.joinUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={calStyles.tableActionBtn}
-                              style={{
-                                color: "var(--accent-primary)",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "4px",
-                                textDecoration: "none",
-                              }}
-                            >
-                              Join Zoom
-                              <Icons.ExternalLink />
-                            </a>
+                            <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                              <a
+                                href={(req.session as any)?.hostUrl || (req.session.joinUrl.includes("/zoom.us/j/") ? req.session.joinUrl.replace("/zoom.us/j/", "/zoom.us/s/") : req.session.joinUrl)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={calStyles.tableActionBtn}
+                                style={{
+                                  color: "var(--accent-primary)",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "4px",
+                                  textDecoration: "none",
+                                  fontWeight: 700,
+                                }}
+                                title="Start 1-on-1 coaching call as Host"
+                              >
+                                Host Link ↗
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(req.session!.joinUrl!);
+                                  toastSuccess("Guest link copied for learner!");
+                                }}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  padding: 0,
+                                  fontSize: "0.74rem",
+                                  color: "#0284c7",
+                                  cursor: "pointer",
+                                  textDecoration: "underline",
+                                }}
+                                title="Copy guest link for learner"
+                              >
+                                Copy Guest Link
+                              </button>
+                            </div>
                           )}
                           {req.status === "REJECTED" && req.decisionReason && (
                             <span style={{ fontSize: "0.75rem", color: "#dc2626" }}>
@@ -2391,21 +2434,49 @@ export default function MeetingsPage() {
               <span style={{ color: "#78716c", fontWeight: 600 }}>Video Link:</span>
               <span>
                 {selectedMeeting.joinUrl ? (
-                  <a
-                    href={selectedMeeting.joinUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      color: "#b8860b",
-                      textDecoration: "underline",
-                      fontWeight: 600,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "4px"
-                    }}
-                  >
-                    Open Zoom Meeting &rarr;
-                  </a>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <a
+                        href={selectedMeeting.hostUrl || (selectedMeeting.joinUrl.includes("/zoom.us/j/") ? selectedMeeting.joinUrl.replace("/zoom.us/j/", "/zoom.us/s/") : selectedMeeting.joinUrl)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          color: "#b8860b",
+                          fontWeight: 700,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "4px",
+                          textDecoration: "underline",
+                        }}
+                        title="Start meeting as Host (Admin/Trainer)"
+                      >
+                        Start as Host (Admin) &rarr;
+                      </a>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span style={{ fontSize: "0.78rem", color: "#78716c" }}>Learner Link:</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(selectedMeeting.joinUrl!);
+                          toastSuccess("Guest link copied for learner!");
+                        }}
+                        style={{
+                          background: "#f0f9ff",
+                          border: "1px solid #bae6fd",
+                          padding: "1px 6px",
+                          borderRadius: "4px",
+                          fontSize: "0.74rem",
+                          fontWeight: 600,
+                          color: "#0284c7",
+                          cursor: "pointer",
+                        }}
+                        title="Copy guest link to share with learner"
+                      >
+                        Copy Guest Link
+                      </button>
+                    </div>
+                  </div>
                 ) : (
                   <span style={{ color: "#78716c", fontStyle: "italic" }}>Zoom link automatically generated on booking</span>
                 )}

@@ -621,11 +621,11 @@ export class DiscoveryService {
       let updatedMessage = lead.message || '';
       if (/📅\s*Discovery Call (?:Requested|Scheduled):/i.test(updatedMessage)) {
         updatedMessage = updatedMessage.replace(
-          /📅\s*Discovery Call (?:Requested|Scheduled):\s*([^\n|]+)(?:\|\s*Zoom:[^\n]+)?/i,
-          `📅 Discovery Call Scheduled: $1 | Zoom: ${zoomJoinUrl}`
+          /📅\s*Discovery Call (?:Requested|Scheduled):\s*([^\n|]+)(?:\|\s*Zoom:[^\n|]+)?(?:\s*\|\s*Host:[^\n]+)?/i,
+          `📅 Discovery Call Scheduled: $1 | Zoom: ${zoomJoinUrl} | Host: ${zoomHostUrl}`
         );
       } else {
-        updatedMessage = `${updatedMessage}\n\n📅 Discovery Call Scheduled: ${session.startTime.toISOString()} | Zoom: ${zoomJoinUrl}`.trim();
+        updatedMessage = `${updatedMessage}\n\n📅 Discovery Call Scheduled: ${session.startTime.toISOString()} | Zoom: ${zoomJoinUrl} | Host: ${zoomHostUrl}`.trim();
       }
 
       await this.prisma.lead.update({
@@ -724,6 +724,7 @@ export class DiscoveryService {
       success: true,
       sessionId: session.id,
       zoomJoinUrl,
+      zoomHostUrl,
       session: updatedSession,
     };
   }

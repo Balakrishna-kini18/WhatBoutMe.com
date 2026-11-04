@@ -31,6 +31,10 @@ export class CreateSessionDto {
   endTime: string;
 
   @IsOptional()
+  @IsInt()
+  durationMinutes?: number;
+
+  @IsOptional()
   @IsString()
   timezone?: string;
 

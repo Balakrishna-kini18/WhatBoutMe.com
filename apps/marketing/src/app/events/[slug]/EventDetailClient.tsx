@@ -125,6 +125,46 @@ export default function EventDetailClient({ initialEvent }: { initialEvent: Even
     }
   }, [user, attendeeName, attendeeEmail]);
 
+  // Handle return from Stripe hosted checkout for paid events
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const sessionId = urlParams.get("session_id");
+    const regId = urlParams.get("registrationId");
+
+    if (sessionId && regId) {
+      setIsModalOpen(true);
+      setIsSubmitting(true);
+      verifyEventPayment({
+        registrationId: regId,
+        gatewayOrderId: sessionId,
+        gatewayPaymentId: sessionId,
+        isSimulated: false,
+      })
+        .then((verifyRes) => {
+          if (verifyRes.registration) {
+            setConfirmedRegistration(verifyRes.registration);
+            const link = verifyRes.meetingLink || verifyRes.event?.meetingLink || event.meetingLink || null;
+            if (link) setUnlockedMeetingLink(link);
+            try {
+              localStorage.setItem(`wbm_reg_${event.id}`, JSON.stringify(verifyRes.registration));
+            } catch {}
+            setRegisteredEventIds((prev) => new Set(prev).add(event.id));
+            setEvent((prev) => ({ ...prev, registeredByMe: true }));
+            showToast("Payment verified! Your event ticket is ready.");
+          }
+        })
+        .catch((err) => {
+          console.error("Event payment verification error:", err);
+          showToast("Payment confirmation in progress. Check your email or try refreshing.");
+        })
+        .finally(() => {
+          setIsSubmitting(false);
+          window.history.replaceState({}, "", window.location.pathname);
+        });
+    }
+  }, [event.id, event.meetingLink]);
+
   const handleShare = async () => {
     const shareUrl = typeof window !== "undefined" ? window.location.href : "";
     if (navigator.share) {
@@ -236,6 +276,12 @@ export default function EventDetailClient({ initialEvent }: { initialEvent: Even
               : null,
         }));
         showToast("Free registration confirmed!");
+        return;
+      }
+
+      // If Stripe Checkout URL returned, redirect directly to Stripe hosted checkout
+      if ((checkoutRes as any).checkoutUrl) {
+        window.location.href = (checkoutRes as any).checkoutUrl;
         return;
       }
 

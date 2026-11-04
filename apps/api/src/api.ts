@@ -131,7 +131,14 @@ async function bootstrapServer() {
       nestApp.use('/uploads', corpHeader, rawUploadParser);
       nestApp.use('/api/uploads', corpHeader, rawUploadParser);
 
-      nestApp.use(express.json({ limit: '50mb' }));
+      nestApp.use(
+        express.json({
+          limit: '50mb',
+          verify: (req: any, _res: any, buf: Buffer) => {
+            req.rawBody = buf;
+          },
+        }),
+      );
       nestApp.use(express.urlencoded({ limit: '50mb', extended: true }));
 
       nestApp.useGlobalPipes(

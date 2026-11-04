@@ -39,6 +39,8 @@ function CheckoutContent() {
   );
   const [simulatedResult, setSimulatedResult] = useState<any>(null);
   const [simulationError, setSimulationError] = useState<any>(null);
+  const [activeProvider, setActiveProvider] = useState<string>("STRIPE");
+  const [alreadyEnrolledError, setAlreadyEnrolledError] = useState<string | null>(null);
 
   const [enrolmentId, setEnrolmentId] = useState<string | null>(queryEnrolmentId);
   const [signedVersion, setSignedVersion] = useState<string>("v1.0");
@@ -61,6 +63,15 @@ function CheckoutContent() {
     }
 
     if (programId) {
+      fetch(`${API_URL}/payments/active-provider`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.activeProvider) {
+            setActiveProvider(data.activeProvider);
+          }
+        })
+        .catch(() => {});
+
       fetch(`${API_URL}/programs`)
         .then((res) => res.json())
         .then((data) => {
@@ -197,6 +208,66 @@ function CheckoutContent() {
       setCouponError("Could not validate coupon.");
     } finally {
       setIsApplyingCoupon(false);
+    }
+  };
+
+  const handleStripeCheckout = async () => {
+    if (!user) {
+      const returnUrl = encodeURIComponent(
+        `/checkout?programId=${programId || ""}${targetEnrolmentId ? `&enrolmentId=${targetEnrolmentId}` : ""}`
+      );
+      router.push(`/login?portal=${returnUrl}`);
+      return;
+    }
+
+    setProcessing(true);
+    setSimulationError(null);
+    setAlreadyEnrolledError(null);
+
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/payments/checkout-session`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          targetType: "ENROLMENT",
+          targetId: programId,
+          amount: finalAmount,
+          currency,
+          couponCode: appliedCoupon?.code || couponCode || undefined,
+          idempotencyKey,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        if (data?.error === "ALREADY_ENROLLED" || data?.message?.includes("already enrolled")) {
+          setAlreadyEnrolledError(data?.message || "You have already enrolled and completed payment for this course.");
+          return;
+        }
+        throw new Error(data?.message || `Checkout failed with status ${res.status}`);
+      }
+
+      if (data?.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+        return;
+      }
+
+      if (data?.simulationBypass) {
+        await handleSimulatePayment("PAID");
+        return;
+      }
+
+      throw new Error("No checkout URL returned from payment provider.");
+    } catch (err: any) {
+      console.error("Stripe Checkout Error:", err);
+      setSimulationError(err?.message || "Failed to initialize Stripe checkout.");
+    } finally {
+      setProcessing(false);
     }
   };
 
@@ -703,6 +774,49 @@ function CheckoutContent() {
           </div>
         )}
 
+        {/* Already Enrolled Guard Alert */}
+        {alreadyEnrolledError && (
+          <div
+            style={{
+              background: "#F0FDF4",
+              border: "1px solid #86EFAC",
+              borderRadius: "16px",
+              padding: "1.5rem",
+              marginBottom: "1.5rem",
+              textAlign: "center",
+            }}
+          >
+            <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "#DCFCE7", color: "#16A34A", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <h3 style={{ margin: "0 0 0.5rem 0", color: "#166534", fontSize: "1.25rem", fontWeight: 700 }}>
+              Already Enrolled in Course
+            </h3>
+            <p style={{ margin: "0 0 1.25rem 0", color: "#15803D", fontSize: "0.92rem", lineHeight: 1.5 }}>
+              {alreadyEnrolledError}
+            </p>
+            <button
+              type="button"
+              onClick={() => router.push(`/programs/${programId}/steps`)}
+              style={{
+                width: "100%",
+                padding: "0.9rem",
+                borderRadius: "10px",
+                background: "#16A34A",
+                color: "#FFFFFF",
+                border: "none",
+                fontWeight: 700,
+                fontSize: "1rem",
+                cursor: "pointer",
+              }}
+            >
+              Go to Course Dashboard &amp; Step 1 &rarr;
+            </button>
+          </div>
+        )}
+
         {/* Simulation Error Alert */}
         {simulationError && (
           <div
@@ -798,8 +912,8 @@ function CheckoutContent() {
             </div>
           </div>
         ) : (
-          /* Primary Simulation Checkout CTAs */
-          agreementStatus !== "REQUIRED" && (
+          /* Primary Checkout CTAs */
+          !alreadyEnrolledError && agreementStatus !== "REQUIRED" && (
             <div>
               <div
                 style={{
@@ -807,59 +921,95 @@ function CheckoutContent() {
                   alignItems: "center",
                   gap: "0.35rem",
                   fontSize: "0.75rem",
-                  color: "#78716A",
-                  background: "#F7F3EC",
-                  padding: "3px 10px",
+                  color: activeProvider === "STRIPE" ? "#15803D" : "#78716A",
+                  background: activeProvider === "STRIPE" ? "#F0FDF4" : "#F7F3EC",
+                  padding: "4px 12px",
                   borderRadius: "9999px",
                   marginBottom: "0.85rem",
-                  border: "1px solid #E7E0D6",
+                  border: activeProvider === "STRIPE" ? "1px solid #BBF7D0" : "1px solid #E7E0D6",
+                  fontWeight: 600,
                 }}
               >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="16" x2="12" y2="12" />
-                  <line x1="12" y1="8" x2="12.01" y2="8" />
-                </svg>
-                <span>TEST_BYPASS Mode: Server-Side Webhook Emulation Active</span>
+                <span>
+                  {activeProvider === "STRIPE"
+                    ? "🔒 Stripe Checkout: Bank-Grade Security • Adaptive Local Pricing"
+                    : "TEST_BYPASS Mode: Server-Side Webhook Emulation Active"}
+                </span>
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                {/* 1. Simulate Success Button */}
-                <button
-                  className={styles.submitBtn}
-                  onClick={() => handleSimulatePayment("PAID")}
-                  disabled={processing || !user || agreementStatus !== "SIGNED"}
-                  style={{
-                    width: "100%",
-                    background: "#B86B11",
-                    color: "#FFFFFF",
-                    borderRadius: "12px",
-                    padding: "1rem",
-                    fontSize: "1rem",
-                    fontWeight: 700,
-                    border: "none",
-                    cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
-                    opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.65 : 1,
-                    display: "flex",
-                    justifyContent: "center",
-                    alignItems: "center",
-                    gap: "0.5rem",
-                    transition: "opacity 0.2s ease",
-                  }}
-                >
-                  {processing ? (
-                    "Processing Simulated Payment..."
-                  ) : !user ? (
-                    "Log In to Finalize Enrollment"
-                  ) : (
-                    <>
-                      <span>Simulate Test Payment (Instant Paid)</span>
-                      <span>({currencySymbol}{finalAmount.toLocaleString()})</span>
-                    </>
-                  )}
-                </button>
+                {activeProvider === "STRIPE" ? (
+                  <button
+                    className={styles.submitBtn}
+                    onClick={handleStripeCheckout}
+                    disabled={processing || !user || agreementStatus !== "SIGNED"}
+                    style={{
+                      width: "100%",
+                      background: "#635BFF",
+                      color: "#FFFFFF",
+                      borderRadius: "12px",
+                      padding: "1.1rem",
+                      fontSize: "1.05rem",
+                      fontWeight: 700,
+                      border: "none",
+                      cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
+                      opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.65 : 1,
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                      boxShadow: "0 2px 8px rgba(99, 91, 255, 0.3)",
+                      transition: "all 0.2s ease",
+                    }}
+                  >
+                    {processing ? (
+                      "Connecting to Stripe..."
+                    ) : !user ? (
+                      "Log In to Finalize Enrollment"
+                    ) : (
+                      <>
+                        <span>Pay with Stripe</span>
+                        <span>({currencySymbol}{finalAmount.toLocaleString()})</span>
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    className={styles.submitBtn}
+                    onClick={() => handleSimulatePayment("PAID")}
+                    disabled={processing || !user || agreementStatus !== "SIGNED"}
+                    style={{
+                      width: "100%",
+                      background: "#B86B11",
+                      color: "#FFFFFF",
+                      borderRadius: "12px",
+                      padding: "1rem",
+                      fontSize: "1rem",
+                      fontWeight: 700,
+                      border: "none",
+                      cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
+                      opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.65 : 1,
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                      transition: "opacity 0.2s ease",
+                    }}
+                  >
+                    {processing ? (
+                      "Processing Simulated Payment..."
+                    ) : !user ? (
+                      "Log In to Finalize Enrollment"
+                    ) : (
+                      <>
+                        <span>Simulate Test Payment (Instant Paid)</span>
+                        <span>({currencySymbol}{finalAmount.toLocaleString()})</span>
+                      </>
+                    )}
+                  </button>
+                )}
 
-                {/* 2. Simulate Failure Button */}
+                {/* Developer Fallback / Test Failure Button */}
                 <button
                   type="button"
                   onClick={() => handleSimulatePayment("FAILED")}
@@ -869,16 +1019,16 @@ function CheckoutContent() {
                     background: "transparent",
                     color: "#DC2626",
                     borderRadius: "12px",
-                    padding: "0.75rem",
-                    fontSize: "0.88rem",
+                    padding: "0.65rem",
+                    fontSize: "0.82rem",
                     fontWeight: 600,
                     border: "1px dashed #FECACA",
                     cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
-                    opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.5 : 1,
+                    opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.5 : 0.8,
                     transition: "all 0.15s ease",
                   }}
                 >
-                  Simulate Failed Payment (Test Decline Path)
+                  Test Payment Failure Path (Decline Simulation)
                 </button>
               </div>
             </div>

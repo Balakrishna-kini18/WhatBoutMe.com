@@ -60,13 +60,26 @@ export default function LeadCheckoutPage({
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<TokenData | null>(null);
 
+  const [activeProvider, setActiveProvider] = useState<string>("STRIPE");
   const [processing, setProcessing] = useState(false);
   const [simulationResult, setSimulationResult] = useState<any>(null);
   const [simulationError, setSimulationError] = useState<string | null>(null);
+  const [alreadyEnrolledError, setAlreadyEnrolledError] = useState<string | null>(null);
 
-  // Load token details on mount
+  // Load token details & active payment provider on mount
   useEffect(() => {
     let isMounted = true;
+
+    // Detect active payment provider
+    fetch(`${API_URL}/payments/active-provider`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((info) => {
+        if (isMounted && info?.activeProvider) {
+          setActiveProvider(info.activeProvider);
+        }
+      })
+      .catch(() => {});
+
     const fetchTokenDetails = async () => {
       setLoading(true);
       setError(null);
@@ -88,9 +101,20 @@ export default function LeadCheckoutPage({
             document.cookie = `token=${json.accessToken}; path=/; max-age=86400; SameSite=Lax${isSecure ? "; Secure" : ""}`;
           }
 
-          // Direct redirect to the Program Agreement page for this course
-          const agreementUrl = `/agreement?enrolmentId=${json.enrolment.id}&programId=${json.program.id}${json.batch?.id ? `&batchId=${json.batch.id}` : ""}`;
-          router.replace(agreementUrl);
+          // If enrolment has already reached PENDING_AGREEMENT (e.g. tuition waived or offline payment received),
+          // route directly to the Agreement & E-Signature page.
+          if (json.enrolment?.status === "PENDING_AGREEMENT") {
+            const agreementUrl = `/agreement?enrolmentId=${json.enrolment.id}&programId=${json.program.id}${json.batch?.id ? `&batchId=${json.batch.id}` : ""}`;
+            router.replace(agreementUrl);
+            return;
+          }
+
+          // Check if enrolment is already ACTIVE or COMPLETED
+          if (json.enrolment?.status === "ACTIVE" || json.enrolment?.status === "COMPLETED") {
+            setAlreadyEnrolledError(
+              "You have already completed enrolment and payment for this course."
+            );
+          }
         }
       } catch (err: any) {
         if (isMounted) setError(err.message || "Could not load checkout details.");
@@ -104,6 +128,65 @@ export default function LeadCheckoutPage({
       isMounted = false;
     };
   }, [token]);
+
+  const handleStripeCheckout = async () => {
+    if (!data) return;
+
+    setProcessing(true);
+    setSimulationError(null);
+    setAlreadyEnrolledError(null);
+
+    try {
+      const authToken = localStorage.getItem("token") || data.accessToken;
+      const res = await fetch(`${API_URL}/payments/checkout-session`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify({
+          targetType: "ENROLMENT",
+          targetId: data.program.id,
+          enrolmentId: data.enrolment.id,
+          amount: data.amount,
+          currency: data.currency,
+          attendeeName: data.lead.name,
+          attendeeEmail: data.lead.email,
+          attendeePhone: data.lead.phone,
+          idempotencyKey: `lead_chk_${Date.now()}_${data.enrolment.id.slice(0, 8)}`,
+        }),
+      });
+
+      const resData = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        if (resData?.error === "ALREADY_ENROLLED" || resData?.message?.includes("already enrolled")) {
+          setAlreadyEnrolledError(
+            resData?.message || "You have already completed enrolment and payment for this course."
+          );
+          return;
+        }
+        throw new Error(resData?.message || `Checkout initialization failed with status ${res.status}`);
+      }
+
+      if (resData?.checkoutUrl) {
+        window.location.href = resData.checkoutUrl;
+        return;
+      }
+
+      if (resData?.simulationBypass) {
+        await handleSimulatePayment("PAID");
+        return;
+      }
+
+      throw new Error("No checkout URL returned from payment provider.");
+    } catch (err: any) {
+      console.error("Stripe lead checkout error:", err);
+      setSimulationError(err?.message || "Failed to initialize Stripe checkout.");
+    } finally {
+      setProcessing(false);
+    }
+  };
 
   const handleSimulatePayment = async (status: "PAID" | "FAILED") => {
     if (!data) return;
@@ -230,6 +313,7 @@ export default function LeadCheckoutPage({
   }
 
   const agreementUrl = `/agreement?programId=${data.program.id}&enrolmentId=${data.enrolment.id}`;
+  const programStepsUrl = `/programs/${data.program.id}/steps`;
 
   return (
     <div className={styles.authContainer} style={{ background: "#FAF7F2", minHeight: "100vh", padding: "2rem 1rem" }}>
@@ -263,8 +347,63 @@ export default function LeadCheckoutPage({
           Welcome, <strong style={{ color: "#1C1917" }}>{data.lead.name}</strong> ({data.lead.email}). Your 1-on-1 Discovery consultation has provisioned your priority enrolment.
         </p>
 
-        {/* SUCCESS SIMULATION VIEW */}
-        {simulationResult ? (
+        {/* ALREADY ENROLLED GUARD BANNER */}
+        {alreadyEnrolledError ? (
+          <div
+            style={{
+              background: "#F0FDF4",
+              border: "1px solid #BBF7D0",
+              borderRadius: "16px",
+              padding: "1.5rem",
+              textAlign: "center",
+              marginBottom: "1.5rem",
+            }}
+          >
+            <div
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "50%",
+                background: "#DCFCE7",
+                color: "#15803D",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                margin: "0 auto 1rem",
+                fontSize: "1.5rem",
+              }}
+            >
+              ✓
+            </div>
+            <h3 style={{ fontSize: "1.15rem", fontWeight: 800, color: "#166534", margin: "0 0 0.5rem" }}>
+              Already Enrolled &amp; Paid
+            </h3>
+            <p style={{ fontSize: "0.88rem", color: "#15803D", margin: "0 0 1.25rem", lineHeight: 1.5 }}>
+              {alreadyEnrolledError} Multiple payments for the same program are strictly prevented.
+            </p>
+            <Link
+              href={programStepsUrl}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "0.5rem",
+                width: "100%",
+                background: "#15803D",
+                color: "#FFFFFF",
+                fontWeight: 700,
+                fontSize: "1rem",
+                padding: "0.85rem 1.5rem",
+                borderRadius: "12px",
+                textDecoration: "none",
+                boxShadow: "0 4px 12px rgba(22, 101, 52, 0.2)",
+              }}
+            >
+              Go to Program Curriculum &rarr;
+            </Link>
+          </div>
+        ) : simulationResult ? (
+          /* SUCCESS SIMULATION VIEW */
           <div
             style={{
               background: "#F0FDF4",
@@ -292,10 +431,10 @@ export default function LeadCheckoutPage({
               ✓
             </div>
             <h2 style={{ fontSize: "1.25rem", fontWeight: 800, color: "#166534", margin: "0 0 0.5rem" }}>
-              Payment Verified (TEST_BYPASS)
+              Payment Verified
             </h2>
             <p style={{ fontSize: "0.88rem", color: "#15803D", margin: "0 0 1.25rem", lineHeight: 1.5 }}>
-              Your tuition of <strong>{currencySymbol}{data.amount.toLocaleString()} {data.currency}</strong> was successfully simulated.
+              Your tuition of <strong>{currencySymbol}{data.amount.toLocaleString()} {data.currency}</strong> was successfully verified.
               {simulationResult.invoiceNumber && (
                 <span style={{ display: "block", marginTop: "4px", fontSize: "0.82rem", color: "#166534" }}>
                   Invoice: <strong>{simulationResult.invoiceNumber}</strong>
@@ -381,7 +520,7 @@ export default function LeadCheckoutPage({
               )}
             </div>
 
-            {/* Test Bypass Notice */}
+            {/* Provider indicator badge */}
             <div
               style={{
                 display: "inline-flex",
@@ -389,15 +528,19 @@ export default function LeadCheckoutPage({
                 gap: "0.5rem",
                 fontSize: "0.75rem",
                 fontWeight: 600,
-                color: "#78716A",
-                background: "#F7F3EC",
+                color: activeProvider === "STRIPE" ? "#4338CA" : "#78716A",
+                background: activeProvider === "STRIPE" ? "#EEF2FF" : "#F7F3EC",
                 padding: "5px 12px",
                 borderRadius: "9999px",
                 marginBottom: "1rem",
-                border: "1px solid #E7E0D6",
+                border: activeProvider === "STRIPE" ? "1px solid #C7D2FE" : "1px solid #E7E0D6",
               }}
             >
-              <span>TEST_BYPASS Mode: Server-Side Webhook Emulation Active</span>
+              <span>
+                {activeProvider === "STRIPE"
+                  ? "Stripe 256-Bit SSL Encrypted & Adaptive Pricing Active"
+                  : "TEST_BYPASS Mode: Server-Side Webhook Emulation Active"}
+              </span>
             </div>
 
             {simulationError && (
@@ -416,60 +559,119 @@ export default function LeadCheckoutPage({
               </div>
             )}
 
-            {/* Simulation Action Buttons */}
+            {/* Payment Action Buttons */}
             <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              <button
-                type="button"
-                onClick={() => handleSimulatePayment("PAID")}
-                disabled={processing}
-                style={{
-                  width: "100%",
-                  background: "#B86B11",
-                  color: "#FFFFFF",
-                  borderRadius: "12px",
-                  padding: "1rem",
-                  fontSize: "1rem",
-                  fontWeight: 700,
-                  border: "none",
-                  cursor: processing ? "not-allowed" : "pointer",
-                  opacity: processing ? 0.7 : 1,
-                  display: "flex",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  gap: "0.5rem",
-                  boxShadow: "0 2px 6px rgba(184, 107, 17, 0.25)",
-                  transition: "all 0.2s ease",
-                }}
-              >
-                {processing ? (
-                  "Processing Simulated Payment..."
-                ) : (
-                  <>
-                    <span>Simulate Test Payment (Instant Paid)</span>
-                    <span>({currencySymbol}{data.amount.toLocaleString()})</span>
-                  </>
-                )}
-              </button>
+              {activeProvider === "STRIPE" ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleStripeCheckout}
+                    disabled={processing}
+                    style={{
+                      width: "100%",
+                      background: "#635BFF",
+                      color: "#FFFFFF",
+                      borderRadius: "12px",
+                      padding: "1rem",
+                      fontSize: "1rem",
+                      fontWeight: 700,
+                      border: "none",
+                      cursor: processing ? "not-allowed" : "pointer",
+                      opacity: processing ? 0.7 : 1,
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                      boxShadow: "0 2px 8px rgba(99, 91, 255, 0.35)",
+                      transition: "all 0.2s ease",
+                    }}
+                  >
+                    {processing ? (
+                      "Connecting to Stripe Checkout..."
+                    ) : (
+                      <>
+                        <span>Pay with Stripe Checkout</span>
+                        <span>({currencySymbol}{data.amount.toLocaleString()} {data.currency})</span>
+                      </>
+                    )}
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => handleSimulatePayment("FAILED")}
-                disabled={processing}
-                style={{
-                  width: "100%",
-                  background: "transparent",
-                  color: "#DC2626",
-                  borderRadius: "12px",
-                  padding: "0.75rem",
-                  fontSize: "0.85rem",
-                  fontWeight: 600,
-                  border: "1px dashed #FECACA",
-                  cursor: processing ? "not-allowed" : "pointer",
-                  opacity: processing ? 0.5 : 1,
-                }}
-              >
-                Simulate Failed Payment (Test Decline Path)
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSimulatePayment("PAID")}
+                    disabled={processing}
+                    style={{
+                      width: "100%",
+                      background: "#F5F3FF",
+                      color: "#635BFF",
+                      borderRadius: "12px",
+                      padding: "0.75rem",
+                      fontSize: "0.82rem",
+                      fontWeight: 600,
+                      border: "1px dashed #C7D2FE",
+                      cursor: processing ? "not-allowed" : "pointer",
+                      opacity: processing ? 0.5 : 1,
+                    }}
+                  >
+                    Quick Developer Test Bypass (Simulate Instant Paid)
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleSimulatePayment("PAID")}
+                    disabled={processing}
+                    style={{
+                      width: "100%",
+                      background: "#B86B11",
+                      color: "#FFFFFF",
+                      borderRadius: "12px",
+                      padding: "1rem",
+                      fontSize: "1rem",
+                      fontWeight: 700,
+                      border: "none",
+                      cursor: processing ? "not-allowed" : "pointer",
+                      opacity: processing ? 0.7 : 1,
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                      boxShadow: "0 2px 6px rgba(184, 107, 17, 0.25)",
+                      transition: "all 0.2s ease",
+                    }}
+                  >
+                    {processing ? (
+                      "Processing Simulated Payment..."
+                    ) : (
+                      <>
+                        <span>Simulate Test Payment (Instant Paid)</span>
+                        <span>({currencySymbol}{data.amount.toLocaleString()})</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSimulatePayment("FAILED")}
+                    disabled={processing}
+                    style={{
+                      width: "100%",
+                      background: "transparent",
+                      color: "#DC2626",
+                      borderRadius: "12px",
+                      padding: "0.75rem",
+                      fontSize: "0.85rem",
+                      fontWeight: 600,
+                      border: "1px dashed #FECACA",
+                      cursor: processing ? "not-allowed" : "pointer",
+                      opacity: processing ? 0.5 : 1,
+                    }}
+                  >
+                    Simulate Failed Payment (Test Decline Path)
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}

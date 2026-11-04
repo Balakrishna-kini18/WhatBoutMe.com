@@ -80,23 +80,27 @@ export function isAllowedCorsOrigin(
     }
   }
 
-  // 6. Vercel deployment domains
-  if (/\.vercel\.app(?::\d+)?$/i.test(normalizedOrigin)) {
-    return true;
-  }
+    // 6. Vercel deployment domains (restricted to WhatBoutMe and TestFox projects in production)
+    if (
+      process.env.NODE_ENV !== 'production'
+        ? /\.vercel\.app(?::\d+)?$/i.test(normalizedOrigin)
+        : /^https?:\/\/(?:[a-zA-Z0-9-]+\.)*(?:whatboutme|testfox)[a-zA-Z0-9-]*\.vercel\.app(?::\d+)?$/i.test(normalizedOrigin)
+    ) {
+      return true;
+    }
 
-  // 7. Local development (localhost & 127.0.0.1)
-  if (/^https?:\/\/localhost:[0-9]+$/i.test(normalizedOrigin) || /^https?:\/\/127\.0\.0\.1:[0-9]+$/i.test(normalizedOrigin)) {
-    return true;
-  }
+    // 7. Local development (localhost & 127.0.0.1)
+    if (/^https?:\/\/localhost:[0-9]+$/i.test(normalizedOrigin) || /^https?:\/\/127\.0\.0\.1:[0-9]+$/i.test(normalizedOrigin)) {
+      return true;
+    }
 
-  // 8. Non-production LAN IP addresses for mobile & multi-device testing
-  if (
-    process.env.NODE_ENV !== 'production' &&
-    /^https?:\/\/(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+):[0-9]+$/i.test(normalizedOrigin)
-  ) {
-    return true;
-  }
+    // 8. Non-production LAN IP addresses for mobile & multi-device testing
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      /^https?:\/\/(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+):[0-9]+$/i.test(normalizedOrigin)
+    ) {
+      return true;
+    }
 
-  return false;
-}
+    return false;
+  }

@@ -331,22 +331,66 @@ export class QuizzesService {
           stepId: quiz.stepId,
           status: ContentStatus.PUBLISHED,
         },
-        select: { id: true },
+        select: { id: true, type: true, durationSec: true },
       }),
     ]);
     const isManuallyUnlocked = stepProgress?.overrideState === StepOverrideState.MANUAL_UNLOCKED;
     const effectivePlacement = quiz.quizPlacement || (quiz.step as any)?.quizPlacement || 'AFTER_VIDEO';
 
     if (!isManuallyUnlocked && effectivePlacement === 'AFTER_VIDEO') {
-
       if (publishedLessons.length > 0) {
-        const viewedCount = await this.prisma.userLessonProgress.count({
+        let viewedCount = await this.prisma.userLessonProgress.count({
           where: {
             enrolmentId: enrolment.id,
             lessonId: { in: publishedLessons.map((l) => l.id) },
             viewed: true,
           },
         });
+
+        // Resilient self-healing fallback: If count is short, check whether learner actually watched
+        if (viewedCount < publishedLessons.length && typeof this.prisma.userLessonProgress.findMany === 'function') {
+          const lessonProgresses = await this.prisma.userLessonProgress.findMany({
+            where: {
+              enrolmentId: enrolment.id,
+              lessonId: { in: publishedLessons.map((l) => l.id) },
+            },
+          });
+
+          const progressMap = new Map(lessonProgresses.map((p) => [p.lessonId, p]));
+          for (const pl of publishedLessons) {
+            const lp = progressMap.get(pl.id);
+            if (lp && !lp.viewed) {
+              const watchedRanges = (lp.watchedRanges as any[]) || [];
+              let coveredSec = 0;
+              if (Array.isArray(watchedRanges)) {
+                for (const item of watchedRanges) {
+                  if (Array.isArray(item) && Number.isFinite(item[0]) && Number.isFinite(item[1])) {
+                    coveredSec += Math.max(0, item[1] - item[0]);
+                  }
+                }
+              }
+
+              const effectiveDur = pl.durationSec || 0;
+              const hasSufficientWatch =
+                (lp.progressPercent !== null && lp.progressPercent >= 80) ||
+                (effectiveDur > 0 && coveredSec >= effectiveDur * 0.8) ||
+                (effectiveDur <= 0 && coveredSec > 0) ||
+                (lp.lastPositionSec !== null && effectiveDur > 0 && lp.lastPositionSec >= effectiveDur * 0.8);
+
+              if (hasSufficientWatch && typeof this.prisma.userLessonProgress.update === 'function') {
+                await this.prisma.userLessonProgress.update({
+                  where: { id: lp.id },
+                  data: {
+                    viewed: true,
+                    progressPercent: 100,
+                    completedAt: lp.completedAt || new Date(),
+                  },
+                });
+                viewedCount++;
+              }
+            }
+          }
+        }
 
         if (viewedCount < publishedLessons.length) {
           throw new ForbiddenException(

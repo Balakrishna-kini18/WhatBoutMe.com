@@ -40,7 +40,7 @@ export function getCurrencySymbol(currency: string): string {
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
   private readonly providers: Map<PaymentProviderType, IPaymentProvider> = new Map();
-  private activeProviderType: PaymentProviderType = 'MOCK_TEST';
+  private activeProviderType: PaymentProviderType = 'STRIPE';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -56,9 +56,11 @@ export class PaymentsService {
     this.providers.set('RAZORPAY', this.razorpayProvider);
     this.providers.set('STRIPE', this.stripeProvider);
 
-    const envProvider = (process.env.PAYMENT_PROVIDER || 'MOCK_TEST').toUpperCase() as PaymentProviderType;
+    const envProvider = (process.env.PAYMENT_PROVIDER || 'STRIPE').toUpperCase() as PaymentProviderType;
     if (this.providers.has(envProvider)) {
       this.activeProviderType = envProvider;
+    } else {
+      this.activeProviderType = 'STRIPE';
     }
   }
 

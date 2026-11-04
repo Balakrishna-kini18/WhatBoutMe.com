@@ -51,12 +51,8 @@ export default function Step7QuizBuilder({
   );
 
   // Require Passing Score Toggle (if false, passMark = 0 so student score does not block progression)
-  const [requirePassingScore, setRequirePassingScore] = useState<boolean>(
-    existingQuiz?.passMark !== undefined ? existingQuiz.passMark > 0 : true
-  );
-  const [passMark, setPassMark] = useState<number>(
-    existingQuiz?.passMark && existingQuiz.passMark > 0 ? existingQuiz.passMark : 80
-  );
+  const [requirePassingScore, setRequirePassingScore] = useState<boolean>(false);
+  const [passMark, setPassMark] = useState<number>(0);
 
   const [quizPlacement, setQuizPlacement] = useState<"BEFORE_VIDEO" | "AFTER_VIDEO">(
     existingQuiz?.quizPlacement || "AFTER_VIDEO"
@@ -156,8 +152,8 @@ export default function Step7QuizBuilder({
     if (existingQuiz?.id) {
       setQuizId(existingQuiz.id);
       setQuizTitle(existingQuiz.title || "");
-      setRequirePassingScore(existingQuiz.passMark !== undefined ? existingQuiz.passMark > 0 : true);
-      setPassMark(existingQuiz.passMark > 0 ? existingQuiz.passMark : 80);
+      setRequirePassingScore(false);
+      setPassMark(0);
       setQuizPlacement(existingQuiz.quizPlacement || "AFTER_VIDEO");
       fetchQuestions(existingQuiz.id);
     } else {
@@ -173,8 +169,8 @@ export default function Step7QuizBuilder({
         if (data && data.id) {
           setQuizId(data.id);
           setQuizTitle(data.title || "");
-          setRequirePassingScore(data.passMark !== undefined ? data.passMark > 0 : true);
-          setPassMark(data.passMark > 0 ? data.passMark : 80);
+          setRequirePassingScore(false);
+          setPassMark(0);
           setQuizPlacement(data.quizPlacement || "AFTER_VIDEO");
           fetchQuestions(data.id);
         }
@@ -201,7 +197,7 @@ export default function Step7QuizBuilder({
 
   // Robust Quiz Entity Initializer: handles both /quizzes and /programs/steps/:id/quiz
   const ensureQuizEntity = async (): Promise<string> => {
-    const finalPassMark = requirePassingScore ? (Number(passMark) || 75) : 0;
+    const finalPassMark = 0;
     const finalTitle = quizTitle.trim() || `${moduleTitle} Knowledge Check`;
 
     if (quizId) {
@@ -503,7 +499,7 @@ export default function Step7QuizBuilder({
       onQuizSaved({
         id: activeQId,
         title: quizTitle.trim() || `${moduleTitle} Knowledge Check`,
-        passMark: requirePassingScore ? (Number(passMark) || 80) : 0,
+        passMark: 0,
         quizPlacement,
         questions: currentQuestions,
       });
@@ -544,7 +540,7 @@ export default function Step7QuizBuilder({
       title: quizTitle.trim() || `${moduleTitle} Knowledge Check`,
       quizData: {
         title: quizTitle.trim() || `${moduleTitle} Knowledge Check`,
-        passingScore: requirePassingScore ? (Number(passMark) || 75) : 0,
+        passingScore: 0,
         quizPlacement,
         questions: previewQuestions.map((q) => ({
           ...q,
@@ -658,39 +654,11 @@ export default function Step7QuizBuilder({
             />
           </div>
 
-          {/* Require Passing Score Toggle & Input */}
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "0.35rem" }}>
-              <span className={styles.formLabel} style={{ margin: 0, fontWeight: 600 }}>Require Passing Score</span>
-              <HelpTooltip text="When enabled, learners must achieve this score percentage to complete the step. If disabled, taking the quiz counts as complete regardless of score." />
-              <label className={styles.toggleSwitch} style={{ margin: 0 }}>
-                <input
-                  type="checkbox"
-                  checked={requirePassingScore}
-                  onChange={(e) => setRequirePassingScore(e.target.checked)}
-                />
-                <span className={styles.toggleSlider} />
-              </label>
-            </div>
-
-            {requirePassingScore ? (
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "0.5rem" }}>
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={passMark}
-                  onChange={(e) => setPassMark(Math.min(100, Math.max(1, Number(e.target.value) || 75)))}
-                  className={styles.formInput}
-                  style={{ width: "90px", textAlign: "center", fontWeight: 700, color: "#d97706" }}
-                />
-                <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#78716a" }}>% Passing Threshold</span>
-              </div>
-            ) : (
-              <span style={{ fontSize: "0.78rem", color: "#059669", fontWeight: 600, display: "block", marginTop: "4px" }}>
-                Self-Assessment Mode (Completion passes step)
-              </span>
-            )}
+            <span style={{ fontSize: "0.82rem", color: "#059669", fontWeight: 600 }}>✓ Self-Assessment Mode</span>
+            <p style={{ margin: "4px 0 0", fontSize: "0.78rem", color: "#78716a" }}>
+              No minimum passing mark required. Submitting the quiz completes the module.
+            </p>
           </div>
         </div>
 

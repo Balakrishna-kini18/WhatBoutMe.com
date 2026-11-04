@@ -68,7 +68,7 @@ export default function EditQuizPage({
   // Settings Form State
   const [passMark, setPassMark] = useState(75);
   const [maxAttempts, setMaxAttempts] = useState(3);
-  const [cooldownHours, setCooldownHours] = useState(24);
+  const [cooldownHours, setCooldownHours] = useState(0);
   const [questionCount, setQuestionCount] = useState<number | "">("");
   const [retryGuidance, setRetryGuidance] = useState("");
   const [savingSettings, setSavingSettings] = useState(false);
@@ -725,51 +725,7 @@ export default function EditQuizPage({
               Assessment Parameters
             </h2>
 
-            <div className={styles.formGroup} style={{ marginBottom: "1rem" }}>
-              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "4px" }}>
-                Passing Score (%) <span style={{ color: "#ef4444" }}>*</span>
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={100}
-                value={passMark}
-                onChange={(e) => setPassMark(Number(e.target.value))}
-                className={styles.formInput}
-                required
-                style={{ width: "100%" }}
-              />
-            </div>
-
-            <div className={styles.formGroup} style={{ marginBottom: "1rem" }}>
-              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "4px" }}>
-                Max Retries Allowed <span style={{ color: "#ef4444" }}>*</span>
-              </label>
-              <input
-                type="number"
-                min={1}
-                value={maxAttempts}
-                onChange={(e) => setMaxAttempts(Number(e.target.value))}
-                className={styles.formInput}
-                required
-                style={{ width: "100%" }}
-              />
-            </div>
-
-            <div className={styles.formGroup} style={{ marginBottom: "1rem" }}>
-              <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "4px" }}>
-                Retry Cooldown Period (Hours)
-              </label>
-              <input
-                type="number"
-                min={0}
-                value={cooldownHours}
-                onChange={(e) => setCooldownHours(Number(e.target.value))}
-                className={styles.formInput}
-                required
-                style={{ width: "100%" }}
-              />
-            </div>
+            
 
             <div className={styles.formGroup} style={{ marginBottom: "1rem" }}>
               <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "4px" }}>

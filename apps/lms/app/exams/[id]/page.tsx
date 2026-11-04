@@ -1222,29 +1222,7 @@ export default function ExamPage({
                 Attempts used: {result.attemptsUsed ?? 1} of {result.maxAttempts ?? config?.maxAttempts ?? 3} ({result.attemptsRemaining ?? 0} remaining)
               </p>
 
-              {/* Cooldown notice */}
-              {result.isCooldownActive && (
-                <div
-                  style={{
-                    backgroundColor: "white",
-                    border: "1px solid #fde68a",
-                    padding: "12px",
-                    borderRadius: "8px",
-                    marginBottom: "1rem",
-                    textAlign: "left",
-                  }}
-                >
-                  <strong style={{ color: "#92400e" }}>Cooldown Period Active</strong>
-                  <p style={{ margin: "4px 0 0", color: "#78350f", fontSize: "0.875rem" }}>
-                    To ensure mastery, next attempt will be available after:{" "}
-                    <strong>
-                      {result.cooldownUntil
-                        ? new Date(result.cooldownUntil).toLocaleString()
-                        : "the designated review period"}
-                    </strong>
-                  </p>
-                </div>
-              )}
+              {/* Cooldown notice disabled */}
 
               {/* Revision Guidance */}
               {result.stepToRevisit && (
@@ -1345,17 +1323,17 @@ export default function ExamPage({
           <button
             type="button"
             onClick={handleStartExam}
-            disabled={loading || (result?.isCooldownActive ?? false) || ((result?.attemptsRemaining ?? 1) <= 0 && result !== null)}
+            disabled={loading || ((result?.attemptsRemaining ?? 1) <= 0 && result !== null)}
             style={{
               width: "100%",
               padding: "14px",
               borderRadius: "10px",
               border: "none",
-              backgroundColor: (result?.isCooldownActive ?? false) || ((result?.attemptsRemaining ?? 1) <= 0 && result !== null) ? "#94a3b8" : "#c97a1e",
+              backgroundColor: ((result?.attemptsRemaining ?? 1) <= 0 && result !== null) ? "#94a3b8" : "#c97a1e",
               color: "white",
               fontSize: "1.05rem",
               fontWeight: 700,
-              cursor: (result?.isCooldownActive ?? false) || ((result?.attemptsRemaining ?? 1) <= 0 && result !== null) ? "not-allowed" : "pointer",
+              cursor: ((result?.attemptsRemaining ?? 1) <= 0 && result !== null) ? "not-allowed" : "pointer",
             }}
           >
             {result ? "Start Next Attempt (50 Shuffled Questions)" : `Begin ${config?.questionCount || 50}-Mark Final Examination`}

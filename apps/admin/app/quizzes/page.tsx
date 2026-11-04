@@ -291,7 +291,7 @@ export default function QuizzesPage() {
                 <th>Question Types</th>
                 <th>Pool & Visuals</th>
                 <th>Pass Mark</th>
-                <th>Retries & Cooldown</th>
+                <th>Retries</th>
                 <th>Last Updated</th>
                 <th className={styles.alignRight}>Actions</th>
               </tr>
@@ -518,9 +518,7 @@ export default function QuizzesPage() {
                       <span className={styles.cellText}>
                         {quiz.maxAttempts ?? 3} attempts
                         <br />
-                        <small style={{ color: "var(--text-muted)" }}>
-                          {quiz.cooldownHours ?? 24}h cooldown
-                        </small>
+                        
                       </span>
                     </td>
                     <td>
@@ -600,7 +598,7 @@ export default function QuizzesPage() {
                 },
                 { label: "Pass Mark", value: quizToDelete.passMark },
                 { label: "Max Retries", value: `${quizToDelete.maxAttempts ?? 3} attempts` },
-                { label: "Cooldown", value: `${quizToDelete.cooldownHours ?? 24} hours` },
+                
               ]
             : []
         }

@@ -44,7 +44,7 @@ export class EmailService {
     @Optional() @InjectQueue('email') private readonly emailQueue?: Queue,
   ) {
     const host = process.env.SMTP_HOST;
-    const port = parseInt(process.env.SMTP_PORT || '465', 10);
+    const port = parseInt(process.env.SMTP_PORT || '587', 10);
     const user = process.env.SMTP_USER;
     const pass = process.env.SMTP_PASS;
     const secureEnv = process.env.SMTP_SECURE;
@@ -194,18 +194,20 @@ export class EmailService {
         });
       } catch (firstErr: any) {
         const errMsg = String(firstErr?.message || '');
-        const isConnOrTimeout = /timeout|timedout|econnrefused|econnreset|etimedout/i.test(errMsg);
+        const isConnOrTimeout = /greeting|timeout|timedout|econnrefused|econnreset|etimedout|closed|handshake/i.test(errMsg);
         const host = process.env.SMTP_HOST;
-        const port = parseInt(process.env.SMTP_PORT || '465', 10);
+        const port = parseInt(process.env.SMTP_PORT || '587', 10);
         const user = process.env.SMTP_USER;
         const pass = process.env.SMTP_PASS;
 
-        if (isConnOrTimeout && host && user && pass && port !== 465) {
-          this.logger.warn(`Primary SMTP dispatch to ${toAddress} timed out or failed (${errMsg}). Retrying via direct SSL port 465...`);
+        if (isConnOrTimeout && host && user && pass) {
+          const alternatePort = port === 465 ? 587 : 465;
+          const alternateSecure = alternatePort === 465;
+          this.logger.warn(`Primary SMTP dispatch to ${toAddress} failed (${errMsg}) on port ${port}. Retrying via alternate port ${alternatePort}...`);
           const fallbackTransporter = nodemailer.createTransport({
             host,
-            port: 465,
-            secure: true,
+            port: alternatePort,
+            secure: alternateSecure,
             auth: { user, pass },
             connectionTimeout: 10000,
             greetingTimeout: 6000,
@@ -220,7 +222,7 @@ export class EmailService {
             text: options.text,
             replyTo: options.replyTo,
           });
-          this.logger.log(`Fallback SSL port 465 delivery succeeded for ${toAddress}`);
+          this.logger.log(`Fallback port ${alternatePort} delivery succeeded for ${toAddress}`);
         } else {
           throw firstErr;
         }

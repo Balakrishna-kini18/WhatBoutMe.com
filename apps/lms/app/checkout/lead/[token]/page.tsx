@@ -87,6 +87,10 @@ export default function LeadCheckoutPage({
             const isSecure = typeof window !== "undefined" && window.location.protocol === "https:";
             document.cookie = `token=${json.accessToken}; path=/; max-age=86400; SameSite=Lax${isSecure ? "; Secure" : ""}`;
           }
+
+          // Direct redirect to the Program Agreement page for this course
+          const agreementUrl = `/agreement?enrolmentId=${json.enrolment.id}&programId=${json.program.id}${json.batch?.id ? `&batchId=${json.batch.id}` : ""}`;
+          router.replace(agreementUrl);
         }
       } catch (err: any) {
         if (isMounted) setError(err.message || "Could not load checkout details.");
@@ -165,8 +169,8 @@ export default function LeadCheckoutPage({
             textAlign: "center",
           }}
         >
-          <h2 style={{ color: "#1C1917" }}>Loading personalized checkout...</h2>
-          <p style={{ color: "#78716A" }}>Validating your course enrolment pass...</p>
+          <h2 style={{ color: "#1C1917" }}>Loading Course Agreement...</h2>
+          <p style={{ color: "#78716A" }}>Preparing your enrolment agreement...</p>
         </div>
       </div>
     );

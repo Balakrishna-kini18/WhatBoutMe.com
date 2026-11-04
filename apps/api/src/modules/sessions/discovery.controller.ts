@@ -9,8 +9,6 @@ export class DiscoveryController {
   constructor(private readonly discoveryService: DiscoveryService) {}
 
   @Public()
-  @Get('slots')
-  @Public()
   @Get('my-call')
   getMyCall(
     @Query('email') email?: string,
@@ -29,6 +27,8 @@ export class DiscoveryController {
     });
   }
 
+  @Public()
+  @Get('slots')
   getSlots(
     @Query('date') date: string,
     @Query('timezone') timezone?: string,
@@ -69,8 +69,6 @@ export class SessionsDiscoveryController {
   constructor(private readonly discoveryService: DiscoveryService) {}
 
   @Public()
-  @Get('slots')
-  @Public()
   @Get('my-call')
   getMyCall(
     @Query('email') email?: string,
@@ -89,6 +87,8 @@ export class SessionsDiscoveryController {
     });
   }
 
+  @Public()
+  @Get('slots')
   getSlots(
     @Query('date') date: string,
     @Query('timezone') timezone?: string,

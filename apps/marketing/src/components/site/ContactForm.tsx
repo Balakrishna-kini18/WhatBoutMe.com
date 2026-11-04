@@ -1057,8 +1057,8 @@ function ConsultationHeaderGraphic() {
                       <span>Available</span>
                     </span>
                     <span className="inline-flex items-center gap-1">
-                      <span className="h-2 w-2 rounded-full bg-stone-300" />
-                      <span>Booked</span>
+                      <span className="h-2 w-2 rounded-full bg-rose-500" />
+                      <span>Already Booked</span>
                     </span>
                   </div>
                 )}
@@ -1091,30 +1091,36 @@ function ConsultationHeaderGraphic() {
                           type="button"
                           disabled={isBooked}
                           aria-disabled={isBooked}
+                          title={isBooked ? "Already booked for this time period" : `Select 15-minute slot at ${slot.timeLocal}`}
                           onClick={() => {
                             if (isBooked) return;
                             setSelectedSlot(slot);
                           }}
-                          className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between min-h-[52px] relative ${
+                          className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between min-h-[58px] relative ${
                             isBooked
-                              ? "bg-stone-100/70 border-stone-200/80 text-stone-400 cursor-not-allowed select-none opacity-70"
+                              ? "bg-stone-50/90 border-stone-200/90 text-stone-400 cursor-not-allowed select-none"
                               : isSelected
                                 ? "bg-[#FFFBF5] border-[#E5A84B] ring-1 ring-[#E5A84B]/40 text-[#1A1412] font-semibold shadow-xs"
                                 : "bg-white border-stone-200 text-[#1A1412] hover:border-amber-400/80 hover:bg-[#FFFBF5]/30 cursor-pointer"
                           }`}
                         >
                           <div className="flex items-center justify-between w-full">
-                            <span className={`text-xs sm:text-sm font-bold block ${isBooked ? "text-stone-400 line-through decoration-stone-300" : ""}`}>
-                              {slot.timeLocal}
+                            <span className={`text-xs sm:text-sm font-bold flex items-center gap-1.5 ${isBooked ? "text-stone-400 line-through decoration-stone-300" : "text-stone-900"}`}>
+                              <Clock className={`h-3.5 w-3.5 shrink-0 ${isBooked ? "text-stone-300" : isSelected ? "text-[#E5A84B]" : "text-amber-600"}`} />
+                              <span>{slot.timeLocal}</span>
                             </span>
-                            {isBooked && (
-                              <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-stone-200/80 text-stone-600 border border-stone-300/80 leading-none">
-                                Booked
+                            {isBooked ? (
+                              <span className="text-[9px] font-bold uppercase tracking-tight px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200/80 leading-none">
+                                Already Booked
                               </span>
-                            )}
+                            ) : isSelected ? (
+                              <span className="text-[9px] font-bold uppercase tracking-tight px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300/80 leading-none">
+                                Selected
+                              </span>
+                            ) : null}
                           </div>
-                          <span className={`text-[10px] block mt-0.5 font-normal leading-tight ${isBooked ? "text-stone-400/70" : "text-stone-400"}`}>
-                            {slot.timeGst} · {slot.timeIst}
+                          <span className={`text-[10px] block mt-1 font-normal leading-tight ${isBooked ? "text-rose-600/70" : "text-stone-400"}`}>
+                            {isBooked ? "Already booked for this time period" : `${slot.timeGst} · ${slot.timeIst}`}
                           </span>
                         </button>
                       );

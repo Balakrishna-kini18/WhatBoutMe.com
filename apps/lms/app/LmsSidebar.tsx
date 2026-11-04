@@ -178,7 +178,7 @@ export default function LmsSidebar() {
             localStorage.setItem("user", JSON.stringify(data));
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     }
   }, [pathname]);
 

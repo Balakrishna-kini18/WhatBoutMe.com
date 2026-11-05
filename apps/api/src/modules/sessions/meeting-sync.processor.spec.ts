@@ -125,7 +125,7 @@ describe('MeetingSyncProcessor', () => {
       expect(prismaMock.session.update).not.toHaveBeenCalled();
       expect(prismaMock.outboxEvent.update).toHaveBeenCalledWith({
         where: { id: 'outbox-1' },
-        data: { status: 'FAILED', error: 'Zoom failed' },
+        data: expect.objectContaining({ status: 'FAILED', error: 'Zoom failed' }),
       });
     });
   });
@@ -285,6 +285,55 @@ describe('MeetingSyncProcessor', () => {
       expect(prismaMock.outboxEvent.update).toHaveBeenCalledWith({
         where: { id: 'outbox-1' },
         data: expect.objectContaining({ status: 'COMPLETED' })
+      });
+    });
+
+    it('marks unknown action type as terminal FAILED and clears lease so it is not stuck in PROCESSING', async () => {
+      await processor.process({
+        data: { outboxId: 'outbox-1', type: 'UNKNOWN_INVALID_ACTION', sessionId: 'sess-1' },
+      } as any);
+
+      expect(prismaMock.outboxEvent.update).toHaveBeenCalledWith({
+        where: { id: 'outbox-1' },
+        data: expect.objectContaining({
+          status: 'FAILED',
+          leasedUntil: null,
+          attempts: 999,
+          lastError: expect.stringContaining('Unknown meeting sync type'),
+        }),
+      });
+    });
+
+    it('marks retry-exhausted events (attempts >= 5) as terminal with nextAttemptAt: null', async () => {
+      prismaMock.session.findUnique.mockResolvedValueOnce({
+        id: 'sess-fail',
+        title: 'Failing Session',
+        startTime: new Date('2026-10-10T10:00:00Z'),
+        endTime: new Date('2026-10-10T11:00:00Z'),
+        timezone: 'UTC',
+        joinUrl: null,
+        meetingProvider: 'ZOOM',
+      });
+      prismaMock.outboxEvent.findUnique.mockResolvedValueOnce({
+        id: 'outbox-exhausted',
+        status: 'PROCESSING',
+        attempts: 4, // Next attempt will be 5
+      });
+      meetingProviderMock.createMeeting.mockRejectedValueOnce(new Error('Fatal external error'));
+
+      await expect(
+        processor.process({
+          data: { outboxId: 'outbox-exhausted', type: 'CREATE', sessionId: 'sess-fail' },
+        } as any),
+      ).rejects.toThrow('Fatal external error');
+
+      expect(prismaMock.outboxEvent.update).toHaveBeenCalledWith({
+        where: { id: 'outbox-exhausted' },
+        data: expect.objectContaining({
+          status: 'FAILED',
+          nextAttemptAt: null, // Terminal: do not retry
+          leasedUntil: null,
+        }),
       });
     });
   });

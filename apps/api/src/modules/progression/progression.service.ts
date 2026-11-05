@@ -20,6 +20,12 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
+import {
+  getProgressKey,
+  getStepProgressKey,
+  getDashboardKey,
+  LMS_CACHE_TTLS,
+} from '../../common/cache/cache-keys.constant.js';
 import { StageGateService } from './stage-gate.service.js';
 import { randomBytes } from 'node:crypto';
 import { CreateProgressShareDto } from './dto/index.js';
@@ -965,15 +971,18 @@ export class ProgressionService {
     options?: { persist?: boolean; forceRecalculate?: boolean },
   ): Promise<EnrolmentProgressionResponse> {
     const force = options?.forceRecalculate === true;
+    const cacheKey = getProgressKey(enrolment.userId, enrolment.id);
     if (this.cacheHelper) {
       if (force) {
+        await this.cacheHelper.invalidate(cacheKey);
+        await this.cacheHelper.invalidateTag(`progress:${enrolment.userId}:${enrolment.id}`);
         await this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`);
       }
-      const cacheKey = await this.cacheHelper.getVersionedKey(`enrolment_progression:${enrolment.id}`, 'tree');
       return this.cacheHelper.getOrSet(
         cacheKey,
         () => this.evaluateProgressionInternal(enrolment, options),
-        3600
+        LMS_CACHE_TTLS.PROGRESS_SECONDS,
+        [`progress:${enrolment.userId}:${enrolment.id}`, `dashboard:${enrolment.userId}`],
       );
     }
     const useLocalCache = process.env.NODE_ENV !== 'test' && !process.env.VITEST;
@@ -1822,6 +1831,10 @@ export class ProgressionService {
 
     if (shouldInvalidate && this.cacheHelper) {
       await Promise.allSettled([
+        this.cacheHelper.invalidate(getProgressKey(enrolment.userId, enrolment.id)),
+        this.cacheHelper.invalidate(getDashboardKey(enrolment.userId)),
+        this.cacheHelper.invalidateTag(`progress:${enrolment.userId}:${enrolment.id}`),
+        this.cacheHelper.invalidateTag(`dashboard:${enrolment.userId}`),
         this.cacheHelper.invalidateNamespace(`auth_user:${actorId}`),
         this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`),
         this.cacheHelper.invalidateNamespace('users'),
@@ -1962,6 +1975,10 @@ export class ProgressionService {
     const transitionToCompleted = !(existingProgress?.viewed ?? false);
     if (this.cacheHelper) {
       await Promise.allSettled([
+        this.cacheHelper.invalidate(getProgressKey(enrolment.userId, enrolment.id)),
+        this.cacheHelper.invalidate(getDashboardKey(enrolment.userId)),
+        this.cacheHelper.invalidateTag(`progress:${enrolment.userId}:${enrolment.id}`),
+        this.cacheHelper.invalidateTag(`dashboard:${enrolment.userId}`),
         this.cacheHelper.invalidateNamespace(`auth_user:${actorId}`),
         this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`),
         this.cacheHelper.invalidateNamespace('users'),

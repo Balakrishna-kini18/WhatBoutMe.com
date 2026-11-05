@@ -1336,7 +1336,7 @@ export default function ExamPage({
               cursor: ((result?.attemptsRemaining ?? 1) <= 0 && result !== null) ? "not-allowed" : "pointer",
             }}
           >
-            {result ? "Start Next Attempt (50 Shuffled Questions)" : `Begin ${config?.questionCount || 50}-Mark Final Examination`}
+            {result ? `Start Next Attempt (${config?.questionCount ? `${config.questionCount} Questions` : "Exam"})` : `Begin ${config?.questionCount ? `${config.questionCount}-Mark ` : ""}Final Examination`}
           </button>
         )}
       </div>

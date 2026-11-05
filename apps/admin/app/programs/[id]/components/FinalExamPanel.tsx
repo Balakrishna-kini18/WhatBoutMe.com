@@ -55,7 +55,7 @@ export default function FinalExamPanel({
   const [title, setTitle] = useState("");
   const [passMark, setPassMark] = useState(80);
   const [timeLimitMin, setTimeLimitMin] = useState(90);
-  const [questionCount, setQuestionCount] = useState(50);
+  const [questionCount, setQuestionCount] = useState<number | null>(null);
   const [shuffleQuestions, setShuffleQuestions] = useState(true);
 
   // Question Pool State
@@ -89,7 +89,7 @@ export default function FinalExamPanel({
       if (data?.exam) {
         setExam(data.exam);
         setTitle(data.exam.title || (programTitle ? `${programTitle} Final Examination` : "Final Comprehensive Examination"));
-        setQuestionCount(data.exam.questionCount ?? 50);
+        setQuestionCount(typeof data.exam.questionCount === "number" && data.exam.questionCount > 0 ? data.exam.questionCount : null);
         const loadedPassMark = data.exam.passMark;
         const resolvedPassMark = typeof loadedPassMark === "number" && loadedPassMark > 0 ? loadedPassMark : 80;
         setPassMark(resolvedPassMark);
@@ -105,7 +105,7 @@ export default function FinalExamPanel({
         setTitle(programTitle ? `${programTitle} Final Examination` : "Final Comprehensive Examination");
         setPassMark(80);
         setTimeLimitMin(90);
-        setQuestionCount(50);
+        setQuestionCount(null);
         setShuffleQuestions(true);
       }
       setQuestions(Array.isArray(data?.questions) ? data.questions : []);
@@ -126,7 +126,7 @@ export default function FinalExamPanel({
       const activeExamId = await ensureExamEntity();
       const updated = await updateExam(activeExamId, {
         title: title.trim() || (programTitle ? `${programTitle} Final Examination` : "Final Comprehensive Examination"),
-        questionCount: Number(questionCount) || 50,
+        questionCount: typeof questionCount === "number" && questionCount > 0 ? questionCount : (questions.length || 1),
         passMark: Number(passMark) || 80,
         timeLimitMin: Number(timeLimitMin) || 90,
         maxAttempts: 999,
@@ -150,7 +150,7 @@ export default function FinalExamPanel({
       programId,
       title: title.trim() || (programTitle ? `${programTitle} Final Examination` : "Final Comprehensive Examination"),
       description: "",
-      questionCount: Number(questionCount) || 50,
+      questionCount: typeof questionCount === "number" && questionCount > 0 ? questionCount : (questions.length || 1),
       passMark: Number(passMark) || 80,
       timeLimitMin: Number(timeLimitMin) || 90,
       maxAttempts: 999,
@@ -236,7 +236,7 @@ export default function FinalExamPanel({
 
       const updated = await updateExam(activeExamId, {
         title: title.trim(),
-        questionCount: Number(questionCount) || 50,
+        questionCount: typeof questionCount === "number" && questionCount > 0 ? questionCount : (questions.length || 1),
         passMark: Number(passMark) || 80,
         timeLimitMin: Number(timeLimitMin) || 90,
         maxAttempts: 999,

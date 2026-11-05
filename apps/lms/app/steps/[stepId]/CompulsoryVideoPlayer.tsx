@@ -588,12 +588,14 @@ export default function CompulsoryVideoPlayer({
       saveLocalVideoResume(lessonId, current, dur);
     }
 
-    // Compulsory completion: when video is left for 30 seconds or less (or within 1s of end for short clips)
+    // Compulsory completion: strictly require actual playback progression (at least 90% watched or within final seconds)
     const isWithin30sOfEnd =
       dur > 0 &&
-      (dur - current <= 30 ||
-        (dur <= 30 && (current >= dur - 1.0 || current >= dur * 0.9)) ||
-        current >= dur * 0.9);
+      current > 0 &&
+      (
+        (dur > 30 && (current >= dur - 5.0 || current >= dur * 0.9)) ||
+        (dur <= 30 && (current >= Math.max(0.5, dur - 1.0) || current >= dur * 0.9))
+      );
 
     if (isWithin30sOfEnd && !hasCompletedRef.current) {
       hasCompletedRef.current = true;
@@ -1141,11 +1143,12 @@ export default function CompulsoryVideoPlayer({
 
       {/* 5b. Simple 30-Second Remaining / Advance to Next Step Floating Pill */}
       {(duration > 0 &&
-        currentTime > 5 &&
-        (duration - currentTime <= 30 ||
-          (duration <= 30 && (currentTime >= duration - 1.0 || currentTime >= duration * 0.9)) ||
-          currentTime >= duration * 0.9 ||
-          hasEnded)) &&
+        currentTime > 0 &&
+        (
+          (duration > 30 && currentTime >= 15 && (duration - currentTime <= 30 || currentTime >= duration * 0.9)) ||
+          (duration <= 30 && (currentTime >= Math.max(1, duration - 2.0) || currentTime >= duration * 0.9)) ||
+          hasEnded
+        )) &&
         nextStepInfo &&
         !dismissed30sPopup && (
           <div

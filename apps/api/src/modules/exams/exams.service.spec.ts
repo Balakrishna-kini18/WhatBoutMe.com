@@ -261,14 +261,14 @@ describe('D1-038: ExamsService - Comprehensive 50-Question Final Exam', () => {
       expect(prismaMock.examAttempt.create).not.toHaveBeenCalled();
     });
 
-    it('rejects with BadRequestException if question pool has fewer than 50 questions', async () => {
+    it('rejects with BadRequestException if question pool has no questions', async () => {
       prismaMock.exam.findUnique.mockResolvedValueOnce(mockExam);
       prismaMock.enrolment.findFirst.mockResolvedValueOnce(mockEnrolment);
       prismaMock.examAttempt.findFirst.mockResolvedValueOnce(null); // No active attempt
       prismaMock.examAttempt.findMany.mockResolvedValueOnce([]); // No previous attempts
 
       // Only 30 questions available (insufficient for 50-question requirement)
-      prismaMock.question.findMany.mockResolvedValueOnce(generateQuestions(30));
+      prismaMock.question.findMany.mockResolvedValueOnce([]);
 
       await expect(
         service.startExam('exam-final-1', mockLearner),

@@ -6,7 +6,7 @@ export class RedisService implements OnModuleDestroy {
   private readonly client: Redis;
 
   constructor() {
-    // Determine the exact connection configuration for Upstash (TCP) or local Docker
+    // Determine the exact connection configuration for Redis / Valkey (TCP) or local Docker
     const isRediss = process.env.REDIS_URL?.startsWith('rediss://');
     const isWorkerMode = process.env.WORKER_MODE === 'true';
     const isServerless = !isWorkerMode;
@@ -170,7 +170,21 @@ export class RedisService implements OnModuleDestroy {
   /**
    * Graceful shutdown of the connection
    */
+  isReady(): boolean {
+    return this.client ? (this.client.status === 'ready' || this.client.status === 'connect') : false;
+  }
+
   async onModuleDestroy() {
-    await this.client.quit();
+    try {
+      if (this.client) {
+        if (this.client.status === 'ready' || this.client.status === 'connect') {
+          await this.client.quit();
+        } else {
+          this.client.disconnect();
+        }
+      }
+    } catch {
+      try { this.client?.disconnect(); } catch {}
+    }
   }
 }

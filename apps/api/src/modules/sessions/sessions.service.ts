@@ -25,6 +25,7 @@ import { UpdateSessionDto } from './dto/update-session.dto.js';
 import { QuerySessionsDto } from './dto/query-sessions.dto.js';
 import { RecordSessionProgressDto } from './dto/record-session-progress.dto.js';
 import { AttendanceComplianceService } from './attendance-compliance.service.js';
+import { SessionLifecycleService } from './session-lifecycle.service.js';
 import { StageGateService } from '../progression/stage-gate.service.js';
 import { WatchIntervalTracker } from '../progression/utils/watch-interval-tracker.js';
 import {
@@ -67,6 +68,9 @@ export class SessionsService {
     @Optional()
     @Inject(forwardRef(() => StageGateService))
     private readonly stageGateService?: StageGateService,
+    @Optional()
+    @Inject(forwardRef(() => SessionLifecycleService))
+    private readonly sessionLifecycleService?: SessionLifecycleService,
   ) {}
 
   /**
@@ -372,7 +376,14 @@ export class SessionsService {
     // 9. Dispatch Email Notifications & In-App Reminders to Enrolled Learners
     await this.notifyEnrolledLearnersOfSession(session, batch);
 
-    // 10. Synchronize calendar event with Microsoft Graph / Outlook
+    // 10. Schedule event-driven BullMQ lifecycle jobs (activation, reminders, completion)
+    if (this.sessionLifecycleService) {
+      await this.sessionLifecycleService.scheduleSessionJobs(session).catch((err: any) =>
+        this.logger.warn(`Failed scheduling lifecycle jobs for session ${session.id}: ${err.message}`),
+      );
+    }
+
+    // 11. Synchronize calendar event with Microsoft Graph / Outlook
     if (this.calendarProvider) {
       try {
         const attendeeEmails: string[] = [];
@@ -636,6 +647,7 @@ export class SessionsService {
           description: data.description ?? undefined,
           startTime: start,
           endTime: end,
+          scheduleVersion: (data.startTime || data.endTime) ? { increment: 1 } : undefined,
           durationMinutes: data.durationMinutes ?? (data.startTime || data.endTime ? Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000)) : undefined),
           timezone: data.timezone ?? undefined,
           capacity: data.capacity ?? undefined,
@@ -798,6 +810,12 @@ export class SessionsService {
       }
     }
 
+    if ((data.startTime || data.endTime) && this.sessionLifecycleService) {
+      await this.sessionLifecycleService.scheduleSessionJobs(updated).catch((err: any) =>
+        this.logger.warn(`Failed to reschedule lifecycle jobs for session ${sessionId}: ${err.message}`),
+      );
+    }
+
     return updated;
   }
 
@@ -832,6 +850,7 @@ export class SessionsService {
           status: SessionStatus.CANCELLED,
           cancelledAt: new Date(),
           cancelReason: cancelReason || 'Cancelled by administrator',
+          scheduleVersion: { increment: 1 },
         },
       });
 

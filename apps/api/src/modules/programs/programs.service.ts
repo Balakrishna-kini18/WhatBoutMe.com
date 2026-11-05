@@ -3,6 +3,7 @@ import { ContentStatus, EnrolmentStatus, ReleaseSchedule, Role } from '@prisma/c
 import { markDailyAttendance } from '../../common/daily-attendance.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
+import { getCurriculumKey, getCurriculumTtlWithJitter } from '../../common/cache/cache-keys.constant.js';
 import { CloudinaryMediaProvider } from '../cloudinary/cloudinary.service.js';
 import {
   CreateProgramDto,
@@ -939,11 +940,15 @@ export class ProgramsService {
 
   async getSteps(programId: string, role?: string) {
     const isStaff = role === Role.SUPER_ADMIN || role === Role.ADMIN || (role === Role.MANAGER || role === 'MANAGER' || role === 'TEACHER');
-    const cacheKey = await this.cacheHelper.getEndpointKey(
-      'programs',
-      (role as any) || 'GUEST',
-      { action: 'getSteps', programId, isStaff },
-    );
+    const cacheKey = isStaff
+      ? await this.cacheHelper.getEndpointKey(
+          'programs',
+          (role as any) || 'GUEST',
+          { action: 'getSteps', programId, isStaff },
+        )
+      : getCurriculumKey(programId);
+
+    const ttlSeconds = isStaff ? 60 : getCurriculumTtlWithJitter();
 
     return this.cacheHelper.getOrSet(cacheKey, async () => {
       const [program, steps] = await Promise.all([
@@ -984,8 +989,16 @@ export class ProgramsService {
         throw new NotFoundException(`Program not found`);
       }
 
+      if (!isStaff) {
+        // Strip mediaUrl from learner curriculum cache; accessed only via secure playback
+        return steps.map((s) => ({
+          ...s,
+          lessons: s.lessons?.map((l) => ({ ...l, mediaUrl: undefined })),
+        }));
+      }
+
       return steps;
-    }, 60, ['programs', 'steps', `program:${programId}`]);
+    }, ttlSeconds, ['programs', 'steps', `program:${programId}`, `curriculum:${programId}`]);
   }
 
   async getStep(stepId: string, role?: string) {

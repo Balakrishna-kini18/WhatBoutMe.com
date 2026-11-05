@@ -8,6 +8,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
+import { getResourcesKey, hashFilters, LMS_CACHE_TTLS } from '../../common/cache/cache-keys.constant.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import type { IObjectStorageProvider } from '../../common/interfaces/object-storage-provider.interface.js';
 import { OBJECT_STORAGE_PROVIDER } from '../../common/interfaces/object-storage-provider.interface.js';
@@ -528,96 +529,114 @@ export class ResourcesService {
       search?: string;
     },
   ) {
-    // 1. Fetch learner's active enrolments with step progress
-    const enrolments = await this.prisma.enrolment.findMany({
-      where: {
-        userId: learnerId,
-        status: 'ACTIVE',
-      },
-      include: {
-        stepProgress: true,
-      },
+    const filterHash = hashFilters({
+      categoryId: query.categoryId,
+      type: query.type,
+      stepTagNumber: query.stepTagNumber,
+      search: query.search?.trim().toLowerCase(),
     });
+    const cacheKey = getResourcesKey(learnerId, 'all', filterHash);
 
-    if (enrolments.length === 0) {
-      return [];
-    }
+    const fetcher = async () => {
+      // 1. Fetch learner's active enrolments with step progress
+      const enrolments = await this.prisma.enrolment.findMany({
+        where: {
+          userId: learnerId,
+          status: 'ACTIVE',
+        },
+        include: {
+          stepProgress: true,
+        },
+      });
 
-    const programIds = new Set<string>();
-    const batchIds = new Set<string>();
-    const unlockedStepIds = new Set<string>();
-    const unlockedStepSequences = new Set<number>();
+      if (enrolments.length === 0) {
+        return [];
+      }
 
-    for (const e of enrolments) {
-      if (e.programId) programIds.add(e.programId);
-      if (e.batchId) batchIds.add(e.batchId);
+      const programIds = new Set<string>();
+      const batchIds = new Set<string>();
+      const unlockedStepIds = new Set<string>();
+      const unlockedStepSequences = new Set<number>();
 
-      for (const sp of e.stepProgress) {
-        if (sp.isUnlocked || sp.isCompleted) {
-          unlockedStepIds.add(sp.stepId);
+      for (const e of enrolments) {
+        if (e.programId) programIds.add(e.programId);
+        if (e.batchId) batchIds.add(e.batchId);
+
+        for (const sp of e.stepProgress) {
+          if (sp.isUnlocked || sp.isCompleted) {
+            unlockedStepIds.add(sp.stepId);
+          }
         }
       }
-    }
 
-    // Also get the sequence numbers for all unlocked steps
-    if (unlockedStepIds.size > 0) {
-      const steps = await this.prisma.step.findMany({
-        where: { id: { in: Array.from(unlockedStepIds) } },
-        select: { id: true, sequence: true },
-      });
-      for (const s of steps) {
-        unlockedStepSequences.add(s.sequence);
+      // Also get the sequence numbers for all unlocked steps
+      if (unlockedStepIds.size > 0) {
+        const steps = await this.prisma.step.findMany({
+          where: { id: { in: Array.from(unlockedStepIds) } },
+          select: { id: true, sequence: true },
+        });
+        for (const s of steps) {
+          unlockedStepSequences.add(s.sequence);
+        }
       }
-    }
 
-    // 2. Query conditions matching learner's active enrolments & unlocked steps
-    const orConditions: Prisma.ResourceItemWhereInput[] = [
-      { accessScope: ResourceAccessScope.ALL_ENROLLED },
-      { accessScope: ResourceAccessScope.PROGRAM, programId: { in: Array.from(programIds) } },
-      { accessScope: ResourceAccessScope.BATCH, batchId: { in: Array.from(batchIds) } },
-    ];
+      // 2. Query conditions matching learner's active enrolments & unlocked steps
+      const orConditions: Prisma.ResourceItemWhereInput[] = [
+        { accessScope: ResourceAccessScope.ALL_ENROLLED },
+        { accessScope: ResourceAccessScope.PROGRAM, programId: { in: Array.from(programIds) } },
+        { accessScope: ResourceAccessScope.BATCH, batchId: { in: Array.from(batchIds) } },
+      ];
 
-    if (unlockedStepIds.size > 0) {
-      orConditions.push({
-        accessScope: ResourceAccessScope.STEP_UNLOCKED,
-        OR: [
-          { requiredStepId: { in: Array.from(unlockedStepIds) } },
-          { stepTagNumber: { in: Array.from(unlockedStepSequences) } },
-        ],
+      if (unlockedStepIds.size > 0) {
+        orConditions.push({
+          accessScope: ResourceAccessScope.STEP_UNLOCKED,
+          OR: [
+            { requiredStepId: { in: Array.from(unlockedStepIds) } },
+            { stepTagNumber: { in: Array.from(unlockedStepSequences) } },
+          ],
+        });
+      }
+
+      const where: Prisma.ResourceItemWhereInput = {
+        isPublished: true,
+        OR: orConditions,
+      };
+
+      if (query.categoryId) where.categoryId = query.categoryId;
+      if (query.type) where.type = query.type;
+      if (query.stepTagNumber !== undefined && !isNaN(query.stepTagNumber)) {
+        where.stepTagNumber = query.stepTagNumber;
+      }
+      if (query.search?.trim()) {
+        const q = query.search.trim();
+        where.AND = [
+          {
+            OR: [
+              { title: { contains: q, mode: 'insensitive' } },
+              { description: { contains: q, mode: 'insensitive' } },
+            ],
+          },
+        ];
+      }
+
+      return this.prisma.resourceItem.findMany({
+        where,
+        orderBy: [{ stepTagNumber: 'asc' }, { createdAt: 'desc' }],
+        include: {
+          category: true,
+          program: { select: { id: true, title: true, slug: true } },
+          requiredStep: { select: { id: true, title: true, sequence: true } },
+        },
       });
-    }
-
-    const where: Prisma.ResourceItemWhereInput = {
-      isPublished: true,
-      OR: orConditions,
     };
 
-    if (query.categoryId) where.categoryId = query.categoryId;
-    if (query.type) where.type = query.type;
-    if (query.stepTagNumber !== undefined && !isNaN(query.stepTagNumber)) {
-      where.stepTagNumber = query.stepTagNumber;
-    }
-    if (query.search?.trim()) {
-      const q = query.search.trim();
-      where.AND = [
-        {
-          OR: [
-            { title: { contains: q, mode: 'insensitive' } },
-            { description: { contains: q, mode: 'insensitive' } },
-          ],
-        },
-      ];
-    }
-
-    return this.prisma.resourceItem.findMany({
-      where,
-      orderBy: [{ stepTagNumber: 'asc' }, { createdAt: 'desc' }],
-      include: {
-        category: true,
-        program: { select: { id: true, title: true, slug: true } },
-        requiredStep: { select: { id: true, title: true, sequence: true } },
-      },
-    });
+    if (!this.cacheHelper) return fetcher();
+    return this.cacheHelper.getOrSet(
+      cacheKey,
+      fetcher,
+      LMS_CACHE_TTLS.RESOURCES_SECONDS,
+      ['resources', `resources:${learnerId}`],
+    );
   }
 
   async getPortalViewToken(resourceId: string, learnerId: string) {

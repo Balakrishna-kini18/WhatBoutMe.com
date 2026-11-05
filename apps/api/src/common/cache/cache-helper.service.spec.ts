@@ -6,8 +6,6 @@ describe('CacheHelperService (LRU + TTL + Tag-Based Invalidation)', () => {
 
   beforeEach(() => {
     // Ensure Redis is disabled in this test instance so we test high-performance local LRU
-    delete process.env.UPSTASH_REDIS_REST_URL;
-    delete process.env.UPSTASH_REDIS_REST_TOKEN;
     cache = new CacheHelperService();
   });
 
@@ -125,5 +123,50 @@ describe('CacheHelperService (LRU + TTL + Tag-Based Invalidation)', () => {
     expect(await smallCache.get('item-4')).toBe('D'); // Kept
 
     delete process.env.CACHE_MAX_ENTRIES;
+  });
+
+  it('7. should treat corrupt JSON in Redis as cache miss, delete it best-effort, and read from DB', async () => {
+    const deletedKeys: string[] = [];
+    const mockRedis: any = {
+      get: vi.fn().mockResolvedValue('{"corrupt": invalid_json'),
+      del: vi.fn().mockImplementation(async (key: string) => {
+        deletedKeys.push(key);
+        return 1;
+      }),
+      set: vi.fn().mockResolvedValue('OK'),
+    };
+    const mockRedisService: any = {
+      getClient: () => mockRedis,
+    };
+
+    const redisCache = new CacheHelperService(mockRedisService);
+    let dbFetcherCalled = false;
+    const fetcher = async () => {
+      dbFetcherCalled = true;
+      return { id: 'authoritative-result' };
+    };
+
+    const result = await redisCache.getOrSet('corrupt-key', fetcher, 60);
+
+    expect(result).toEqual({ id: 'authoritative-result' });
+    expect(dbFetcherCalled).toBe(true);
+    expect(deletedKeys).toContain('corrupt-key');
+  });
+
+  it('8. should fail-open when Redis throws an unexpected error, returning data from DB', async () => {
+    const mockRedis: any = {
+      get: vi.fn().mockRejectedValue(new Error('READONLY You cannot write against a read only replica')),
+      set: vi.fn().mockRejectedValue(new Error('Connection reset by peer')),
+    };
+    const mockRedisService: any = {
+      getClient: () => mockRedis,
+    };
+
+    const redisCache = new CacheHelperService(mockRedisService);
+    const fetcher = async () => ({ status: 'success-from-db' });
+
+    // Should NOT throw! Must fail open.
+    const result = await redisCache.getOrSet('fail-open-key', fetcher, 60);
+    expect(result).toEqual({ status: 'success-from-db' });
   });
 });

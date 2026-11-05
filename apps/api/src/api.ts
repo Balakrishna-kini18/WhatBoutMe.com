@@ -69,7 +69,7 @@ async function bootstrapServer() {
     //
     // NOTE: Raised from 5000ms → 9000ms on 2026-10-09 after cold-start
     // evidence on Vercel Hobby Basic builder: first Prisma pooled connect to
-    // Neon + TLS handshake to 12 Upstash Redis clients + helmet CSP policy
+    // Neon + TLS handshake to Redis clients + helmet CSP policy
     // compilation regularly takes 5.2–6.1s on a cold sandbox, well above
     // the original 5s gate.  We keep 9000ms < 10000ms (Vercel Hobby hard
     // execution limit at 10s) so the safety-net writeJson always has time

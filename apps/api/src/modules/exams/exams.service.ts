@@ -1296,7 +1296,29 @@ export class ExamsService {
         })
       : await this.prisma.exam.findUnique({
           where: { id: programIdOrExamId },
-          include: { program: { include: { steps: { orderBy: { sequence: 'asc' } } } } },
+          select: {
+            id: true,
+            programId: true,
+            title: true,
+            description: true,
+            questionCount: true,
+            passMark: true,
+            timeLimitMin: true,
+            maxAttempts: true,
+            cooldownHours: true,
+            shuffleQuestions: true,
+            status: true,
+            program: {
+              select: {
+                id: true,
+                title: true,
+                steps: {
+                  select: { id: true },
+                  orderBy: { sequence: 'asc' },
+                },
+              },
+            },
+          },
         });
 
     if (!exam && byProgram) {
@@ -1538,8 +1560,68 @@ export class ExamsService {
 
     const created: any[] = [];
 
-    for (const item of questionsInput) {
-      const q = await this.createExamQuestion(exam.id, item, actor);
+    for (const dto of questionsInput) {
+      const text = (dto.text || '').trim();
+      if (!text) continue;
+
+      const type: QuestionType =
+        dto.type === 'MULTI_SELECT'
+          ? QuestionType.MULTI_SELECT
+          : dto.type === 'SHORT_ANSWER' || dto.type === 'TEXT_BOX'
+            ? QuestionType.SHORT_ANSWER
+            : QuestionType.MULTIPLE_CHOICE;
+
+      const rawOptions = Array.isArray(dto.options) ? dto.options : [];
+      const optionsToCreate =
+        type === QuestionType.SHORT_ANSWER
+          ? []
+          : (rawOptions.length > 0
+              ? rawOptions
+              : [
+                  { text: 'Option A', isCorrect: true, order: 1 },
+                  { text: 'Option B', isCorrect: false, order: 2 },
+                  { text: 'Option C', isCorrect: false, order: 3 },
+                  { text: 'Option D', isCorrect: false, order: 4 },
+                ]
+            ).map((opt: any, idx: number) => ({
+              text:
+                rawOptions.length > 0
+                  ? String(opt?.text ?? '').trim()
+                  : (opt.text || `Option ${idx + 1}`).trim(),
+              imageUrl: opt?.imageUrl || null,
+              isCorrect: Boolean(opt?.isCorrect),
+              order: typeof opt?.order === 'number' ? opt.order : idx + 1,
+            }));
+
+      const rawPoints = Number(dto.points);
+      const points =
+        Number.isFinite(rawPoints) && rawPoints > 0
+          ? Math.min(100, Math.max(1, Math.round(rawPoints)))
+          : 1;
+
+      const q = await this.prisma.question.create({
+        data: {
+          questionBankId: bank.id,
+          stepId: dto.stepId || null,
+          text,
+          type,
+          points,
+          imageUrl: dto.imageUrl || null,
+          explanation: dto.explanation || null,
+          gradingMode: dto.gradingMode || 'SELF_REFLECTION_AUTO_PASS',
+          minCharacters: dto.minCharacters ?? 10,
+          options:
+            optionsToCreate.length > 0
+              ? {
+                  create: optionsToCreate,
+                }
+              : undefined,
+        },
+        include: {
+          options: { orderBy: { order: 'asc' } },
+          step: { select: { id: true, sequence: true, title: true } },
+        },
+      });
       created.push(q);
     }
 

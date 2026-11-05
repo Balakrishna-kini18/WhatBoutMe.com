@@ -670,16 +670,33 @@ export class ProgramsService {
 
       // Fast-path: When deleting a draft/empty program without enrolments, batches, or steps
       if (batchIds.length === 0 && enrolmentIds.length === 0 && stepIds.length === 0 && qbIds.length === 0 && examIds.length === 0) {
-        await Promise.all([
-          typeof (tx as any).certificate?.deleteMany === 'function' ? (tx as any).certificate.deleteMany({ where: { programId: id } }).catch(() => {}) : Promise.resolve(),
-          typeof (tx as any).signedAgreement?.deleteMany === 'function' ? (tx as any).signedAgreement.deleteMany({ where: { programId: id } }).catch(() => {}) : Promise.resolve(),
-          typeof (tx as any).agreementTemplate?.deleteMany === 'function' ? (tx as any).agreementTemplate.deleteMany({ where: { programId: id } }).catch(() => {}) : Promise.resolve(),
-          typeof (tx as any).resource?.deleteMany === 'function' ? (tx as any).resource.deleteMany({ where: { programId: id } }).catch(() => {}) : Promise.resolve(),
-          typeof (tx as any).resourceItem?.deleteMany === 'function' ? (tx as any).resourceItem.deleteMany({ where: { programId: id } }).catch(() => {}) : Promise.resolve(),
-          typeof (tx as any).oralAssessment?.deleteMany === 'function' ? (tx as any).oralAssessment.deleteMany({ where: { programId: id } }).catch(() => {}) : Promise.resolve(),
-          typeof (tx as any).coupon?.deleteMany === 'function' ? (tx as any).coupon.deleteMany({ where: { programId: id } }).catch(() => {}) : Promise.resolve(),
-        ]);
-        await tx.program.delete({ where: { id } });
+        if (typeof (tx as any).signedAgreement?.deleteMany === 'function') {
+          await (tx as any).signedAgreement.deleteMany({ where: { programId: id } }).catch(() => {});
+        }
+        if (typeof (tx as any).agreementTemplate?.deleteMany === 'function') {
+          await (tx as any).agreementTemplate.deleteMany({ where: { programId: id } }).catch(() => {});
+        }
+        if (typeof (tx as any).certificate?.deleteMany === 'function') {
+          await (tx as any).certificate.deleteMany({ where: { programId: id } }).catch(() => {});
+        }
+        if (typeof (tx as any).resourceItem?.deleteMany === 'function') {
+          await (tx as any).resourceItem.deleteMany({ where: { programId: id } }).catch(() => {});
+        }
+        if (typeof (tx as any).resource?.deleteMany === 'function') {
+          await (tx as any).resource.deleteMany({ where: { programId: id } }).catch(() => {});
+        }
+        if (typeof (tx as any).oralAssessment?.deleteMany === 'function') {
+          await (tx as any).oralAssessment.deleteMany({ where: { programId: id } }).catch(() => {});
+        }
+        try {
+          await tx.program.delete({ where: { id } });
+        } catch (delErr: any) {
+          if (delErr?.code === 'P2025') {
+            // Already removed (idempotent)
+            return;
+          }
+          throw delErr;
+        }
         return;
       }
 
@@ -881,7 +898,15 @@ export class ProgramsService {
       }
 
       // H. Delete the Program itself
-      await tx.program.delete({ where: { id } });
+      try {
+        await tx.program.delete({ where: { id } });
+      } catch (delErr: any) {
+        if (delErr?.code === 'P2025') {
+          // Already removed (idempotent)
+          return;
+        }
+        throw delErr;
+      }
     }, {
       maxWait: 15000,
       timeout: 45000,
@@ -891,7 +916,12 @@ export class ProgramsService {
   async remove(id: string, force: boolean = false) {
     const program = await this.prisma.program.findUnique({ where: { id } });
     if (!program) {
-      throw new NotFoundException(`Program not found`);
+      return {
+        id,
+        deleted: true,
+        archived: false,
+        message: 'Program already removed.',
+      };
     }
 
     const [batchCount, enrolmentCount] = await Promise.all([

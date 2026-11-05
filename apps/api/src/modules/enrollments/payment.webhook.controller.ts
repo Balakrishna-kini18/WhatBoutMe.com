@@ -84,7 +84,7 @@ export class PaymentWebhookController {
     @Optional() private readonly cacheHelper?: CacheHelperService,
     @Optional() private readonly emailService?: EmailService,
     @Optional() private readonly stripeClient?: Stripe,
-  ) {}
+  ) { }
 
   private async isEventProcessedInDatabase(eventId: string): Promise<boolean> {
     if (typeof (this.prisma as any)?.webhookEvent?.findUnique !== 'function') {
@@ -150,7 +150,7 @@ export class PaymentWebhookController {
     if (this.cacheHelper && typeof eventId === 'string' && eventId.startsWith('evt_')) {
       await this.cacheHelper
         .set(`stripe_event_id:${eventId}`, { status: 'processed', at: new Date().toISOString() }, 86400)
-        .catch(() => {});
+        .catch(() => { });
     }
   }
 
@@ -253,10 +253,10 @@ export class PaymentWebhookController {
             };
           }
           // Cache hit without matching durable DB record: evict stale cache key and proceed
-          await this.cacheHelper.del(`stripe_event_id:${eventId}`).catch(() => {});
+          await this.cacheHelper.del(`stripe_event_id:${eventId}`).catch(() => { });
         } else if (cachedEvent) {
           // Never allow an uncommitted 'processing' cache key to block retries
-          await this.cacheHelper.del(`stripe_event_id:${eventId}`).catch(() => {});
+          await this.cacheHelper.del(`stripe_event_id:${eventId}`).catch(() => { });
         }
       }
     }
@@ -270,7 +270,7 @@ export class PaymentWebhookController {
         return result;
       } catch (err) {
         if (hasStripeEventId && this.cacheHelper) {
-          await this.cacheHelper.del(`stripe_event_id:${eventId}`).catch(() => {});
+          await this.cacheHelper.del(`stripe_event_id:${eventId}`).catch(() => { });
         }
         throw err;
       }
@@ -322,8 +322,8 @@ export class PaymentWebhookController {
       typeof dataObj.amount_total === 'number'
         ? dataObj.amount_total / 100
         : typeof dataObj.amount === 'number'
-        ? dataObj.amount
-        : 0;
+          ? dataObj.amount
+          : 0;
     const currency = (dataObj.currency || 'USD').toUpperCase();
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -395,8 +395,26 @@ export class PaymentWebhookController {
         enrolment = await this.prisma.enrolment.findUnique({
           where: { id: enrolmentId },
           include: {
-            program: { select: { id: true, title: true, price: true } },
-            batch: { select: { id: true, name: true, startDate: true } },
+            program: {
+              select: {
+                id: true,
+                title: true,
+                price: true,
+                currency: true,
+                earlyBirdPrice: true,
+                earlyBirdCurrency: true,
+                earlyBirdDeadline: true,
+              },
+            },
+            batch: {
+              select: {
+                id: true,
+                name: true,
+                startDate: true,
+                price: true,
+                currency: true,
+              },
+            },
             user: { select: { id: true, name: true, email: true } },
             signedAgreement: true,
           },
@@ -405,8 +423,26 @@ export class PaymentWebhookController {
         enrolment = await this.prisma.enrolment.findUnique({
           where: { id: existingPayment.enrolmentId },
           include: {
-            program: { select: { id: true, title: true, price: true } },
-            batch: { select: { id: true, name: true, startDate: true } },
+            program: {
+              select: {
+                id: true,
+                title: true,
+                price: true,
+                currency: true,
+                earlyBirdPrice: true,
+                earlyBirdCurrency: true,
+                earlyBirdDeadline: true,
+              },
+            },
+            batch: {
+              select: {
+                id: true,
+                name: true,
+                startDate: true,
+                price: true,
+                currency: true,
+              },
+            },
             user: { select: { id: true, name: true, email: true } },
             signedAgreement: true,
           },
@@ -452,20 +488,20 @@ export class PaymentWebhookController {
       } else {
         const batch = enrolment.batchId
           ? await this.prisma.batch.findUnique({
-              where: { id: enrolment.batchId },
-              include: {
-                _count: {
-                  select: {
-                    enrolments: {
-                      where: {
-                        id: { not: enrolment.id },
-                        status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED] },
-                      },
+            where: { id: enrolment.batchId },
+            include: {
+              _count: {
+                select: {
+                  enrolments: {
+                    where: {
+                      id: { not: enrolment.id },
+                      status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED] },
                     },
                   },
                 },
               },
-            })
+            },
+          })
           : null;
 
         const occupied = batch?._count?.enrolments ?? 0;
@@ -489,8 +525,23 @@ export class PaymentWebhookController {
       }
 
       // 5.5 INDEPENDENT AMOUNT AND CURRENCY VALIDATION (WITH ADAPTIVE PRICING SUPPORT)
-      const expectedAmount = existingPayment?.amount ?? enrolment.batch?.price ?? enrolment.program?.price;
-      const expectedCurrency = existingPayment?.currency ?? enrolment.program?.currency ?? 'USD';
+      const activeEarlyBirdPrice =
+        enrolment.program?.earlyBirdPrice != null &&
+          Number(enrolment.program.earlyBirdPrice) > 0 &&
+          enrolment.program?.earlyBirdDeadline &&
+          new Date() < new Date(enrolment.program.earlyBirdDeadline)
+          ? Number(enrolment.program.earlyBirdPrice)
+          : undefined;
+      const expectedAmount =
+        existingPayment?.amount ??
+        enrolment.batch?.price ??
+        activeEarlyBirdPrice ??
+        enrolment.program?.price;
+      const expectedCurrency =
+        existingPayment?.currency ??
+        enrolment.batch?.currency ??
+        enrolment.program?.currency ??
+        'USD';
 
       // Detect Stripe Adaptive Pricing (Customer charged locally in INR/AED while core settles in USD)
       const currencyConversion = dataObj.currency_conversion;
@@ -661,11 +712,11 @@ export class PaymentWebhookController {
         const invoiceNumber = `INV-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
         const localPaymentDisclosure = isAdaptivePricing
           ? {
-              paidCurrency: currency.toUpperCase(),
-              paidAmount: amount,
-              fxRate: currencyConversion?.fx_rate || null,
-              provider: 'Stripe Adaptive Pricing',
-            }
+            paidCurrency: currency.toUpperCase(),
+            paidAmount: amount,
+            fxRate: currencyConversion?.fx_rate || null,
+            provider: 'Stripe Adaptive Pricing',
+          }
           : undefined;
 
         if (typeof (tx.invoice as any)?.upsert === 'function') {
@@ -759,9 +810,9 @@ export class PaymentWebhookController {
 
       // Invalidate caches
       if (this.cacheHelper) {
-        await this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`).catch(() => {});
-        await this.cacheHelper.invalidateNamespace('enrolments').catch(() => {});
-        await this.cacheHelper.invalidateNamespace('batches').catch(() => {});
+        await this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`).catch(() => { });
+        await this.cacheHelper.invalidateNamespace('enrolments').catch(() => { });
+        await this.cacheHelper.invalidateNamespace('batches').catch(() => { });
       }
 
       // Send confirmation email
@@ -919,8 +970,8 @@ export class PaymentWebhookController {
 
       // Invalidate cache immediately so LMS locks down steps
       if (this.cacheHelper) {
-        await this.cacheHelper.invalidateNamespace(`enrolment_progression:${targetEnrolmentId}`).catch(() => {});
-        await this.cacheHelper.invalidateNamespace('enrolments').catch(() => {});
+        await this.cacheHelper.invalidateNamespace(`enrolment_progression:${targetEnrolmentId}`).catch(() => { });
+        await this.cacheHelper.invalidateNamespace('enrolments').catch(() => { });
       }
 
       return {

@@ -25,6 +25,14 @@ export class TestSimulateWebhookDto {
 
   @IsString()
   @IsOptional()
+  eventRegistrationId?: string;
+
+  @IsString()
+  @IsOptional()
+  userId?: string;
+
+  @IsString()
+  @IsOptional()
   idempotencyKey?: string;
 
   @IsString()

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { isOptimisable, type Course } from "@/lib/courses";
 import { stripFormatting } from "./FormattedText";
+import LocalizedCoursePrice from "./LocalizedCoursePrice";
 
 /**
  * Course card used on the landing page and the course pages, in the same style
@@ -56,6 +57,11 @@ export default function CourseCard({ course }: { course: Course }) {
             {stripFormatting(course.body)}
           </span>
         </span>
+        {typeof course.price === "number" && !isNaN(course.price) && course.price > 0 && (
+          <span className="mt-3 block text-sm font-semibold text-ink">
+            <LocalizedCoursePrice amountUSD={course.price} variant="inline" />
+          </span>
+        )}
       </span>
 
       {/* the action, in its own footer */}

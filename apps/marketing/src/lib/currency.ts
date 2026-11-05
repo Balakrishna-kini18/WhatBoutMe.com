@@ -42,11 +42,28 @@ export const CURRENCY_CONFIGS: Record<SupportedDisplayCurrency, CurrencyConfig> 
  * 4. Default: USD
  */
 export function detectUserCurrency(userCountry?: string | null): SupportedDisplayCurrency {
+  // 1. If explicit userCountry is provided (e.g. from user session or profile), evaluate it first
+  if (userCountry) {
+    const normalized = userCountry.trim().toLowerCase();
+    if (normalized === "india" || normalized === "in") return "INR";
+    if (
+      normalized === "united arab emirates" ||
+      normalized === "uae" ||
+      normalized === "ae" ||
+      normalized === "dubai"
+    ) {
+      return "AED";
+    }
+    if (normalized === "united states" || normalized === "us" || normalized === "usa") {
+      return "USD";
+    }
+  }
+
   if (typeof window === "undefined") {
     return "USD";
   }
 
-  // 1. Check user manual override in localStorage
+  // 2. Check user manual override in localStorage
   try {
     const saved = localStorage.getItem("wbm_currency");
     if (saved && (saved === "INR" || saved === "AED" || saved === "USD")) {
@@ -54,8 +71,8 @@ export function detectUserCurrency(userCountry?: string | null): SupportedDispla
     }
   } catch {}
 
-  // 2. Check signed-in user's country from profile
-  const effectiveCountry = userCountry || getStoredUserCountry();
+  // 3. Check signed-in user's country from localStorage
+  const effectiveCountry = getStoredUserCountry();
   if (effectiveCountry) {
     const normalized = effectiveCountry.trim().toLowerCase();
     if (normalized === "india" || normalized === "in") return "INR";
@@ -72,7 +89,7 @@ export function detectUserCurrency(userCountry?: string | null): SupportedDispla
     }
   }
 
-  // 3. Auto-detect from visitor's browser timezone
+  // 4. Auto-detect from visitor's browser timezone
   try {
     const systemTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
     const detectedCountry = findCountryByTimezone(systemTz);

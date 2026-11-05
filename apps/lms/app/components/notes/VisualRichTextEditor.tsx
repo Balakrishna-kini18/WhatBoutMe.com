@@ -25,6 +25,7 @@ export function VisualRichTextEditor({
   const effectiveMinHeight = minHeight ?? (compact ? 88 : 180);
   const editorRef = useRef<HTMLDivElement>(null);
   const isInitializedRef = useRef(false);
+  const lastEmittedHtmlRef = useRef<string>(initialContent || '');
 
   // Active format state for toolbar feedback
   const [isBold, setIsBold] = useState(false);
@@ -42,7 +43,9 @@ export function VisualRichTextEditor({
     const text = stripHtmlToPlainText(editorRef.current.innerText || editorRef.current.textContent || '');
     const empty = isEditorEmpty(html);
     setIsEmpty(empty);
-    onChange(empty ? '' : html, text);
+    const valueToSend = empty ? '' : html;
+    lastEmittedHtmlRef.current = valueToSend;
+    onChange(valueToSend, text);
   }, [onChange]);
 
   // Inspects current cursor/selection formatting
@@ -74,21 +77,36 @@ export function VisualRichTextEditor({
   useEffect(() => {
     if (!editorRef.current) return;
 
-    // Convert any legacy markdown or raw text to clean, sanitized semantic HTML
-    const formattedHtml = sanitizeNoteHtml(markdownToHtml(initialContent || ''));
-
-    const isResetting = isInitializedRef.current && initialContent === '' && editorRef.current.innerHTML !== '';
-    const hasExternalUpdate = Boolean(initialContent) && editorRef.current.innerHTML !== formattedHtml;
-
-    // Only update innerHTML if it differs from current content to prevent cursor jumping
-    if (!isInitializedRef.current || isResetting || hasExternalUpdate) {
+    // 1. Initial mount
+    if (!isInitializedRef.current) {
+      const formattedHtml = sanitizeNoteHtml(markdownToHtml(initialContent || ''));
       editorRef.current.innerHTML = formattedHtml;
       setIsEmpty(isEditorEmpty(formattedHtml));
       isInitializedRef.current = true;
+      lastEmittedHtmlRef.current = initialContent || '';
+      if (autoFocus && editorRef.current) {
+        editorRef.current.focus();
+      }
+      return;
     }
 
-    if (autoFocus && editorRef.current) {
-      editorRef.current.focus();
+    // 2. Ignore updates that are echoes of what this editor just emitted
+    if (initialContent === lastEmittedHtmlRef.current) {
+      return;
+    }
+
+    // 3. If user is currently focused and typing in this editor, never overwrite DOM innerHTML
+    const isFocused = typeof document !== 'undefined' && document.activeElement === editorRef.current;
+    if (isFocused) {
+      return;
+    }
+
+    // 4. True external update (e.g. parent loaded a different note or reset the form)
+    const formattedHtml = sanitizeNoteHtml(markdownToHtml(initialContent || ''));
+    if (editorRef.current.innerHTML !== formattedHtml) {
+      editorRef.current.innerHTML = formattedHtml;
+      setIsEmpty(isEditorEmpty(formattedHtml));
+      lastEmittedHtmlRef.current = initialContent || '';
     }
   }, [initialContent, autoFocus]);
 

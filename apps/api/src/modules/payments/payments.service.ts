@@ -86,31 +86,51 @@ export class PaymentsService {
     pAed?: number | null,
     pUsd?: number | null,
   ): number {
-    if (targetCurrency === 'INR' && pInr && Number(pInr) > 0) return Number(pInr);
-    if (targetCurrency === 'AED' && pAed && Number(pAed) > 0) return Number(pAed);
-    if (targetCurrency === 'USD' && pUsd && Number(pUsd) > 0) return Number(pUsd);
+    if (targetCurrency === 'INR' && pInr && Number(pInr) > 0) return Math.round(Number(pInr) * 100) / 100;
+    if (targetCurrency === 'AED' && pAed && Number(pAed) > 0) return Math.round(Number(pAed) * 100) / 100;
+    if (targetCurrency === 'USD' && pUsd && Number(pUsd) > 0) return Math.round(Number(pUsd) * 100) / 100;
 
     const origCurrency = (pCurrency || 'USD').toUpperCase();
-    let inUSD = Number(base) || 0;
+    const numBase = Number(base) || 0;
+
+    // If source and target currency match, keep exact 2-decimal precision (e.g. 9.95 USD)
+    if (origCurrency === targetCurrency) {
+      return Math.round(numBase * 100) / 100;
+    }
+
+    let inUSD = numBase;
     if (origCurrency === 'INR') inUSD = inUSD / 83;
     else if (origCurrency === 'AED') inUSD = inUSD / 3.67;
 
     if (targetCurrency === 'INR') return Math.round(inUSD * 83);
-    if (targetCurrency === 'AED') return Math.round(inUSD * 3.67);
-    return Math.round(inUSD);
+    if (targetCurrency === 'AED') return Math.round(inUSD * 3.67 * 100) / 100;
+    return Math.round(inUSD * 100) / 100;
   }
 
   /**
    * Generates or validates price for course or event in the requested currency
    */
-  async resolvePricing(targetType: 'ENROLMENT' | 'EVENT', targetId: string, requestedCurrency?: SupportedCurrency) {
+  async resolvePricing(
+    targetType: 'ENROLMENT' | 'EVENT',
+    targetId: string,
+    requestedCurrency?: SupportedCurrency,
+    enrolmentId?: string,
+  ) {
     const currency: SupportedCurrency = requestedCurrency || 'USD';
 
     if (targetType === 'ENROLMENT') {
-      const enrolment = await this.prisma.enrolment.findUnique({
-        where: { id: targetId },
+      const candidateEnrolmentId = enrolmentId || targetId;
+      let enrolment = await this.prisma.enrolment.findUnique({
+        where: { id: candidateEnrolmentId },
         include: { program: true, batch: true },
       });
+
+      if (!enrolment && targetId !== candidateEnrolmentId) {
+        enrolment = await this.prisma.enrolment.findUnique({
+          where: { id: targetId },
+          include: { program: true, batch: true },
+        });
+      }
 
       if (!enrolment) {
         // Fallback: targetId could be programId
@@ -158,7 +178,7 @@ export class PaymentsService {
    * Initializes a checkout order session via Payment Provider abstraction
    */
   async createCheckoutSession(dto: CreateCheckoutSessionDto, user?: any) {
-    const pricing = await this.resolvePricing(dto.targetType, dto.targetId, dto.currency);
+    const pricing = await this.resolvePricing(dto.targetType, dto.targetId, dto.currency, dto.enrolmentId);
     let discountAmount = 0;
     let couponId: string | undefined = undefined;
 

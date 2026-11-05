@@ -1,3 +1,17 @@
+export function extractProgramCoverImage(description?: string | null): string | null {
+  if (!description) return null;
+  const match = description.match(/^Image:\s*(.+)$/im);
+  if (match && match[1]?.trim()) return match[1].trim();
+  try {
+    const parsed = JSON.parse(description);
+    if (parsed && typeof parsed === 'object') {
+      if (typeof parsed.image === 'string' && parsed.image.trim()) return parsed.image.trim();
+      if (typeof parsed.coverImage === 'string' && parsed.coverImage.trim()) return parsed.coverImage.trim();
+    }
+  } catch {}
+  return null;
+}
+
 import { getAppUrls } from '../../common/config/app-urls.js';
 import {
   Injectable,
@@ -243,7 +257,7 @@ export class AuthService {
               status: true,
               programId: true,
               program: {
-                select: { title: true, status: true }
+                select: { title: true, status: true, description: true }
               }
             }
           }
@@ -390,6 +404,7 @@ export class AuthService {
       batchName: e.batch?.name,
       programId: e.batch?.programId,
       programTitle: e.batch?.program?.title,
+      coverImage: extractProgramCoverImage(e.batch?.program?.description),
       status: e.status,
     })) || [];
 
@@ -569,7 +584,7 @@ export class AuthService {
               select: {
                 name: true, status: true, programId: true,
                 program: {
-                  select: { title: true, status: true }
+                  select: { title: true, status: true, description: true }
                 }
               }
             }
@@ -583,6 +598,7 @@ export class AuthService {
           batchName: batch.name,
           programId: pId,
           programTitle: enrolment.batch?.program?.title || program.title,
+          coverImage: extractProgramCoverImage(enrolment.batch?.program?.description || program.description),
           status: enrolment.status,
           progress: 0,
         });
@@ -1065,7 +1081,7 @@ export class AuthService {
                   batch: {
                     select: {
                       name: true, status: true, programId: true,
-                      program: { select: { title: true, status: true } }
+                      program: { select: { title: true, status: true, description: true } }
                     }
                   }
                 }
@@ -1237,6 +1253,7 @@ export class AuthService {
         batchName: e.batch?.name,
         programId: e.batch?.programId,
         programTitle: e.batch?.program?.title || 'Unknown',
+        coverImage: extractProgramCoverImage(e.batch?.program?.description),
         status: e.status,
         progress,
         totalItems,

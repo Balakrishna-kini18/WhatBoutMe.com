@@ -24,6 +24,7 @@ interface Enrolled {
   programId: string;
   programTitle: string;
   batchName: string;
+  coverImage?: string | null;
   status?: string;
   progress: number;
   totalItems?: number;
@@ -479,7 +480,7 @@ function CoursesContent() {
                   <div className={styles.cardCover}>
                     <Link href={resume} aria-label={`${action}: ${course.programTitle}`} className={styles.cardCoverLink}>
                       <Image
-                        src={courseImageFor(course.programTitle)}
+                        src={courseImageFor(course.programTitle, course.coverImage)}
                         alt={course.programTitle}
                         width={360}
                         height={225}
@@ -611,7 +612,7 @@ function CoursesContent() {
                 <div key={course.enrolmentId} className={styles.courseCardRow}>
                   <div className={styles.cardRowCover}>
                     <Image
-                      src={courseImageFor(course.programTitle)}
+                      src={courseImageFor(course.programTitle, course.coverImage)}
                       alt={course.programTitle}
                       width={240}
                       height={140}

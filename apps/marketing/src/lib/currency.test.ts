@@ -76,10 +76,10 @@ describe("currency.ts - formatPriceWithCurrency", () => {
     expect(res.isConverted).toBe(false);
   });
 
-  it("converts USD to INR using live rate (86.50) when no custom INR price is set", () => {
+  it("converts USD to INR using live rate (94.60) when no custom INR price is set", () => {
     const res = formatPriceWithCurrency(6000, "INR");
-    // 6000 * 86.50 = 519000
-    expect(res.primaryFormatted).toBe("₹5,19,000");
+    // 6000 * 94.60 = 567600
+    expect(res.primaryFormatted).toBe("₹5,67,600");
     expect(res.usdFormatted).toBe("$6,000.00");
     expect(res.isConverted).toBe(true);
   });
@@ -110,3 +110,4 @@ describe("currency.ts - formatPriceWithCurrency", () => {
     expect(res.usdFormatted).toBe("$6,000.00");
   });
 });
+

@@ -6,6 +6,7 @@ import {
   detectUserCurrency,
   formatPriceWithCurrency,
   setUserCurrencyPreference,
+  fetchLiveExchangeRates,
   CURRENCY_CONFIGS,
   type SupportedDisplayCurrency,
   type PriceOverrides,
@@ -45,6 +46,7 @@ export default function LocalizedCoursePrice({
 
   useEffect(() => {
     setMounted(true);
+    fetchLiveExchangeRates();
   }, []);
 
   // Close dropdown on outside click

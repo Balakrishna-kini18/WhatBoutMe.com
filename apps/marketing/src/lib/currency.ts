@@ -15,7 +15,7 @@ export const CURRENCY_CONFIGS: Record<SupportedDisplayCurrency, CurrencyConfig> 
     code: "INR",
     symbol: "₹",
     name: "Indian Rupee",
-    fxRateToUSD: 86.50,
+    fxRateToUSD: 94.60,
     flag: "🇮🇳",
   },
   AED: {
@@ -38,6 +38,62 @@ export interface PriceOverrides {
   priceAED?: number | null;
   priceINR?: number | null;
   priceUSD?: number | null;
+}
+
+/**
+ * Returns the effective exchange rate for a given currency to USD.
+ * Checks localStorage for live updated rates fetched in the background.
+ */
+export function getFxRate(currency: SupportedDisplayCurrency): number {
+  if (currency === "USD") return 1.0;
+  if (currency === "AED") return 3.6725; // UAE Dirham is legally pegged to the US Dollar
+
+  if (typeof localStorage !== "undefined") {
+    try {
+      const cached = localStorage.getItem("wbm_live_fx_inr");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed?.rate && typeof parsed.rate === "number" && parsed.rate > 50 && parsed.rate < 200) {
+          return parsed.rate;
+        }
+      }
+    } catch {}
+  }
+  return CURRENCY_CONFIGS[currency].fxRateToUSD;
+}
+
+/**
+ * Fetches real-time live currency exchange rates from open exchange API.
+ * Updates local cache and notifies UI components automatically if market values move.
+ */
+export async function fetchLiveExchangeRates(): Promise<void> {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") return;
+
+  // Cache live rate for 4 hours
+  try {
+    const cached = localStorage.getItem("wbm_live_fx_inr");
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed?.timestamp && Date.now() - parsed.timestamp < 4 * 3600 * 1000) {
+        return;
+      }
+    }
+  } catch {}
+
+  try {
+    const res = await fetch("https://open.er-api.com/v6/latest/USD");
+    if (!res.ok) return;
+    const data = await res.json();
+    const inrRate = Number(data?.rates?.INR);
+    if (inrRate && !isNaN(inrRate) && inrRate > 50 && inrRate < 200) {
+      CURRENCY_CONFIGS.INR.fxRateToUSD = inrRate;
+      localStorage.setItem(
+        "wbm_live_fx_inr",
+        JSON.stringify({ rate: inrRate, timestamp: Date.now() })
+      );
+      window.dispatchEvent(new CustomEvent("wbm-currency-change", { detail: "INR" }));
+    }
+  } catch {}
 }
 
 /**
@@ -175,6 +231,7 @@ export function formatPriceWithCurrency(
   }
 
   const config = CURRENCY_CONFIGS[currency];
+  const activeRate = getFxRate(currency);
 
   // If the admin explicitly provided a custom price for INR or AED, prioritize it
   let convertedAmount: number;
@@ -193,7 +250,7 @@ export function formatPriceWithCurrency(
   ) {
     convertedAmount = Math.round(overrides.priceAED);
   } else {
-    convertedAmount = Math.round(effectiveUSD * config.fxRateToUSD);
+    convertedAmount = Math.round(effectiveUSD * activeRate);
   }
 
   let primaryFormatted: string;

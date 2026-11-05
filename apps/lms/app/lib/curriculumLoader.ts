@@ -221,7 +221,7 @@ export async function loadAllEnrolledCourses(
         return {
           courseId: programId,
           title: progTitle,
-          thumbnailUrl: courseImageFor(progTitle),
+          thumbnailUrl: courseImageFor(progTitle, item.coverImage),
           status: (item.progress >= 100 ? 'completed' : 'in_progress') as 'in_progress' | 'completed',
           completedLessons: item.completedItems || 0,
           totalLessons: item.totalItems || 10,

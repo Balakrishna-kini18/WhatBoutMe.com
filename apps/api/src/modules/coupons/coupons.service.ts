@@ -233,7 +233,7 @@ export class CouponsService {
    * Creates a new coupon with validation and audit logging.
    */
   async createCoupon(dto: CreateCouponDto, actorId?: string) {
-    const normalizedCode = dto.code.trim().toUpperCase();
+    const normalizedCode = dto.code.trim().toUpperCase().replace(/\s+/g, '-');
 
     // Check unique code
     const existing = await this.prisma.coupon.findUnique({
@@ -329,7 +329,7 @@ export class CouponsService {
 
     let normalizedCode = coupon.code;
     if (dto.code && dto.code.trim().toUpperCase() !== coupon.code) {
-      normalizedCode = dto.code.trim().toUpperCase();
+      normalizedCode = dto.code.trim().toUpperCase().replace(/\s+/g, '-');
       const existing = await this.prisma.coupon.findUnique({
         where: { code: normalizedCode },
       });
@@ -479,7 +479,7 @@ export class CouponsService {
    * course scope, and instalment applicability.
    */
   async validateCoupon(dto: ValidateCouponDto) {
-    const normalizedCode = dto.code.trim().toUpperCase();
+    const normalizedCode = dto.code.trim().toUpperCase().replace(/\s+/g, '-');
     const reqCurrency = dto.currency.trim().toUpperCase();
 
     const coupon = await this.prisma.coupon.findUnique({
@@ -608,6 +608,24 @@ export class CouponsService {
       currency: string;
     },
   ) {
+    // 0. Idempotency guard: prevent duplicate redemption on retries or page reloads
+    if (params.paymentId) {
+      const existing = await tx.couponRedemption.findFirst({
+        where: { paymentId: params.paymentId },
+      });
+      if (existing) {
+        return existing;
+      }
+    }
+    if (params.enrolmentId) {
+      const existing = await tx.couponRedemption.findFirst({
+        where: { enrolmentId: params.enrolmentId, couponId: params.couponId },
+      });
+      if (existing) {
+        return existing;
+      }
+    }
+
     // 1. Atomic update conditional on maxTotalUses
     const rowsAffected = await tx.$executeRaw`
       UPDATE "Coupon"

@@ -13,6 +13,7 @@ interface Enrolled {
   programId: string;
   programTitle: string;
   batchName: string;
+  coverImage?: string | null;
   progress: number;
 }
 
@@ -571,7 +572,7 @@ export default function CertificatesPage() {
                       {/* Course Thumbnail */}
                       <div className={styles.courseThumbWrap}>
                         <Image
-                          src={courseImageFor(course.programTitle)}
+                          src={courseImageFor(course.programTitle, course.coverImage)}
                           alt={course.programTitle}
                           width={104}
                           height={68}

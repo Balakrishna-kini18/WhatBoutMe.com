@@ -186,6 +186,20 @@ function CheckoutSuccessContent() {
               : "Your payment has been authorized and is settling with your bank. Access will unlock momentarily."}
           </p>
 
+          {/* Confirmed Amount Badge */}
+          {data?.amount !== undefined && (
+            <div style={{ marginBottom: "1.25rem" }}>
+              <div style={{ fontSize: "1.75rem", fontWeight: 800, color: "#166534" }}>
+                ${Number(data.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} USD
+              </div>
+              {data?.localPayment && (
+                <div style={{ fontSize: "0.85rem", color: "#64748B", marginTop: "0.25rem" }}>
+                  Paid locally: <strong>{data.localPayment.localAmount} {data.localPayment.localCurrency}</strong> via Stripe Adaptive Pricing
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Invoice Badge */}
           {data?.invoiceNumber && (
             <div

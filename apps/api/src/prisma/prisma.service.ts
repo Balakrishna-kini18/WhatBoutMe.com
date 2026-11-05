@@ -66,14 +66,18 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     super({
       datasources: configuredUrl
         ? {
-            db: {
-              url: configuredUrl,
-            },
-          }
+          db: {
+            url: configuredUrl,
+          },
+        }
         : undefined,
       log: [
         { emit: 'event', level: 'query' },
       ],
+      transactionOptions: {
+        maxWait: 15000,
+        timeout: 30000,
+      },
     });
 
     globalThis.__prismaServiceInstance = this;
@@ -112,7 +116,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
             console.warn(`[Prisma] Slow Query Warning: ${e.duration}ms - ${e?.query ?? ''}`);
           }
         });
-      } catch {}
+      } catch { }
       return;
     }
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -136,7 +140,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
           console.warn(`[Prisma] Slow Query Warning: ${e.duration}ms - ${e?.query ?? ''}`);
         }
       });
-    } catch {}
+    } catch { }
   }
 
   async onModuleDestroy() {

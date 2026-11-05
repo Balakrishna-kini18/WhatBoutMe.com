@@ -883,7 +883,14 @@ export class QuizzesService {
       } else {
         // SINGLE_CHOICE or single-correct choice
         const subOptId =
-          userSubmission?.selectedOptionId || userSubmission?.optionId;
+          userSubmission?.selectedOptionId ||
+          userSubmission?.optionId ||
+          (Array.isArray(userSubmission?.selectedOptionIds)
+            ? userSubmission.selectedOptionIds[0]
+            : undefined) ||
+          (Array.isArray(userSubmission?.optionIds)
+            ? userSubmission.optionIds[0]
+            : undefined);
         if (subOptId) {
           selectedOptionId = subOptId;
           let matchingOption = question.options.find((o) => o.id === subOptId);

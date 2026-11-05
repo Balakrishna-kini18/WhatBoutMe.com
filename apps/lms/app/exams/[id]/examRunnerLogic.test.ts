@@ -6,6 +6,7 @@ import {
   toggleMultiSelectOption,
   isAnswerComplete,
   safeParseResponseJson,
+  buildExamAnswersPayload,
 } from "./examRunnerLogic";
 
 describe("LMS Exam Runner Logic", () => {
@@ -92,5 +93,48 @@ describe("LMS Exam Runner Logic", () => {
       questionCount: 50,
       questions: [],
     });
+  });
+
+  it("emits both singular and plural option ID fields for MULTIPLE_CHOICE and SINGLE_CHOICE questions in buildExamAnswersPayload", () => {
+    const questions = [
+      { id: "q-mc", type: "MULTIPLE_CHOICE" },
+      { id: "q-sc", type: "SINGLE_CHOICE" },
+      { id: "q-ms", type: "MULTI_SELECT" },
+      { id: "q-sa", type: "SHORT_ANSWER" },
+    ];
+    const selectedAnswers = {
+      "q-mc": "opt-mc-1",
+      "q-sc": "opt-sc-1",
+      "q-ms": "opt-ms-1,opt-ms-2",
+      "q-sa": "Detailed reflection response",
+    };
+
+    const payload = buildExamAnswersPayload(questions, selectedAnswers);
+    expect(payload).toEqual([
+      {
+        questionId: "q-mc",
+        optionId: "opt-mc-1",
+        selectedOptionId: "opt-mc-1",
+        selectedOptionIds: ["opt-mc-1"],
+        optionIds: ["opt-mc-1"],
+      },
+      {
+        questionId: "q-sc",
+        optionId: "opt-sc-1",
+        selectedOptionId: "opt-sc-1",
+        selectedOptionIds: ["opt-sc-1"],
+        optionIds: ["opt-sc-1"],
+      },
+      {
+        questionId: "q-ms",
+        selectedOptionIds: ["opt-ms-1", "opt-ms-2"],
+        optionIds: ["opt-ms-1", "opt-ms-2"],
+      },
+      {
+        questionId: "q-sa",
+        textResponse: "Detailed reflection response",
+        textAnswer: "Detailed reflection response",
+      },
+    ]);
   });
 });

@@ -592,6 +592,9 @@ export class ExamsService {
     }
 
     // ── Validate Submitted Questions ──────────────────────────────────────────
+    const savedAnswersList: any[] = Array.isArray(answersJson?.savedAnswers)
+      ? answersJson.savedAnswers
+      : [];
     const submittedAnswers = dto.answers || [];
     for (const sub of submittedAnswers) {
       if (!boundQuestionMap.has(sub.questionId)) {
@@ -601,7 +604,18 @@ export class ExamsService {
       }
     }
 
-    const submittedMap = new Map(submittedAnswers.map((a) => [a.questionId, a]));
+    const submittedMap = new Map<string, any>();
+    for (const saved of savedAnswersList) {
+      if (saved?.questionId && boundQuestionMap.has(saved.questionId)) {
+        submittedMap.set(saved.questionId, saved);
+      }
+    }
+    for (const sub of submittedAnswers) {
+      submittedMap.set(sub.questionId, {
+        ...(submittedMap.get(sub.questionId) || {}),
+        ...sub,
+      });
+    }
 
     // Query database questions with correct answers for authoritative server evaluation
     const dbQuestions = await this.prisma.question.findMany({
@@ -683,10 +697,25 @@ export class ExamsService {
         }
       } else {
         const selectedOptId =
-          submission?.selectedOptionId || submission?.optionId;
+          submission?.selectedOptionId ||
+          submission?.optionId ||
+          (Array.isArray(submission?.selectedOptionIds) &&
+          submission.selectedOptionIds.length > 0
+            ? submission.selectedOptionIds[0]
+            : undefined) ||
+          (Array.isArray(submission?.optionIds) &&
+          submission.optionIds.length > 0
+            ? submission.optionIds[0]
+            : undefined);
         if (selectedOptId) {
-          const correctOpt = dbQ.options.find((o) => o.isCorrect);
-          if (correctOpt && correctOpt.id === selectedOptId) {
+          const matchedOpt =
+            dbQ.options.find((o) => o.id === selectedOptId) ||
+            dbQ.options.find(
+              (o) =>
+                o.text.trim().toLowerCase() ===
+                String(selectedOptId).trim().toLowerCase(),
+            );
+          if (matchedOpt && matchedOpt.isCorrect) {
             isCorrect = true;
           }
         }

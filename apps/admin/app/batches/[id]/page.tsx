@@ -151,10 +151,6 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
       setLearnerSortOrder("asc");
     }
   };
-  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
-  const [allUsers, setAllUsers] = useState<any[]>([]);
-  const [selectedUserToAssign, setSelectedUserToAssign] = useState("");
-  const [isAssigning, setIsAssigning] = useState(false);
 
   // Mission Statement Approval Modal State
   const [missionModalLearner, setMissionModalLearner] = useState<EnrolledLearner | null>(null);
@@ -512,15 +508,10 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
   // Load Managers, Programs & Users for Dropdowns
   const loadSupportingData = useCallback(async () => {
     try {
-      const [usersRes, managersRes, programsRes] = await Promise.all([
-        cachedFetch(`${API_URL}/users?limit=100`),
+      const [managersRes, programsRes] = await Promise.all([
         cachedFetch(`${API_URL}/users?role=MANAGER`),
         cachedFetch(`${API_URL}/programs`),
       ]);
-      if (usersRes.ok) {
-        const json = await usersRes.json();
-        setAllUsers(Array.isArray(json) ? json : json?.data || []);
-      }
       if (managersRes.ok) {
         const json = await managersRes.json();
         setManagers(Array.isArray(json) ? json : json?.data || []);
@@ -809,48 +800,6 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
     URL.revokeObjectURL(url);
     toastSuccess(`Exported ${filteredLearners.length} learner records to CSV.`);
   }, [learners, filteredLearners, batch?.name, toastSuccess, toastError]);
-
-  // Assign Learner Handler
-  const handleAssignLearner = async () => {
-    setIsAssigning(true);
-    try {
-      if (!selectedUserToAssign) {
-        toastError("Please select an existing user to assign.");
-        setIsAssigning(false);
-        return;
-      }
-
-      const res = await cachedFetch(`${API_URL}/enrollments`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          userId: selectedUserToAssign,
-          programId: batch.programId,
-          batchId: batch.id,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error(await errorMessage(res, "Could not assign learner to batch."));
-      }
-
-      const created = await res.json();
-      if (created?.status === "WAITLIST") {
-        toastSuccess("Batch is at full capacity. Learner was placed on the waitlist.");
-      } else {
-        toastSuccess("Learner successfully assigned to batch.");
-      }
-      setIsAssignModalOpen(false);
-      setSelectedUserToAssign("");
-      await loadBatchData();
-    } catch (err: any) {
-      toastError(err.message || "Failed to assign learner.");
-    } finally {
-      setIsAssigning(false);
-    }
-  };
 
   // Approve Mission Statement Handler
   const handleApproveMission = async () => {
@@ -1458,15 +1407,6 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                 </svg>
                 <span>Export CSV</span>
               </button>
-
-              <button
-                type="button"
-                className={styles.primaryBtn}
-                onClick={() => setIsAssignModalOpen(true)}
-                style={{ fontSize: "0.82rem", padding: "0.4rem 0.85rem" }}
-              >
-                + Assign Learner
-              </button>
             </div>
           </div>
 
@@ -1561,10 +1501,8 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                         description={
                           learnerSearch
                             ? `No students found matching "${learnerSearch}". Try clearing your query.`
-                            : "No learners have been confirmed for this batch yet. Assign an existing learner to get started."
+                            : "No learners have been confirmed for this batch yet."
                         }
-                        actionLabel="+ Assign Learner"
-                        onAction={() => setIsAssignModalOpen(true)}
                       />
                     </td>
                   </tr>
@@ -2957,90 +2895,6 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
             )}
           </div>
         </section>
-      )}
-
-
-
-      {/* ─────────────────────────────────────────────────────────────────────────
-          MODAL: ASSIGN LEARNER TO BATCH
-          ───────────────────────────────────────────────────────────────────────── */}
-      {isAssignModalOpen && (
-        <div className={styles.modalOverlay} onClick={() => setIsAssignModalOpen(false)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()} style={{ maxWidth: "520px" }}>
-            <div className={styles.modalHeader}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 700 }}>Assign Learner to {batch?.name}</h3>
-                <p style={{ margin: "4px 0 0", fontSize: "0.82rem", color: "var(--text-muted)", fontWeight: 400 }}>
-                  Select an existing user to provision an active enrollment in <strong>{batch?.program?.title}</strong> for this batch.
-                </p>
-              </div>
-              <button
-                type="button"
-                className={styles.closeBtn}
-                onClick={() => setIsAssignModalOpen(false)}
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className={styles.modalBody} style={{ padding: "1.25rem" }}>
-              <div
-                style={{
-                  background: "#fdf8f0",
-                  border: "1px solid #f3e5ce",
-                  borderRadius: "8px",
-                  padding: "0.75rem 1rem",
-                  fontSize: "0.8rem",
-                  color: "#78350f",
-                  lineHeight: "1.4",
-                  marginBottom: "1.25rem",
-                }}
-              >
-                💡 <strong>Existing Users Only:</strong> Learners self-register via checkout to capture their verified country, timezone, and digital workshop consent. Select an existing user account below to provision an enrollment.
-              </div>
-
-              <div className={styles.formGroup}>
-                <label style={{ fontSize: "0.85rem", fontWeight: 600, display: "block", marginBottom: "0.35rem" }}>
-                  Select Existing User <span style={{ color: "var(--accent-primary)" }}>*</span>
-                </label>
-                <CustomSelect
-                  value={selectedUserToAssign}
-                  onChange={setSelectedUserToAssign}
-                  options={[
-                    { value: "", label: "Search and select a user..." },
-                    ...allUsers.map((u) => ({
-                      value: u.id,
-                      label: `${u.name || "Unnamed"} (${u.email})`,
-                    })),
-                  ]}
-                  fullWidth
-                  menuMaxHeight="220px"
-                  ariaLabel="Select user"
-                />
-              </div>
-            </div>
-
-            <div className={styles.modalFooter}>
-              <button
-                type="button"
-                className={styles.secondaryBtn}
-                onClick={() => setIsAssignModalOpen(false)}
-                disabled={isAssigning}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className={styles.primaryBtn}
-                onClick={handleAssignLearner}
-                disabled={isAssigning || !selectedUserToAssign}
-              >
-                {isAssigning ? "Assigning..." : "Assign to Batch"}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* ─────────────────────────────────────────────────────────────────────────

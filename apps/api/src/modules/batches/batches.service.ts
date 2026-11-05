@@ -963,67 +963,116 @@ export class BatchesService {
           }
         }
 
-        // 3. Clean up enrolments and all nested progress/attempts
+        // 3. Clean up enrolments or safely migrate them if an alternative batch exists
         const enrolments =
           typeof (tx as any).enrolment?.findMany === 'function'
             ? await (tx as any).enrolment.findMany({
                 where: { batchId: id },
-                select: { id: true },
+                select: { id: true, status: true, userId: true },
               })
             : [];
         const enrolmentIds = enrolments.map((e: any) => e.id);
 
         if (enrolmentIds.length > 0) {
-          if (typeof (tx as any).attendance?.deleteMany === 'function') {
-            await (tx as any).attendance.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
-          }
-          if (typeof (tx as any).unmatchedAttendance?.deleteMany === 'function') {
-            await (tx as any).unmatchedAttendance.deleteMany({ where: { linkedEnrolmentId: { in: enrolmentIds } } });
-          }
-          if (typeof (tx as any).sessionBooking?.deleteMany === 'function') {
-            await (tx as any).sessionBooking.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
-          }
-          if (typeof (tx as any).attempt?.deleteMany === 'function') {
-            await (tx as any).attempt.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
-          }
-          if (typeof (tx as any).examAttempt?.deleteMany === 'function') {
-            await (tx as any).examAttempt.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
-          }
-          if (typeof (tx as any).oralAssessment?.deleteMany === 'function') {
-            await (tx as any).oralAssessment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
-          }
-          if (typeof (tx as any).userLessonProgress?.deleteMany === 'function') {
-            await (tx as any).userLessonProgress.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
-          }
-          if (typeof (tx as any).stepProgress?.deleteMany === 'function') {
-            await (tx as any).stepProgress.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
-          }
-          if (typeof (tx as any).signedAgreement?.deleteMany === 'function') {
-            await (tx as any).signedAgreement.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
-          }
-          if (typeof (tx as any).certificate?.deleteMany === 'function') {
-            await (tx as any).certificate.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
-          }
-          if (typeof (tx as any).couponRedemption?.deleteMany === 'function') {
-            await (tx as any).couponRedemption.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
-          }
+          // If another active or upcoming batch exists for the same program, reassign learners so they don't lose course access
+          const otherBatch =
+            typeof (tx as any).batch?.findFirst === 'function'
+              ? await (tx as any).batch.findFirst({
+                  where: {
+                    programId: batch.programId,
+                    id: { not: id },
+                    status: { in: [BatchStatus.UPCOMING, BatchStatus.ACTIVE] },
+                  },
+                  orderBy: { startDate: 'asc' },
+                })
+              : null;
 
-          // Invoices linked to payments must be deleted before deleting payments
-          if (typeof (tx as any).payment?.findMany === 'function') {
-            const payments = await (tx as any).payment.findMany({
-              where: { enrolmentId: { in: enrolmentIds } },
-              select: { id: true },
+          if (otherBatch) {
+            await (tx as any).enrolment.updateMany({
+              where: { batchId: id },
+              data: { batchId: otherBatch.id },
             });
-            const paymentIds = payments.map((p: any) => p.id);
-            if (paymentIds.length > 0 && typeof (tx as any).invoice?.deleteMany === 'function') {
-              await (tx as any).invoice.deleteMany({ where: { paymentId: { in: paymentIds } } });
+            for (const enr of enrolments) {
+              await this.cacheHelper.invalidateNamespace(`enrolment_progression:${enr.id}`).catch(() => {});
+              await this.cacheHelper.invalidateNamespace(`auth_user:${enr.userId}`).catch(() => {});
             }
-          }
-          if (typeof (tx as any).payment?.deleteMany === 'function') {
-            await (tx as any).payment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
-          }
-          if (typeof (tx as any).enrolment?.deleteMany === 'function') {
-            await (tx as any).enrolment.deleteMany({ where: { id: { in: enrolmentIds } } });
+          } else {
+            // When no other active/upcoming batch exists, move confirmed learners to the Program Waitlist
+            const confirmedLearners = enrolments.filter((e: any) =>
+              [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED].includes(e.status),
+            );
+
+            if (confirmedLearners.length > 0) {
+              let waitlistBatch =
+                typeof (tx as any).batch?.findFirst === 'function'
+                  ? await (tx as any).batch.findFirst({
+                      where: {
+                        programId: batch.programId,
+                        id: { not: id },
+                        name: { contains: 'Waitlist' },
+                      },
+                    })
+                  : null;
+
+              if (!waitlistBatch && typeof (tx as any).batch?.create === 'function') {
+                const prog =
+                  typeof (tx as any).program?.findUnique === 'function'
+                    ? await (tx as any).program.findUnique({
+                        where: { id: batch.programId },
+                        select: { title: true },
+                      })
+                    : null;
+
+                waitlistBatch = await (tx as any).batch.create({
+                  data: {
+                    name: `${prog?.title || 'Program'} (Waitlist Pool)`,
+                    programId: batch.programId,
+                    startDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                    capacity: 500,
+                    status: BatchStatus.UPCOMING,
+                  },
+                });
+              }
+
+              if (waitlistBatch) {
+                const confirmedIds = confirmedLearners.map((e: any) => e.id);
+                await (tx as any).enrolment.updateMany({
+                  where: { id: { in: confirmedIds } },
+                  data: {
+                    batchId: waitlistBatch.id,
+                    status: EnrolmentStatus.WAITLIST,
+                  },
+                });
+
+                for (const enr of confirmedLearners) {
+                  await this.cacheHelper.invalidateNamespace(`enrolment_progression:${enr.id}`).catch(() => {});
+                  await this.cacheHelper.invalidateNamespace(`auth_user:${enr.userId}`).catch(() => {});
+                }
+              }
+
+              // Clean up any remaining unconfirmed/provisional checkouts
+              const confirmedSet = new Set(confirmedLearners.map((e: any) => e.id));
+              const unconfirmedIds = enrolmentIds.filter((eid: string) => !confirmedSet.has(eid));
+              if (unconfirmedIds.length > 0) {
+                if (typeof (tx as any).sessionBooking?.deleteMany === 'function') {
+                  await (tx as any).sessionBooking.deleteMany({ where: { enrolmentId: { in: unconfirmedIds } } });
+                }
+                if (typeof (tx as any).enrolment?.deleteMany === 'function') {
+                  await (tx as any).enrolment.deleteMany({ where: { id: { in: unconfirmedIds } } });
+                }
+              }
+            } else {
+              // All enrolments in batch are unconfirmed / abandoned: clean up
+              if (typeof (tx as any).sessionBooking?.deleteMany === 'function') {
+                await (tx as any).sessionBooking.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+              }
+              if (typeof (tx as any).payment?.deleteMany === 'function') {
+                await (tx as any).payment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+              }
+              if (typeof (tx as any).enrolment?.deleteMany === 'function') {
+                await (tx as any).enrolment.deleteMany({ where: { id: { in: enrolmentIds } } });
+              }
+            }
           }
         }
 

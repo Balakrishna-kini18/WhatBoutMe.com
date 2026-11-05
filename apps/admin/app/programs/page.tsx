@@ -70,6 +70,7 @@ export default function ProgramsPage() {
   // Deletion modal state
   const [programToDelete, setProgramToDelete] = useState<Program | null>(null);
   const [isDeletingProgram, setIsDeletingProgram] = useState(false);
+  const isDeletingRef = useRef(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const getAuthHeaders = (): Record<string, string> => {
@@ -178,7 +179,8 @@ export default function ProgramsPage() {
   };
 
   const confirmDeleteProgram = async () => {
-    if (!programToDelete) return;
+    if (!programToDelete || isDeletingRef.current || isDeletingProgram) return;
+    isDeletingRef.current = true;
     setIsDeletingProgram(true);
     setDeleteError(null);
     try {
@@ -193,6 +195,12 @@ export default function ProgramsPage() {
       } else {
         const errorData = await res.json().catch(() => null);
         const errMsg = errorData?.error?.message ?? errorData?.message ?? "Failed to delete program";
+        if (errMsg.includes("Record to delete does not exist") || errMsg.includes("Program not found") || res.status === 404) {
+          toastSuccess(`Program "${programToDelete.title}" removed.`);
+          setPrograms((prev) => prev.filter((p) => p.id !== programToDelete.id));
+          setProgramToDelete(null);
+          return;
+        }
         setDeleteError(errMsg);
         toastError(`Failed to delete program: ${errMsg}`);
       }
@@ -202,6 +210,7 @@ export default function ProgramsPage() {
       toastError(`Failed to delete program: ${errMsg}`);
     } finally {
       setIsDeletingProgram(false);
+      isDeletingRef.current = false;
     }
   };
 

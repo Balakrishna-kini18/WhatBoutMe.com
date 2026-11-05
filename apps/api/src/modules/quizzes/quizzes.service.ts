@@ -1451,7 +1451,7 @@ export class QuizzesService {
   async createQuestionForQuiz(quizId: string, dto: CreateQuestionDto) {
     const quiz = await this.prisma.quiz.findUnique({
       where: { id: quizId },
-      include: { step: true },
+      select: { id: true, stepId: true },
     });
 
     if (!quiz) {
@@ -1474,53 +1474,44 @@ export class QuizzesService {
       }
     }
 
-    const created = await this.prisma.$transaction(async (tx) => {
-      const question = await tx.question.create({
-        data: {
-          quizId: quiz.id,
-          stepId: quiz.stepId,
-          type: questionType,
-          text: dto.text.trim(),
-          imageUrl: dto.imageUrl?.trim() || null,
-          gradingMode: dto.gradingMode?.trim() || 'SELF_REFLECTION_AUTO_PASS',
-          minCharacters: dto.minCharacters ?? 10,
-          explanation: dto.explanation?.trim() || null,
-          points: dto.points ?? 1,
+    const optionsData =
+      !isTextQuestion && Array.isArray(dto.options) && dto.options.length > 0
+        ? dto.options.map((opt, idx) => ({
+            text: (opt.text ?? '').trim() || (opt.imageUrl ? `Option ${String.fromCharCode(65 + idx)}` : ''),
+            imageUrl: opt.imageUrl?.trim() || null,
+            isCorrect: Boolean(opt.isCorrect),
+            order: opt.order ?? idx + 1,
+          }))
+        : [];
+
+    const created = await this.prisma.question.create({
+      data: {
+        quizId: quiz.id,
+        stepId: quiz.stepId,
+        type: questionType,
+        text: dto.text.trim(),
+        imageUrl: dto.imageUrl?.trim() || null,
+        gradingMode: dto.gradingMode?.trim() || 'SELF_REFLECTION_AUTO_PASS',
+        minCharacters: dto.minCharacters ?? 10,
+        explanation: dto.explanation?.trim() || null,
+        points: dto.points ?? 1,
+        options: optionsData.length > 0 ? { create: optionsData } : undefined,
+      },
+      include: {
+        options: {
+          orderBy: { order: 'asc' },
         },
-      });
-
-      if (!isTextQuestion && Array.isArray(dto.options) && dto.options.length > 0) {
-        const optionsData = dto.options.map((opt, idx) => ({
-          questionId: question.id,
-          text: (opt.text ?? '').trim() || (opt.imageUrl ? `Option ${String.fromCharCode(65 + idx)}` : ''),
-          imageUrl: opt.imageUrl?.trim() || null,
-          isCorrect: Boolean(opt.isCorrect),
-          order: opt.order ?? idx + 1,
-        }));
-
-        await tx.option.createMany({
-          data: optionsData,
-        });
-      }
-
-      return tx.question.findUniqueOrThrow({
-        where: { id: question.id },
-        include: {
-          options: {
-            orderBy: { order: 'asc' },
-          },
-        },
-      });
+      },
     });
 
-    await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
+    this.safeInvalidateTags(['programs', 'quizzes', 'steps']).catch(() => {});
     return created;
   }
 
   async updateQuestion(questionId: string, dto: UpdateQuestionDto) {
     const existing = await this.prisma.question.findUnique({
       where: { id: questionId },
-      include: { options: true },
+      select: { id: true, type: true },
     });
 
     if (!existing) {
@@ -1542,50 +1533,43 @@ export class QuizzesService {
       }
     }
 
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const questionUpdateData: any = {};
-      if (dto.text !== undefined) questionUpdateData.text = dto.text.trim();
-      if (dto.type !== undefined) questionUpdateData.type = dto.type;
-      if (dto.imageUrl !== undefined) questionUpdateData.imageUrl = dto.imageUrl?.trim() || null;
-      if (dto.gradingMode !== undefined) questionUpdateData.gradingMode = dto.gradingMode?.trim() || 'SELF_REFLECTION_AUTO_PASS';
-      if (dto.minCharacters !== undefined) questionUpdateData.minCharacters = dto.minCharacters;
-      if (dto.explanation !== undefined) questionUpdateData.explanation = dto.explanation?.trim() || null;
-      if (dto.points !== undefined) questionUpdateData.points = dto.points;
+    const questionUpdateData: any = {};
+    if (dto.text !== undefined) questionUpdateData.text = dto.text.trim();
+    if (dto.type !== undefined) questionUpdateData.type = dto.type;
+    if (dto.imageUrl !== undefined) questionUpdateData.imageUrl = dto.imageUrl?.trim() || null;
+    if (dto.gradingMode !== undefined) questionUpdateData.gradingMode = dto.gradingMode?.trim() || 'SELF_REFLECTION_AUTO_PASS';
+    if (dto.minCharacters !== undefined) questionUpdateData.minCharacters = dto.minCharacters;
+    if (dto.explanation !== undefined) questionUpdateData.explanation = dto.explanation?.trim() || null;
+    if (dto.points !== undefined) questionUpdateData.points = dto.points;
 
-      await tx.question.update({
-        where: { id: questionId },
-        data: questionUpdateData,
-      });
-
-      if (dto.options !== undefined) {
-        await tx.option.deleteMany({
-          where: { questionId },
-        });
-
-        if (!isTextQuestion && Array.isArray(dto.options) && dto.options.length > 0) {
-          await tx.option.createMany({
-            data: dto.options.map((opt, idx) => ({
-              questionId,
+    if (dto.options !== undefined) {
+      const optionsData =
+        !isTextQuestion && Array.isArray(dto.options) && dto.options.length > 0
+          ? dto.options.map((opt, idx) => ({
               text: (opt.text ?? '').trim() || (opt.imageUrl ? `Option ${String.fromCharCode(65 + idx)}` : ''),
               imageUrl: opt.imageUrl?.trim() || null,
               isCorrect: Boolean(opt.isCorrect),
               order: opt.order ?? idx + 1,
-            })),
-          });
-        }
-      }
+            }))
+          : [];
 
-      return tx.question.findUniqueOrThrow({
-        where: { id: questionId },
-        include: {
-          options: {
-            orderBy: { order: 'asc' },
-          },
+      questionUpdateData.options = {
+        deleteMany: {},
+        create: optionsData,
+      };
+    }
+
+    const updated = await this.prisma.question.update({
+      where: { id: questionId },
+      data: questionUpdateData,
+      include: {
+        options: {
+          orderBy: { order: 'asc' },
         },
-      });
+      },
     });
 
-    await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
+    this.safeInvalidateTags(['programs', 'quizzes', 'steps']).catch(() => {});
     return updated;
   }
 
@@ -1623,7 +1607,7 @@ export class QuizzesService {
       where: { id: questionId },
     });
 
-    await this.safeInvalidateTags(['programs', 'quizzes', 'steps']);
+    this.safeInvalidateTags(['programs', 'quizzes', 'steps']).catch(() => {});
     return {
       success: true,
       message: 'Question deleted successfully',

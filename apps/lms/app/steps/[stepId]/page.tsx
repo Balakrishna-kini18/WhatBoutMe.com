@@ -2769,7 +2769,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                       n.noteText.toLowerCase().includes(notesSearch.toLowerCase())
                     )
                     .map((n) => (
-                      <div key={n.id} className={styles.savedNoteCard}>
+                      <div key={n.id} className={styles.savedNoteRowCard}>
                         <div className={styles.savedNoteLeft}>
                           <div className={styles.noteIconSquare}>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

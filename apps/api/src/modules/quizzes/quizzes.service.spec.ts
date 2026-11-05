@@ -1257,8 +1257,7 @@ describe('D1-036: QuizzesService - Question Bank & Quiz Engine', () => {
         ],
       };
 
-      prismaMock.question.create.mockResolvedValueOnce({ id: 'q-created-1' });
-      prismaMock.question.findUniqueOrThrow.mockResolvedValueOnce(createdQuestion);
+      prismaMock.question.create.mockResolvedValueOnce(createdQuestion);
 
       const res = await service.createQuestionForQuiz('quiz-step-1', {
         text: 'New question text',
@@ -1271,7 +1270,6 @@ describe('D1-036: QuizzesService - Question Bank & Quiz Engine', () => {
 
       expect(res.id).toBe('q-created-1');
       expect(prismaMock.question.create).toHaveBeenCalled();
-      expect(prismaMock.option.createMany).toHaveBeenCalled();
       expect(cacheHelperMock.invalidateNamespace).toHaveBeenCalledWith('programs');
     });
 
@@ -1312,7 +1310,7 @@ describe('D1-036: QuizzesService - Question Bank & Quiz Engine', () => {
           { id: 'opt-new-2', text: 'No', isCorrect: false },
         ],
       };
-      prismaMock.question.findUniqueOrThrow.mockResolvedValueOnce(updated);
+      prismaMock.question.update.mockResolvedValueOnce(updated);
 
       const res = await service.updateQuestion('q-upd-1', {
         text: 'Updated question text',
@@ -1324,8 +1322,6 @@ describe('D1-036: QuizzesService - Question Bank & Quiz Engine', () => {
 
       expect(res.text).toBe('Updated question text');
       expect(prismaMock.question.update).toHaveBeenCalled();
-      expect(prismaMock.option.deleteMany).toHaveBeenCalled();
-      expect(prismaMock.option.createMany).toHaveBeenCalled();
       expect(cacheHelperMock.invalidateNamespace).toHaveBeenCalledWith('programs');
     });
 

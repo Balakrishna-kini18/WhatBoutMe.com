@@ -196,22 +196,24 @@ export default function Step7QuizBuilder({
   };
 
   // Robust Quiz Entity Initializer: handles both /quizzes and /programs/steps/:id/quiz
-  const ensureQuizEntity = async (): Promise<string> => {
+  const ensureQuizEntity = async (updateMeta = false): Promise<string> => {
     const finalPassMark = 0;
     const finalTitle = quizTitle.trim() || `${moduleTitle} Knowledge Check`;
 
     if (quizId) {
-      await cachedFetch(`${API_URL}/quizzes/${quizId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: finalTitle,
-          passMark: finalPassMark,
-          maxAttempts: 999, // Unlimited retakes
-          cooldownHours: 0,
-          quizPlacement,
-        }),
-      });
+      if (updateMeta) {
+        await cachedFetch(`${API_URL}/quizzes/${quizId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: finalTitle,
+            passMark: finalPassMark,
+            maxAttempts: 999, // Unlimited retakes
+            cooldownHours: 0,
+            quizPlacement,
+          }),
+        });
+      }
       return quizId;
     }
 
@@ -438,7 +440,7 @@ export default function Step7QuizBuilder({
     e.preventDefault();
     setIsAddingQuestion(true);
     try {
-      const activeQId = await ensureQuizEntity();
+      const activeQId = await ensureQuizEntity(false);
       const updatedList = await commitDraftQuestion(activeQId);
       if (updatedList) {
         toast.success(editingQuestionId ? "Question updated successfully." : "Question added.");
@@ -478,7 +480,7 @@ export default function Step7QuizBuilder({
   const handleSaveAll = async () => {
     setIsSavingAll(true);
     try {
-      const activeQId = await ensureQuizEntity();
+      const activeQId = await ensureQuizEntity(true);
       let currentQuestions = questions;
 
       // Auto-commit draft question if user has started composing

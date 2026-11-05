@@ -3445,11 +3445,8 @@ export interface ExamQuestionsPoolResponse {
 }
 
 export async function fetchProgramExamQuestions(programId: string): Promise<ExamQuestionsPoolResponse> {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-  const res = await fetch(`${API_URL}/programs/${programId}/exam/questions`, {
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+  const res = await cachedFetch(`${API_URL}/programs/${programId}/exam/questions`, {
+    skipCache: true,
   });
   if (!res.ok) {
     throw new Error(await errorMessage(res, "Failed to load exam question pool"));

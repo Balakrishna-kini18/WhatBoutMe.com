@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -453,6 +454,16 @@ export class EventsService {
         };
       }
 
+      const regPrice = Number(reg.amount);
+      const isPaidEvent = regPrice > 0;
+      const isProduction = process.env.NODE_ENV === 'production';
+      const isStripeActive = process.env.PAYMENT_PROVIDER === 'STRIPE';
+
+      // Security Guard: Prevent simulation bypass on paid events in production or live Stripe mode
+      if (isPaidEvent && dto.isSimulated && (isProduction || isStripeActive)) {
+        throw new ForbiddenException('Simulated payment verification is disabled for paid events.');
+      }
+
       if (dto.gatewayOrderId?.startsWith('cs_') && process.env.STRIPE_SECRET_KEY && !dto.isSimulated) {
         try {
           const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -460,8 +471,32 @@ export class EventsService {
           if (session.payment_status !== 'paid') {
             throw new BadRequestException('Payment has not yet completed on Stripe.');
           }
+
+          // Anti-Spoofing: Verify session ownership
+          const sessionRegId = session.metadata?.registrationId || session.client_reference_id;
+          if (sessionRegId && sessionRegId !== reg.id && reg.gatewayOrderId !== session.id) {
+            throw new BadRequestException('Payment session does not match this event registration.');
+          }
+
+          // Anti-Replay: Verify session has not already been used for another paid registration
+          const existingUsed = await this.prisma.eventRegistration.findFirst({
+            where: {
+              id: { not: reg.id },
+              gatewayOrderId: dto.gatewayOrderId,
+              paymentStatus: EventPaymentStatus.PAID,
+            },
+          });
+          if (existingUsed) {
+            throw new BadRequestException('This Stripe payment session has already been redeemed for another ticket.');
+          }
+
+          // Amount Verification
+          const expectedMinor = Math.round(regPrice * 100);
+          if (session.amount_total && session.amount_total < expectedMinor) {
+            throw new BadRequestException('Stripe payment amount is less than required registration price.');
+          }
         } catch (err: any) {
-          if (err instanceof BadRequestException) throw err;
+          if (err instanceof BadRequestException || err instanceof ForbiddenException) throw err;
           this.logger.error(`Stripe session retrieval verification error: ${err?.message}`);
           throw new BadRequestException('Could not verify payment status with Stripe.');
         }

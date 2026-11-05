@@ -640,6 +640,7 @@ export class InvoicesService {
       total: invoice.amount,
       paymentMethod: 'Verified Payment / Test Bypass',
       paymentReference: invoice.payment?.stripeSessionId || invoice.id,
+      localPayment: taxFields.localPayment || null,
     };
 
     const buffer = await this.invoicePdfService.generateInvoicePdf(pdfData);

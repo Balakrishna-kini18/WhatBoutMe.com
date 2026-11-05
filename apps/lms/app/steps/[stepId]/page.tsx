@@ -198,7 +198,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         const parsed = JSON.parse(rawUser);
         if (parsed.name) setUserName(parsed.name);
         if (parsed.email) setUserEmail(parsed.email);
-      } catch (e) {}
+      } catch (e) { }
     }
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (token) {
@@ -209,7 +209,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           if (payload.email) setUserEmail(payload.email);
           if (payload.name) setUserName(payload.name);
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     if (typeof window !== "undefined") {
@@ -246,7 +246,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             }
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     }
   }, [stepId]);
 
@@ -269,7 +269,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           }),
         );
       }
-    } catch (e) {}
+    } catch (e) { }
   }, [stepId, quizAnswers, activeQuizIndex, activeTab, lastQuizResult?.passed]);
 
   // 2. Fetch Step & Progression with automatic retry & cache resilience
@@ -329,18 +329,18 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       let progData: EnrolmentProgressionResponse | null = null;
       const progPromise = stepData.programId
         ? cachedFetch(`${API_URL}/progression/me/${stepData.programId}`, {
-            headers: getAuthHeaders(),
-            ttlMs: forceFresh ? 0 : 5_000,
-            skipCache: forceFresh,
-          })
+          headers: getAuthHeaders(),
+          ttlMs: forceFresh ? 0 : 5_000,
+          skipCache: forceFresh,
+        })
         : Promise.resolve(null);
 
       const quizPromise = stepData.quiz?.id
         ? cachedFetch(`${API_URL}/quizzes/${stepData.quiz.id}/attempt`, {
-            headers: getAuthHeaders(),
-            ttlMs: forceFresh ? 0 : 5_000,
-            skipCache: forceFresh,
-          }).catch(() => null)
+          headers: getAuthHeaders(),
+          ttlMs: forceFresh ? 0 : 5_000,
+          skipCache: forceFresh,
+        }).catch(() => null)
         : Promise.resolve(null);
 
       const [progRes, quizAttemptRes] = await Promise.all([progPromise, quizPromise]);
@@ -420,7 +420,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             })
           );
           setLessonProgress(lpMap);
-        } catch (e) {}
+        } catch (e) { }
       }
 
       // Determine authoritative active lesson without intermediate jump
@@ -463,7 +463,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
               }
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
     } catch (err: any) {
       console.error(err);
@@ -558,7 +558,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     try {
       const data = await fetchLessonNotes(lessonId);
       setNotes(data || []);
-    } catch (e) {}
+    } catch (e) { }
   }, []);
 
   useEffect(() => {
@@ -603,7 +603,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
     (currentStepProg as any)?.quiz?.isPassed ||
     (currentStepProg?.isCompleted && lastQuizResult?.passed !== false)
   );
-  
+
   const stepMaterials = useMemo(() => {
     const list: Array<{
       id: string;
@@ -855,6 +855,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
       // 6. Otherwise navigate back to dashboard
       router.push("/dashboard");
+      router.push("/");
     },
     [
       handleMaterialComplete,
@@ -915,7 +916,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
             }
           }
         })
-        .catch(() => {})
+        .catch(() => { })
         .finally(() => {
           isStartingQuizRef.current = false;
         });
@@ -930,7 +931,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       const plainText = notePlainText || stripHtmlToPlainText(noteInput);
       const titleToSave = noteTitle.trim() || extractPlainTextPreview(plainText, 50) || "Untitled Note";
       const tsToSave = capturedTimestamp !== null ? capturedTimestamp : (currentVideoTime > 0 ? Math.floor(currentVideoTime) : null);
-      
+
       const payload = serializeCreateNotePayload({
         courseId: step?.programId,
         moduleId: stepId,
@@ -1041,7 +1042,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const handleDeleteNote = async (id: string) => {
     try {
       await deleteStudentNote(id);
-    } catch (e) {}
+    } catch (e) { }
     setNotes((prev) => prev.filter((n) => n.id !== id));
   };
 
@@ -1311,7 +1312,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
       setActiveAttemptId(null);
       try {
         localStorage.removeItem(`wbm_step_quiz_${stepId}`);
-      } catch (e) {}
+      } catch (e) { }
       invalidateCache("/progression");
       invalidateCache("/programs");
       void fetchStepAndProgression(false, true);
@@ -1545,8 +1546,8 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
   const quizQuestions: QuizQuestion[] = (attemptQuestions && attemptQuestions.length > 0)
     ? attemptQuestions
     : (step?.quiz?.questions && step.quiz.questions.length > 0)
-    ? step.quiz.questions
-    : [];
+      ? step.quiz.questions
+      : [];
 
   const safeActiveIndex = quizQuestions.length > 0
     ? Math.min(Math.max(0, activeQuizIndex), quizQuestions.length - 1)
@@ -1781,11 +1782,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                     setSelectedMediaId(l.id);
                   }
                 }}
-                className={`${styles.flowStepItem} ${
-                  isSelected ? styles.flowStepItemActive : ""
-                } ${isDone ? styles.flowStepItemCompleted : ""} ${
-                  isLocked ? styles.flowStepItemLocked : ""
-                }`}
+                className={`${styles.flowStepItem} ${isSelected ? styles.flowStepItemActive : ""
+                  } ${isDone ? styles.flowStepItemCompleted : ""} ${isLocked ? styles.flowStepItemLocked : ""
+                  }`}
                 title={isLocked ? "Complete previous parts to unlock" : `Part ${idx + 1}: ${l.title}`}
                 aria-current={isSelected ? "step" : undefined}
               >
@@ -1811,11 +1810,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   setActiveTab("materials");
                 }
               }}
-              className={`${styles.flowStepItem} ${
-                activeTab === "materials" ? styles.flowStepItemActive : ""
-              } ${areAllMaterialsDone && isMaterialsUnlocked ? styles.flowStepItemCompleted : ""} ${
-                !isMaterialsUnlocked ? styles.flowStepItemLocked : ""
-              }`}
+              className={`${styles.flowStepItem} ${activeTab === "materials" ? styles.flowStepItemActive : ""
+                } ${areAllMaterialsDone && isMaterialsUnlocked ? styles.flowStepItemCompleted : ""} ${!isMaterialsUnlocked ? styles.flowStepItemLocked : ""
+                }`}
               style={{
                 opacity: !isMaterialsUnlocked ? 0.65 : 1,
                 cursor: !isMaterialsUnlocked ? "not-allowed" : "pointer",
@@ -1860,11 +1857,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   setActiveTab("quiz");
                 }
               }}
-              className={`${styles.flowStepItem} ${
-                activeTab === "quiz" ? styles.flowStepItemActive : ""
-              } ${isQuizAlreadyPassed ? styles.flowStepItemCompleted : ""} ${
-                !isQuizUnlocked ? styles.flowStepItemLocked : ""
-              }`}
+              className={`${styles.flowStepItem} ${activeTab === "quiz" ? styles.flowStepItemActive : ""
+                } ${isQuizAlreadyPassed ? styles.flowStepItemCompleted : ""} ${!isQuizUnlocked ? styles.flowStepItemLocked : ""
+                }`}
               title={
                 !isQuizUnlocked
                   ? `Complete all parts to unlock Quiz (${completedLessonsCount}/${totalLessonsCount} completed)`
@@ -1888,10 +1883,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   {isQuizAlreadyPassed
                     ? "Passed"
                     : quizQuestions.length > 0 && isQuizUnlocked
-                    ? `${quizQuestions.length} Questions`
-                    : !isQuizUnlocked
-                    ? "Locked"
-                    : "Assessment"}
+                      ? `${quizQuestions.length} Questions`
+                      : !isQuizUnlocked
+                        ? "Locked"
+                        : "Assessment"}
                 </span>
               </div>
               {activeTab === "quiz" && <span className={styles.flowStepActiveIndicator} aria-hidden="true" />}
@@ -1899,805 +1894,804 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           )}
         </nav>
 
-          {/* TAB 1: VIDEO LESSON & NOTES COMPANION (SCREEN 3) */}
-          {activeTab === "video" && (
-            <div className={styles.lessonWorkspaceGrid}>
-              {/* Left Column: 16:9 Compulsory Player + Lesson Details + Multi-Video Selector */}
-              <div className={styles.videoLeftColumn}>
-                {/* Unified Video & Lesson Details in the Same Box */}
-                <div className={styles.unifiedVideoCard}>
-                  {/* Dynamic Video Title Header Above Video */}
-                  <div className={styles.videoPlayerHeader}>
-                    <div className={styles.videoHeaderLeft}>
-                      <span className={styles.videoPartBadge}>
-                        Part {activeLessonIndex + 1} of {videoLessons.length}
-                      </span>
-                      <h2 className={styles.videoLessonTitle}>
-                        {currentMedia?.title || "Video Lesson"}
-                      </h2>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      {lessonProgress[currentMedia?.id]?.isCompleted && (
-                        <span className={styles.watchedPill}>✓ Watched</span>
-                      )}
-                    </div>
+        {/* TAB 1: VIDEO LESSON & NOTES COMPANION (SCREEN 3) */}
+        {activeTab === "video" && (
+          <div className={styles.lessonWorkspaceGrid}>
+            {/* Left Column: 16:9 Compulsory Player + Lesson Details + Multi-Video Selector */}
+            <div className={styles.videoLeftColumn}>
+              {/* Unified Video & Lesson Details in the Same Box */}
+              <div className={styles.unifiedVideoCard}>
+                {/* Dynamic Video Title Header Above Video */}
+                <div className={styles.videoPlayerHeader}>
+                  <div className={styles.videoHeaderLeft}>
+                    <span className={styles.videoPartBadge}>
+                      Part {activeLessonIndex + 1} of {videoLessons.length}
+                    </span>
+                    <h2 className={styles.videoLessonTitle}>
+                      {currentMedia?.title || "Video Lesson"}
+                    </h2>
                   </div>
-
-                  {/* 16:9 Video Viewport (Strictly for Video Lessons) */}
-                  {currentMedia?.mediaUrl ? (
-                    <div className={styles.videoPlayerViewport}>
-                      <CompulsoryVideoPlayer
-                        key={currentMedia.id}
-                        lessonId={currentMedia.id}
-                        videoSrc={resolveVideoSrc(currentMedia.mediaUrl)}
-                        userName={userName}
-                        userEmail={userEmail}
-                        durationSec={currentMedia.durationSec || 0}
-                        initialPositionSec={lessonProgress[currentMedia.id]?.lastPositionSec || 0}
-                        onHeartbeat={handlePlayerHeartbeat}
-                        onComplete={() => handleLessonComplete(currentMedia.id, false)}
-                        onVideoEnd={() => handleLessonComplete(currentMedia.id, true)}
-                        onTimeUpdate={(sec, dur) => {
-                          setCurrentVideoTime(sec);
-                          if (dur && dur > 0) {
-                            setLiveVideoDuration(dur);
-                          }
-                        }}
-                        seekToTime={videoSeekTarget}
-                        nextStepInfo={
-                          nextAdvanceTarget
-                            ? {
-                                title: nextAdvanceTarget.title,
-                                label: nextAdvanceTarget.label,
-                                onAdvance: nextAdvanceTarget.onClick,
-                              }
-                            : null
-                        }
-                      />
-                    </div>
-                  ) : (
-                    <div className={styles.videoPlayerViewport} style={{ display: "flex", flexDirection: "column", gap: 8, color: "#a8a29e", alignItems: "center", justifyContent: "center" }}>
-                      <span style={{ fontSize: "2rem" }}>▶</span>
-                      <span>No video stream attached to this lesson</span>
-                    </div>
-                  )}
-
-                  {/* Dynamic Lesson Details placed directly below the video in the same box */}
-                  <div className={styles.lessonDetailsCard}>
-                    {/* Dynamic description / content only (static placeholder removed) */}
-                    {(currentMedia?.content || currentMedia?.description) && (
-                      <p className={styles.lessonParagraph}>
-                        {currentMedia.content || currentMedia.description}
-                      </p>
-                    )}
-
-                    {/* Lesson navigation row (Previous Part / Next Part / Take Module Quiz) */}
-                    {renderLessonNavigationRow()}
-
-                    {/* Dynamic Learning Objectives only (static placeholder removed) */}
-                    {Array.isArray((step as any)?.learningObjectives) && (step as any).learningObjectives.length > 0 && (
-                      <div className={styles.objectivesBox} style={{ marginTop: "1rem" }}>
-                        <h5 className={styles.objectivesTitle}>Learning Objectives</h5>
-                        <ul className={styles.objectivesList}>
-                          {(step as any).learningObjectives.map((obj: string, i: number) => (
-                            <li key={i} className={styles.objectiveItem}>
-                              <span className={styles.objectiveIcon}>✓</span>
-                              <span>{obj}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    {lessonProgress[currentMedia?.id]?.isCompleted && (
+                      <span className={styles.watchedPill}>✓ Watched</span>
                     )}
                   </div>
                 </div>
-              </div>
 
-              {/* Right Column: Personal Notes Widget & About Step Card */}
-              <div className={styles.notesRightCol}>
-                {/* Notes & Highlights Card with Rich Parity Format */}
-                <div className={styles.notesCompanionCard}>
-                  <div className={styles.notesCompanionHeader}>
-                    <div>
-                      <h4 className={styles.notesCompanionTitle}>My Notes &amp; Highlights</h4>
-                      <span className={styles.notesCompanionMeta}>
-                        Personal • Private to you • {notes.length} saved
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingModalNote({
-                          courseId: step?.programId,
-                          courseName: step?.program?.title,
-                          moduleId: stepId,
-                          moduleName: step?.title,
-                          lessonId: currentMedia?.id,
-                          lessonName: currentMedia?.title,
-                          noteTitle: noteTitle,
-                          noteContent: noteInput,
-                          isFavorite: noteIsFavorite,
-                          videoTimestampSec: capturedTimestamp ?? (currentVideoTime > 0 ? Math.floor(currentVideoTime) : null),
-                        });
-                        setIsNoteModalOpen(true);
+                {/* 16:9 Video Viewport (Strictly for Video Lessons) */}
+                {currentMedia?.mediaUrl ? (
+                  <div className={styles.videoPlayerViewport}>
+                    <CompulsoryVideoPlayer
+                      key={currentMedia.id}
+                      lessonId={currentMedia.id}
+                      videoSrc={resolveVideoSrc(currentMedia.mediaUrl)}
+                      userName={userName}
+                      userEmail={userEmail}
+                      durationSec={currentMedia.durationSec || 0}
+                      initialPositionSec={lessonProgress[currentMedia.id]?.lastPositionSec || 0}
+                      onHeartbeat={handlePlayerHeartbeat}
+                      onComplete={() => handleLessonComplete(currentMedia.id, false)}
+                      onVideoEnd={() => handleLessonComplete(currentMedia.id, true)}
+                      onTimeUpdate={(sec, dur) => {
+                        setCurrentVideoTime(sec);
+                        if (dur && dur > 0) {
+                          setLiveVideoDuration(dur);
+                        }
                       }}
-                      style={{
-                        background: "none",
-                        border: "1px solid #fed7aa",
-                        borderRadius: 6,
-                        padding: "2px 7px",
-                        color: "#ea580c",
-                        fontSize: "0.74rem",
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 3,
-                      }}
-                      title="Open Full Note Editor"
-                    >
-                      <span>⤢</span> Full Editor
-                    </button>
+                      seekToTime={videoSeekTarget}
+                      nextStepInfo={
+                        nextAdvanceTarget
+                          ? {
+                            title: nextAdvanceTarget.title,
+                            label: nextAdvanceTarget.label,
+                            onAdvance: nextAdvanceTarget.onClick,
+                          }
+                          : null
+                      }
+                    />
                   </div>
-
-                  {/* Rich Note Writing Form (Screenshot 3 style) */}
-                  <div className={styles.noteFormContainer}>
-                    {/* Note Title + Star Favorite + Timestamp Row */}
-                    <div className={styles.noteTitleRow}>
-                      <input
-                        type="text"
-                        value={noteTitle}
-                        onChange={(e) => setNoteTitle(e.target.value.slice(0, 100))}
-                        placeholder="Note title (e.g., Installation Steps)..."
-                        className={styles.noteTitleInput}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setNoteIsFavorite(!noteIsFavorite)}
-                        className={`${styles.noteStarToggleBtn} ${noteIsFavorite ? styles.noteStarToggleBtnActive : ""}`}
-                        title={noteIsFavorite ? "Remove favorite" : "Mark as favorite"}
-                        aria-label="Toggle favorite"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill={noteIsFavorite ? "#f59e0b" : "none"} stroke={noteIsFavorite ? "#f59e0b" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setCapturedTimestamp(capturedTimestamp !== null ? null : Math.floor(currentVideoTime))}
-                        className={styles.noteTimestampCaptureBtn}
-                        title="Click to capture or clear current video timestamp"
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <circle cx="12" cy="12" r="10" />
-                          <polyline points="12 6 12 12 16 14" />
-                        </svg>
-                        <span>{formatSecondsToTimestamp(capturedTimestamp !== null ? capturedTimestamp : Math.floor(currentVideoTime))}</span>
-                      </button>
-                    </div>
-
-                    {/* Visual Rich Text Canvas - WYSIWYG, No programmer tokens/HTML visible */}
-                    <div style={{ marginTop: 6, marginBottom: 6 }}>
-                      <VisualRichTextEditor
-                        key={noteEditorResetKey}
-                        initialContent={noteInput}
-                        onChange={(html, text) => {
-                          setNoteInput(html);
-                          setNotePlainText(text);
-                        }}
-                        placeholder="Write your thoughts, reflections, insights, or key takeaways here..."
-                        minHeight={85}
-                        compact
-                      />
-                    </div>
-
-                    {/* Action Bar */}
-                    <div className={styles.noteToolbarRow} style={{ marginTop: 6 }}>
-                      <span style={{ fontSize: "0.72rem", color: "#a8a29e" }}>
-                        {(notePlainText || stripHtmlToPlainText(noteInput)).length}/5000
-                      </span>
-
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        {(noteTitle || !isEditorEmpty(noteInput) || noteIsFavorite || capturedTimestamp !== null) && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNoteTitle("");
-                              setNoteInput("");
-                              setNotePlainText("");
-                              setNoteIsFavorite(false);
-                              setCapturedTimestamp(null);
-                              setNoteEditorResetKey((k) => k + 1);
-                            }}
-                            className={styles.btnSecondaryOutline}
-                            style={{ padding: "0.35rem 0.65rem", fontSize: "0.76rem" }}
-                          >
-                            Cancel
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={handleSaveNote}
-                          disabled={(isEditorEmpty(noteInput) && !noteTitle.trim()) || isSavingNote}
-                          className={styles.btnPrimaryOrange}
-                          style={{ padding: "0.4rem 0.95rem", fontSize: "0.8rem", fontWeight: 700 }}
-                        >
-                          {isSavingNote ? "Saving..." : "Save Note"}
-                        </button>
-                      </div>
-                    </div>
+                ) : (
+                  <div className={styles.videoPlayerViewport} style={{ display: "flex", flexDirection: "column", gap: 8, color: "#a8a29e", alignItems: "center", justifyContent: "center" }}>
+                    <span style={{ fontSize: "2rem" }}>▶</span>
+                    <span>No video stream attached to this lesson</span>
                   </div>
+                )}
 
-                  {/* Saved Notes Feed with Debounced Search & Sort */}
-                  {notes.length > 0 && (
-                    <>
-                      <div className={styles.savedNotesHeader}>
-                        <div className={styles.savedNotesHeading}>
-                          <span>Your Notes</span>
-                          <span className={styles.savedNotesHeadingBadge}>({displayedNotes.length})</span>
-                        </div>
+                {/* Dynamic Lesson Details placed directly below the video in the same box */}
+                <div className={styles.lessonDetailsCard}>
+                  {/* Dynamic description / content only (static placeholder removed) */}
+                  {(currentMedia?.content || currentMedia?.description) && (
+                    <p className={styles.lessonParagraph}>
+                      {currentMedia.content || currentMedia.description}
+                    </p>
+                  )}
 
-                        <div className={styles.savedNotesControls}>
-                          <select
-                            value={notesSort}
-                            onChange={(e) => setNotesSort(e.target.value as any)}
-                            className={styles.savedNotesSortSelect}
-                            aria-label="Sort notes"
-                          >
-                            <option value="recent">Recent</option>
-                            <option value="oldest">Oldest</option>
-                            <option value="favorite">Favorites</option>
-                          </select>
+                  {/* Lesson navigation row (Previous Part / Next Part / Take Module Quiz) */}
+                  {renderLessonNavigationRow()}
 
-                          <div className={styles.savedNotesSearchBox}>
-                            <span className={styles.savedNotesSearchIcon}>
-                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <circle cx="11" cy="11" r="8" />
-                                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                              </svg>
-                            </span>
-                            <input
-                              type="text"
-                              value={notesSearch}
-                              onChange={(e) => setNotesSearch(e.target.value)}
-                              placeholder="Search..."
-                              className={styles.savedNotesSearchInput}
-                              aria-label="Filter notes"
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className={styles.savedNotesFeed}>
-                        {displayedNotes.length === 0 ? (
-                          <div style={{ textAlign: "center", padding: "1.25rem 0.5rem", color: "#a8a29e", fontSize: "0.82rem" }}>
-                            No notes match &ldquo;{debouncedNotesSearch}&rdquo;
-                          </div>
-                        ) : (
-                          displayedNotes.map((n, nIdx) => {
-                            const norm = normalizeStudentNote(n);
-                            const cleanHtml = sanitizeNoteHtml(markdownToHtml(norm.noteContent));
-                            const palette = [
-                              { bg: "#fff7ed", color: "#ea580c", border: "#fed7aa" },
-                              { bg: "#eff6ff", color: "#2563eb", border: "#bfdbfe" },
-                              { bg: "#f0fdf4", color: "#16a34a", border: "#bbf7d0" },
-                              { bg: "#faf5ff", color: "#9333ea", border: "#e9d5ff" },
-                            ][nIdx % 4] ?? { bg: "#fff7ed", color: "#ea580c", border: "#fed7aa" };
-
-                            return (
-                              <article key={n.id} className={styles.savedNoteCard}>
-                                <div className={styles.savedNoteTopRow}>
-                                  <div className={styles.savedNoteTopLeft}>
-                                    <span
-                                      className={styles.savedNoteDocIconBadge}
-                                      style={{ background: palette.bg, color: palette.color, border: `1px solid ${palette.border}` }}
-                                      aria-hidden="true"
-                                    >
-                                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                                        <polyline points="14 2 14 8 20 8" />
-                                      </svg>
-                                    </span>
-                                    <h5 className={styles.savedNoteTitle} title={norm.noteTitle}>
-                                      {norm.noteTitle}
-                                    </h5>
-                                  </div>
-
-                                  <div className={styles.savedNoteTopRight}>
-                                    {norm.videoTimestampSec !== null && norm.videoTimestampSec !== undefined && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleSeekToTimestamp(norm.videoTimestampSec)}
-                                        className={styles.savedNoteTimestampBtn}
-                                        title="Jump video to this timestamp"
-                                      >
-                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                          <circle cx="12" cy="12" r="10" />
-                                          <polyline points="12 6 12 12 16 14" />
-                                        </svg>
-                                        <span>{norm.formattedTimestamp}</span>
-                                      </button>
-                                    )}
-
-                                    <button
-                                      type="button"
-                                      onClick={() => handleToggleNoteFavorite(n)}
-                                      className={styles.savedNoteStarBtn}
-                                      style={{ color: norm.isFavorite ? "#f59e0b" : "#cbd5e1" }}
-                                      title={norm.isFavorite ? "Remove favorite" : "Mark as favorite"}
-                                      aria-label="Toggle favorite"
-                                    >
-                                      <svg width="15" height="15" viewBox="0 0 24 24" fill={norm.isFavorite ? "#f59e0b" : "none"} stroke={norm.isFavorite ? "#f59e0b" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                                      </svg>
-                                    </button>
-
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setEditingModalNote(norm);
-                                        setIsNoteModalOpen(true);
-                                      }}
-                                      className={styles.savedNoteEditBtn}
-                                      title="Edit this note in full editor"
-                                      aria-label="Edit note"
-                                    >
-                                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                      </svg>
-                                    </button>
-
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteNote(n.id)}
-                                      className={styles.savedNoteDeleteBtn}
-                                      title="Delete note"
-                                      aria-label="Delete note"
-                                    >
-                                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                        <line x1="18" y1="6" x2="6" y2="18" />
-                                        <line x1="6" y1="6" x2="18" y2="18" />
-                                      </svg>
-                                    </button>
-                                  </div>
-                                </div>
-
-                                <div
-                                  className={styles.savedNoteBody}
-                                  dangerouslySetInnerHTML={{ __html: cleanHtml }}
-                                />
-
-                                <div className={styles.savedNoteFooter}>
-                                  <span>
-                                    {n.updatedAt ? `Updated ${new Date(n.updatedAt).toLocaleDateString()}` : "Saved"}
-                                  </span>
-                                  {norm.videoTimestampSec !== null && norm.videoTimestampSec !== undefined && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSeekToTimestamp(norm.videoTimestampSec)}
-                                      style={{ background: "none", border: "none", color: "#ea580c", fontSize: "0.72rem", fontWeight: 600, cursor: "pointer", padding: 0 }}
-                                    >
-                                      Go to Video &rarr;
-                                    </button>
-                                  )}
-                                </div>
-                              </article>
-                            );
-                          })
-                        )}
-                      </div>
-                    </>
+                  {/* Dynamic Learning Objectives only (static placeholder removed) */}
+                  {Array.isArray((step as any)?.learningObjectives) && (step as any).learningObjectives.length > 0 && (
+                    <div className={styles.objectivesBox} style={{ marginTop: "1rem" }}>
+                      <h5 className={styles.objectivesTitle}>Learning Objectives</h5>
+                      <ul className={styles.objectivesList}>
+                        {(step as any).learningObjectives.map((obj: string, i: number) => (
+                          <li key={i} className={styles.objectiveItem}>
+                            <span className={styles.objectiveIcon}>✓</span>
+                            <span>{obj}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   )}
                 </div>
               </div>
             </div>
-          )}
 
-          {/* TAB 2: KNOWLEDGE CHECK QUIZ (SCREEN 4) */}
-          {activeTab === "quiz" && hasQuiz && (
-            <div>
-              {!isQuizUnlocked ? (
-                <div className={styles.quizLockedCard}>
-                  <div className={styles.quizLockedIcon}>🔒</div>
-                  <h3 className={styles.quizLockedTitle}>Module Quiz Locked</h3>
-                  <p className={styles.quizLockedSubtitle}>
-                    {effectiveQuizPlacement === "AFTER_VIDEO"
-                      ? `This comprehension quiz unlocks automatically after you complete all video lessons in Step ${step?.sequence}.`
-                      : "Please complete the prerequisites to unlock this quiz."}
-                  </p>
-                  <div className={styles.quizLockedProgressWrap}>
-                    <div
-                      className={styles.quizLockedProgressBar}
-                      style={{
-                        width: `${Math.min(100, Math.round((completedLessonsCount / Math.max(totalLessonsCount, 1)) * 100))}%`,
-                      }}
-                    />
+            {/* Right Column: Personal Notes Widget & About Step Card */}
+            <div className={styles.notesRightCol}>
+              {/* Notes & Highlights Card with Rich Parity Format */}
+              <div className={styles.notesCompanionCard}>
+                <div className={styles.notesCompanionHeader}>
+                  <div>
+                    <h4 className={styles.notesCompanionTitle}>My Notes &amp; Highlights</h4>
+                    <span className={styles.notesCompanionMeta}>
+                      Personal • Private to you • {notes.length} saved
+                    </span>
                   </div>
-                  <p className={styles.quizLockedCount}>
-                    {completedLessonsCount} of {totalLessonsCount} lessons watched ({Math.min(100, Math.round((completedLessonsCount / Math.max(totalLessonsCount, 1)) * 100))}%)
-                  </p>
+
                   <button
                     type="button"
-                    onClick={() => setActiveTab("video")}
-                    className={styles.btnPrimaryOrange}
-                    style={{ marginTop: "1rem" }}
+                    onClick={() => {
+                      setEditingModalNote({
+                        courseId: step?.programId,
+                        courseName: step?.program?.title,
+                        moduleId: stepId,
+                        moduleName: step?.title,
+                        lessonId: currentMedia?.id,
+                        lessonName: currentMedia?.title,
+                        noteTitle: noteTitle,
+                        noteContent: noteInput,
+                        isFavorite: noteIsFavorite,
+                        videoTimestampSec: capturedTimestamp ?? (currentVideoTime > 0 ? Math.floor(currentVideoTime) : null),
+                      });
+                      setIsNoteModalOpen(true);
+                    }}
+                    style={{
+                      background: "none",
+                      border: "1px solid #fed7aa",
+                      borderRadius: 6,
+                      padding: "2px 7px",
+                      color: "#ea580c",
+                      fontSize: "0.74rem",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 3,
+                    }}
+                    title="Open Full Note Editor"
                   >
-                    ▶ Watch Video Lessons
+                    <span>⤢</span> Full Editor
                   </button>
                 </div>
-              ) : (
-                <>
-              {quizError && (
-                <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b", padding: "10px 14px", borderRadius: 8, marginBottom: 16, fontSize: "0.86rem" }}>
-                  {quizError}
-                </div>
-              )}
 
-              {isQuizAlreadyPassed ? (
-                /* PASSED COMPLETION CARD */
-                <div
-                  style={{
-                    background: "#f0fdf4",
-                    border: "1px solid #86efac",
-                    color: "#14532d",
-                    padding: "28px 24px",
-                    borderRadius: 14,
-                    marginBottom: 20,
-                    textAlign: "center",
-                  }}
+                {/* Rich Note Writing Form (Screenshot 3 style) */}
+                <div className={styles.noteFormContainer}>
+                  {/* Note Title + Star Favorite + Timestamp Row */}
+                  <div className={styles.noteTitleRow}>
+                    <input
+                      type="text"
+                      value={noteTitle}
+                      onChange={(e) => setNoteTitle(e.target.value.slice(0, 100))}
+                      placeholder="Note title (e.g., Installation Steps)..."
+                      className={styles.noteTitleInput}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setNoteIsFavorite(!noteIsFavorite)}
+                      className={`${styles.noteStarToggleBtn} ${noteIsFavorite ? styles.noteStarToggleBtnActive : ""}`}
+                      title={noteIsFavorite ? "Remove favorite" : "Mark as favorite"}
+                      aria-label="Toggle favorite"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill={noteIsFavorite ? "#f59e0b" : "none"} stroke={noteIsFavorite ? "#f59e0b" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCapturedTimestamp(capturedTimestamp !== null ? null : Math.floor(currentVideoTime))}
+                      className={styles.noteTimestampCaptureBtn}
+                      title="Click to capture or clear current video timestamp"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12 6 12 12 16 14" />
+                      </svg>
+                      <span>{formatSecondsToTimestamp(capturedTimestamp !== null ? capturedTimestamp : Math.floor(currentVideoTime))}</span>
+                    </button>
+                  </div>
+
+                  {/* Visual Rich Text Canvas - WYSIWYG, No programmer tokens/HTML visible */}
+                  <div style={{ marginTop: 6, marginBottom: 6 }}>
+                    <VisualRichTextEditor
+                      key={noteEditorResetKey}
+                      initialContent={noteInput}
+                      onChange={(html, text) => {
+                        setNoteInput(html);
+                        setNotePlainText(text);
+                      }}
+                      placeholder="Write your thoughts, reflections, insights, or key takeaways here..."
+                      minHeight={85}
+                      compact
+                    />
+                  </div>
+
+                  {/* Action Bar */}
+                  <div className={styles.noteToolbarRow} style={{ marginTop: 6 }}>
+                    <span style={{ fontSize: "0.72rem", color: "#a8a29e" }}>
+                      {(notePlainText || stripHtmlToPlainText(noteInput)).length}/5000
+                    </span>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      {(noteTitle || !isEditorEmpty(noteInput) || noteIsFavorite || capturedTimestamp !== null) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNoteTitle("");
+                            setNoteInput("");
+                            setNotePlainText("");
+                            setNoteIsFavorite(false);
+                            setCapturedTimestamp(null);
+                            setNoteEditorResetKey((k) => k + 1);
+                          }}
+                          className={styles.btnSecondaryOutline}
+                          style={{ padding: "0.35rem 0.65rem", fontSize: "0.76rem" }}
+                        >
+                          Cancel
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleSaveNote}
+                        disabled={(isEditorEmpty(noteInput) && !noteTitle.trim()) || isSavingNote}
+                        className={styles.btnPrimaryOrange}
+                        style={{ padding: "0.4rem 0.95rem", fontSize: "0.8rem", fontWeight: 700 }}
+                      >
+                        {isSavingNote ? "Saving..." : "Save Note"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Saved Notes Feed with Debounced Search & Sort */}
+                {notes.length > 0 && (
+                  <>
+                    <div className={styles.savedNotesHeader}>
+                      <div className={styles.savedNotesHeading}>
+                        <span>Your Notes</span>
+                        <span className={styles.savedNotesHeadingBadge}>({displayedNotes.length})</span>
+                      </div>
+
+                      <div className={styles.savedNotesControls}>
+                        <select
+                          value={notesSort}
+                          onChange={(e) => setNotesSort(e.target.value as any)}
+                          className={styles.savedNotesSortSelect}
+                          aria-label="Sort notes"
+                        >
+                          <option value="recent">Recent</option>
+                          <option value="oldest">Oldest</option>
+                          <option value="favorite">Favorites</option>
+                        </select>
+
+                        <div className={styles.savedNotesSearchBox}>
+                          <span className={styles.savedNotesSearchIcon}>
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <circle cx="11" cy="11" r="8" />
+                              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                            </svg>
+                          </span>
+                          <input
+                            type="text"
+                            value={notesSearch}
+                            onChange={(e) => setNotesSearch(e.target.value)}
+                            placeholder="Search..."
+                            className={styles.savedNotesSearchInput}
+                            aria-label="Filter notes"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className={styles.savedNotesFeed}>
+                      {displayedNotes.length === 0 ? (
+                        <div style={{ textAlign: "center", padding: "1.25rem 0.5rem", color: "#a8a29e", fontSize: "0.82rem" }}>
+                          No notes match &ldquo;{debouncedNotesSearch}&rdquo;
+                        </div>
+                      ) : (
+                        displayedNotes.map((n, nIdx) => {
+                          const norm = normalizeStudentNote(n);
+                          const cleanHtml = sanitizeNoteHtml(markdownToHtml(norm.noteContent));
+                          const palette = [
+                            { bg: "#fff7ed", color: "#ea580c", border: "#fed7aa" },
+                            { bg: "#eff6ff", color: "#2563eb", border: "#bfdbfe" },
+                            { bg: "#f0fdf4", color: "#16a34a", border: "#bbf7d0" },
+                            { bg: "#faf5ff", color: "#9333ea", border: "#e9d5ff" },
+                          ][nIdx % 4] ?? { bg: "#fff7ed", color: "#ea580c", border: "#fed7aa" };
+
+                          return (
+                            <article key={n.id} className={styles.savedNoteCard}>
+                              <div className={styles.savedNoteTopRow}>
+                                <div className={styles.savedNoteTopLeft}>
+                                  <span
+                                    className={styles.savedNoteDocIconBadge}
+                                    style={{ background: palette.bg, color: palette.color, border: `1px solid ${palette.border}` }}
+                                    aria-hidden="true"
+                                  >
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                      <polyline points="14 2 14 8 20 8" />
+                                    </svg>
+                                  </span>
+                                  <h5 className={styles.savedNoteTitle} title={norm.noteTitle}>
+                                    {norm.noteTitle}
+                                  </h5>
+                                </div>
+
+                                <div className={styles.savedNoteTopRight}>
+                                  {norm.videoTimestampSec !== null && norm.videoTimestampSec !== undefined && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSeekToTimestamp(norm.videoTimestampSec)}
+                                      className={styles.savedNoteTimestampBtn}
+                                      title="Jump video to this timestamp"
+                                    >
+                                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <polyline points="12 6 12 12 16 14" />
+                                      </svg>
+                                      <span>{norm.formattedTimestamp}</span>
+                                    </button>
+                                  )}
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleNoteFavorite(n)}
+                                    className={styles.savedNoteStarBtn}
+                                    style={{ color: norm.isFavorite ? "#f59e0b" : "#cbd5e1" }}
+                                    title={norm.isFavorite ? "Remove favorite" : "Mark as favorite"}
+                                    aria-label="Toggle favorite"
+                                  >
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill={norm.isFavorite ? "#f59e0b" : "none"} stroke={norm.isFavorite ? "#f59e0b" : "#94a3b8"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                                    </svg>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingModalNote(norm);
+                                      setIsNoteModalOpen(true);
+                                    }}
+                                    className={styles.savedNoteEditBtn}
+                                    title="Edit this note in full editor"
+                                    aria-label="Edit note"
+                                  >
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                    </svg>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteNote(n.id)}
+                                    className={styles.savedNoteDeleteBtn}
+                                    title="Delete note"
+                                    aria-label="Delete note"
+                                  >
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                      <line x1="18" y1="6" x2="6" y2="18" />
+                                      <line x1="6" y1="6" x2="18" y2="18" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div
+                                className={styles.savedNoteBody}
+                                dangerouslySetInnerHTML={{ __html: cleanHtml }}
+                              />
+
+                              <div className={styles.savedNoteFooter}>
+                                <span>
+                                  {n.updatedAt ? `Updated ${new Date(n.updatedAt).toLocaleDateString()}` : "Saved"}
+                                </span>
+                                {norm.videoTimestampSec !== null && norm.videoTimestampSec !== undefined && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSeekToTimestamp(norm.videoTimestampSec)}
+                                    style={{ background: "none", border: "none", color: "#ea580c", fontSize: "0.72rem", fontWeight: 600, cursor: "pointer", padding: 0 }}
+                                  >
+                                    Go to Video &rarr;
+                                  </button>
+                                )}
+                              </div>
+                            </article>
+                          );
+                        })
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: KNOWLEDGE CHECK QUIZ (SCREEN 4) */}
+        {activeTab === "quiz" && hasQuiz && (
+          <div>
+            {!isQuizUnlocked ? (
+              <div className={styles.quizLockedCard}>
+                <div className={styles.quizLockedIcon}>🔒</div>
+                <h3 className={styles.quizLockedTitle}>Module Quiz Locked</h3>
+                <p className={styles.quizLockedSubtitle}>
+                  {effectiveQuizPlacement === "AFTER_VIDEO"
+                    ? `This comprehension quiz unlocks automatically after you complete all video lessons in Step ${step?.sequence}.`
+                    : "Please complete the prerequisites to unlock this quiz."}
+                </p>
+                <div className={styles.quizLockedProgressWrap}>
+                  <div
+                    className={styles.quizLockedProgressBar}
+                    style={{
+                      width: `${Math.min(100, Math.round((completedLessonsCount / Math.max(totalLessonsCount, 1)) * 100))}%`,
+                    }}
+                  />
+                </div>
+                <p className={styles.quizLockedCount}>
+                  {completedLessonsCount} of {totalLessonsCount} lessons watched ({Math.min(100, Math.round((completedLessonsCount / Math.max(totalLessonsCount, 1)) * 100))}%)
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("video")}
+                  className={styles.btnPrimaryOrange}
+                  style={{ marginTop: "1rem" }}
                 >
-                  <div style={{ fontSize: "2.5rem", marginBottom: 10 }}>🎉</div>
-                  <h3 style={{ margin: "0 0 8px", fontSize: "1.25rem", fontWeight: 700, color: "#15803d" }}>
-                    Module Knowledge Check Passed!
-                  </h3>
-                  <p style={{ margin: "0 0 18px", fontSize: "0.92rem", color: "#166534", maxWidth: 540, marginLeft: "auto", marginRight: "auto", lineHeight: 1.5 }}>
-                    {lastQuizResult?.score !== undefined ? `Great job! You achieved a score of ${lastQuizResult.score}%.` : "Great job! You have satisfied all requirements for this module."}{" "}
-                    {nextStep ? `Step ${nextStep.sequence}: ${nextStep.title} is now unlocked.` : "You have completed all modules in this program."}
-                  </p>
-                  <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+                  ▶ Watch Video Lessons
+                </button>
+              </div>
+            ) : (
+              <>
+                {quizError && (
+                  <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", color: "#991b1b", padding: "10px 14px", borderRadius: 8, marginBottom: 16, fontSize: "0.86rem" }}>
+                    {quizError}
+                  </div>
+                )}
+
+                {isQuizAlreadyPassed ? (
+                  /* PASSED COMPLETION CARD */
+                  <div
+                    style={{
+                      background: "#f0fdf4",
+                      border: "1px solid #86efac",
+                      color: "#14532d",
+                      padding: "28px 24px",
+                      borderRadius: 14,
+                      marginBottom: 20,
+                      textAlign: "center",
+                    }}
+                  >
+                    <div style={{ fontSize: "2.5rem", marginBottom: 10 }}>🎉</div>
+                    <h3 style={{ margin: "0 0 8px", fontSize: "1.25rem", fontWeight: 700, color: "#15803d" }}>
+                      Module Knowledge Check Passed!
+                    </h3>
+                    <p style={{ margin: "0 0 18px", fontSize: "0.92rem", color: "#166534", maxWidth: 540, marginLeft: "auto", marginRight: "auto", lineHeight: 1.5 }}>
+                      {lastQuizResult?.score !== undefined ? `Great job! You achieved a score of ${lastQuizResult.score}%.` : "Great job! You have satisfied all requirements for this module."}{" "}
+                      {nextStep ? `Step ${nextStep.sequence}: ${nextStep.title} is now unlocked.` : "You have completed all modules in this program."}
+                    </p>
+                    <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+                      {nextStep && nextStepId ? (
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/steps/${nextStepId}`)}
+                          className={styles.btnPrimaryOrange}
+                          style={{ padding: "12px 24px", fontSize: "0.95rem" }}
+                        >
+                          Continue to Next Module ({nextStep.title}) &rarr;
+                        </button>
+                      ) : (
+                        <Link
+                          href={`/programs/${step?.programId}/steps`}
+                          className={styles.btnPrimaryOrange}
+                          style={{ padding: "12px 24px", fontSize: "0.95rem", textDecoration: "none" }}
+                        >
+                          Return to Learning Path &rarr;
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                ) : quizQuestions.length === 0 ? (
+                  /* EMPTY STATE: NO QUESTIONS CONFIGURED BY INSTRUCTOR */
+                  <div
+                    className={styles.emptyStateCard}
+                    style={{
+                      background: "#fffdfa",
+                      border: "1px dashed #e7dfd5",
+                      padding: "2.5rem 1.5rem",
+                      borderRadius: 14,
+                      textAlign: "center",
+                    }}
+                  >
+                    <div style={{ fontSize: "2rem", marginBottom: 8 }}>📋</div>
+                    <h4 style={{ margin: "0 0 6px", fontSize: "1.05rem", fontWeight: 700, color: "#1c1917" }}>
+                      No Questions Configured Yet
+                    </h4>
+                    <p style={{ margin: "0 0 16px", fontSize: "0.88rem", color: "#78716a", maxWidth: 440, marginLeft: "auto", marginRight: "auto" }}>
+                      The instructor has not added questions to this module&apos;s knowledge check yet.
+                    </p>
                     {nextStep && nextStepId ? (
                       <button
                         type="button"
                         onClick={() => router.push(`/steps/${nextStepId}`)}
                         className={styles.btnPrimaryOrange}
-                        style={{ padding: "12px 24px", fontSize: "0.95rem" }}
                       >
                         Continue to Next Module ({nextStep.title}) &rarr;
                       </button>
                     ) : (
-                      <Link
-                        href={`/programs/${step?.programId}/steps`}
-                        className={styles.btnPrimaryOrange}
-                        style={{ padding: "12px 24px", fontSize: "0.95rem", textDecoration: "none" }}
-                      >
+                      <Link href={`/programs/${step?.programId}/steps`} className={styles.btnPrimaryOrange}>
                         Return to Learning Path &rarr;
                       </Link>
                     )}
                   </div>
-                </div>
-              ) : quizQuestions.length === 0 ? (
-                /* EMPTY STATE: NO QUESTIONS CONFIGURED BY INSTRUCTOR */
-                <div
-                  className={styles.emptyStateCard}
-                  style={{
-                    background: "#fffdfa",
-                    border: "1px dashed #e7dfd5",
-                    padding: "2.5rem 1.5rem",
-                    borderRadius: 14,
-                    textAlign: "center",
-                  }}
-                >
-                  <div style={{ fontSize: "2rem", marginBottom: 8 }}>📋</div>
-                  <h4 style={{ margin: "0 0 6px", fontSize: "1.05rem", fontWeight: 700, color: "#1c1917" }}>
-                    No Questions Configured Yet
-                  </h4>
-                  <p style={{ margin: "0 0 16px", fontSize: "0.88rem", color: "#78716a", maxWidth: 440, marginLeft: "auto", marginRight: "auto" }}>
-                    The instructor has not added questions to this module&apos;s knowledge check yet.
-                  </p>
-                  {nextStep && nextStepId ? (
-                    <button
-                      type="button"
-                      onClick={() => router.push(`/steps/${nextStepId}`)}
-                      className={styles.btnPrimaryOrange}
-                    >
-                      Continue to Next Module ({nextStep.title}) &rarr;
-                    </button>
-                  ) : (
-                    <Link href={`/programs/${step?.programId}/steps`} className={styles.btnPrimaryOrange}>
-                      Return to Learning Path &rarr;
-                    </Link>
-                  )}
-                </div>
-              ) : (
-                /* ACTIVE QUIZ QUESTION CARD */
-                <>
-                  {/* Quiz completion feedback */}
+                ) : (
+                  /* ACTIVE QUIZ QUESTION CARD */
+                  <>
+                    {/* Quiz completion feedback */}
 
-                  {currentQuizQuestion && (
-                    <div className={styles.quizGrid}>
-                      {/* Left Column: Question Card */}
-                      <div className={styles.questionCard}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
-                          <div className={styles.questionNumberLabel}>
-                            Question {safeActiveIndex + 1} of {quizQuestions.length}
+                    {currentQuizQuestion && (
+                      <div className={styles.quizGrid}>
+                        {/* Left Column: Question Card */}
+                        <div className={styles.questionCard}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                            <div className={styles.questionNumberLabel}>
+                              Question {safeActiveIndex + 1} of {quizQuestions.length}
+                            </div>
+                            {(() => {
+                              const rawType = String((currentQuizQuestion as any)?.type || "").toUpperCase();
+                              const isText = rawType === "SHORT_ANSWER" || rawType === "TEXT_BOX";
+                              const isMulti = !isText && (rawType === "MULTI_SELECT" || rawType === "MULTIPLE_CHOICE");
+                              return (
+                                <span
+                                  style={{
+                                    fontSize: "0.72rem",
+                                    fontWeight: 600,
+                                    padding: "3px 10px",
+                                    borderRadius: 6,
+                                    background: isText ? "#eff6ff" : isMulti ? "#fef3c7" : "#f1f5f9",
+                                    color: isText ? "#1d4ed8" : isMulti ? "#92400e" : "#475569",
+                                    border: isText ? "1px solid #bfdbfe" : isMulti ? "1px solid #fde68a" : "1px solid #e2e8f0",
+                                    letterSpacing: "0.02em",
+                                  }}
+                                >
+                                  {isText ? "Short Answer" : isMulti ? "Multiple Choice • Select all that apply" : "Single Choice"}
+                                </span>
+                              );
+                            })()}
                           </div>
+                          {(currentQuizQuestion as any).imageUrl && (
+                            <div style={{ marginBottom: "1.25rem", borderRadius: 10, overflow: "hidden", border: "1px solid #ece6dd", maxWidth: 640, background: "#faf8f5" }}>
+                              <img
+                                src={resolveMediaDownloadUrl((currentQuizQuestion as any).imageUrl)}
+                                alt={`Question ${safeActiveIndex + 1}`}
+                                onError={(e) => {
+                                  (e.currentTarget.parentElement as HTMLElement | null)?.style.setProperty("display", "none");
+                                }}
+                                style={{ width: "100%", maxHeight: 300, objectFit: "contain", display: "block" }}
+                              />
+                            </div>
+                          )}
+                          <h3 className={styles.questionPrompt}>
+                            {currentQuizQuestion.text}
+                          </h3>
+
                           {(() => {
-                            const rawType = String((currentQuizQuestion as any)?.type || "").toUpperCase();
+                            const rawType = String((currentQuizQuestion as any).type || "").toUpperCase();
                             const isText = rawType === "SHORT_ANSWER" || rawType === "TEXT_BOX";
                             const isMulti = !isText && (rawType === "MULTI_SELECT" || rawType === "MULTIPLE_CHOICE");
-                            return (
-                              <span
-                                style={{
-                                  fontSize: "0.72rem",
-                                  fontWeight: 600,
-                                  padding: "3px 10px",
-                                  borderRadius: 6,
-                                  background: isText ? "#eff6ff" : isMulti ? "#fef3c7" : "#f1f5f9",
-                                  color: isText ? "#1d4ed8" : isMulti ? "#92400e" : "#475569",
-                                  border: isText ? "1px solid #bfdbfe" : isMulti ? "1px solid #fde68a" : "1px solid #e2e8f0",
-                                  letterSpacing: "0.02em",
-                                }}
-                              >
-                                {isText ? "Short Answer" : isMulti ? "Multiple Choice • Select all that apply" : "Single Choice"}
-                              </span>
-                            );
-                          })()}
-                        </div>
-                        {(currentQuizQuestion as any).imageUrl && (
-                          <div style={{ marginBottom: "1.25rem", borderRadius: 10, overflow: "hidden", border: "1px solid #ece6dd", maxWidth: 640, background: "#faf8f5" }}>
-                            <img
-                              src={resolveMediaDownloadUrl((currentQuizQuestion as any).imageUrl)}
-                              alt={`Question ${safeActiveIndex + 1}`}
-                              onError={(e) => {
-                                (e.currentTarget.parentElement as HTMLElement | null)?.style.setProperty("display", "none");
-                              }}
-                              style={{ width: "100%", maxHeight: 300, objectFit: "contain", display: "block" }}
-                            />
-                          </div>
-                        )}
-                        <h3 className={styles.questionPrompt}>
-                          {currentQuizQuestion.text}
-                        </h3>
+                            const selectedMultiList =
+                              isMulti && quizAnswers[currentQuizQuestion.id]
+                                ? (quizAnswers[currentQuizQuestion.id] || "").split(",").map((s) => s.trim()).filter(Boolean)
+                                : [];
 
-                        {(() => {
-                          const rawType = String((currentQuizQuestion as any).type || "").toUpperCase();
-                          const isText = rawType === "SHORT_ANSWER" || rawType === "TEXT_BOX";
-                          const isMulti = !isText && (rawType === "MULTI_SELECT" || rawType === "MULTIPLE_CHOICE");
-                          const selectedMultiList =
-                            isMulti && quizAnswers[currentQuizQuestion.id]
-                              ? (quizAnswers[currentQuizQuestion.id] || "").split(",").map((s) => s.trim()).filter(Boolean)
-                              : [];
-
-                          if (isText) {
-                            const minChars = (currentQuizQuestion as any).minCharacters ?? 10;
-                            const currentText = quizAnswers[currentQuizQuestion.id] || "";
-                            return (
-                              <div style={{ marginBottom: "1.5rem" }}>
-                                <textarea
-                                  rows={4}
-                                  placeholder="Write your reflection or response here..."
-                                  value={currentText}
-                                  onChange={(e) =>
-                                    setQuizAnswers((prev) => ({
-                                      ...prev,
-                                      [currentQuizQuestion.id]: e.target.value,
-                                    }))
-                                  }
-                                  style={{
-                                    width: "100%",
-                                    padding: "12px 14px",
-                                    borderRadius: 10,
-                                    border: "1px solid #dcd5cb",
-                                    fontFamily: "inherit",
-                                    fontSize: "0.95rem",
-                                    background: "#fffdfa",
-                                  }}
-                                />
-                                <div style={{ fontSize: "0.78rem", color: "#78716a", marginTop: 4 }}>
-                                  Characters: {currentText.trim().length} / {minChars} minimum
+                            if (isText) {
+                              const minChars = (currentQuizQuestion as any).minCharacters ?? 10;
+                              const currentText = quizAnswers[currentQuizQuestion.id] || "";
+                              return (
+                                <div style={{ marginBottom: "1.5rem" }}>
+                                  <textarea
+                                    rows={4}
+                                    placeholder="Write your reflection or response here..."
+                                    value={currentText}
+                                    onChange={(e) =>
+                                      setQuizAnswers((prev) => ({
+                                        ...prev,
+                                        [currentQuizQuestion.id]: e.target.value,
+                                      }))
+                                    }
+                                    style={{
+                                      width: "100%",
+                                      padding: "12px 14px",
+                                      borderRadius: 10,
+                                      border: "1px solid #dcd5cb",
+                                      fontFamily: "inherit",
+                                      fontSize: "0.95rem",
+                                      background: "#fffdfa",
+                                    }}
+                                  />
+                                  <div style={{ fontSize: "0.78rem", color: "#78716a", marginTop: 4 }}>
+                                    Characters: {currentText.trim().length} / {minChars} minimum
+                                  </div>
                                 </div>
-                              </div>
-                            );
-                          }
+                              );
+                            }
 
-                          const hasOptionImages = (currentQuizQuestion.options || []).some((opt: any) => Boolean(opt.imageUrl));
+                            const hasOptionImages = (currentQuizQuestion.options || []).some((opt: any) => Boolean(opt.imageUrl));
 
-                          return (
-                            <div
-                              className={styles.optionsStack}
-                              style={
-                                hasOptionImages
-                                  ? {
+                            return (
+                              <div
+                                className={styles.optionsStack}
+                                style={
+                                  hasOptionImages
+                                    ? {
                                       display: "grid",
                                       gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
                                       gap: "12px",
                                     }
-                                  : undefined
-                              }
-                            >
-                              {(currentQuizQuestion.options || []).map((opt: any, optIdx: number) => {
-                                const isSelected = isMulti
-                                  ? selectedMultiList.includes(opt.id)
-                                  : quizAnswers[currentQuizQuestion.id] === opt.id;
-                                return (
-                                  <div
-                                    key={opt.id || optIdx}
-                                    onClick={() =>
-                                      setQuizAnswers((prev) => {
-                                        if (!isMulti) {
+                                    : undefined
+                                }
+                              >
+                                {(currentQuizQuestion.options || []).map((opt: any, optIdx: number) => {
+                                  const isSelected = isMulti
+                                    ? selectedMultiList.includes(opt.id)
+                                    : quizAnswers[currentQuizQuestion.id] === opt.id;
+                                  return (
+                                    <div
+                                      key={opt.id || optIdx}
+                                      onClick={() =>
+                                        setQuizAnswers((prev) => {
+                                          if (!isMulti) {
+                                            return {
+                                              ...prev,
+                                              [currentQuizQuestion.id]: opt.id,
+                                            };
+                                          }
+                                          const existing = prev[currentQuizQuestion.id]
+                                            ? (prev[currentQuizQuestion.id] || "").split(",").filter(Boolean)
+                                            : [];
+                                          const next = existing.includes(opt.id)
+                                            ? existing.filter((id) => id !== opt.id)
+                                            : [...existing, opt.id];
                                           return {
                                             ...prev,
-                                            [currentQuizQuestion.id]: opt.id,
+                                            [currentQuizQuestion.id]: next.join(","),
                                           };
-                                        }
-                                        const existing = prev[currentQuizQuestion.id]
-                                          ? (prev[currentQuizQuestion.id] || "").split(",").filter(Boolean)
-                                          : [];
-                                        const next = existing.includes(opt.id)
-                                          ? existing.filter((id) => id !== opt.id)
-                                          : [...existing, opt.id];
-                                        return {
-                                          ...prev,
-                                          [currentQuizQuestion.id]: next.join(","),
-                                        };
-                                      })
-                                    }
-                                    className={`${styles.optionCard} ${isSelected ? styles.optionCardSelected : ""}`}
-                                    style={
-                                      hasOptionImages
-                                        ? {
+                                        })
+                                      }
+                                      className={`${styles.optionCard} ${isSelected ? styles.optionCardSelected : ""}`}
+                                      style={
+                                        hasOptionImages
+                                          ? {
                                             flexDirection: "column",
                                             alignItems: "stretch",
                                             padding: "12px",
                                             gap: "10px",
                                           }
-                                        : undefined
-                                    }
-                                  >
-                                    {opt.imageUrl && (
-                                      <div
-                                        style={{
-                                          width: "100%",
-                                          height: "135px",
-                                          borderRadius: 8,
-                                          overflow: "hidden",
-                                          background: "#f8fafc",
-                                          border: "1px solid #e2e8f0",
-                                          display: "flex",
-                                          alignItems: "center",
-                                          justifyContent: "center",
-                                        }}
-                                      >
-                                        <img
-                                          src={resolveMediaDownloadUrl(opt.imageUrl)}
-                                          alt={opt.text || `Option ${String.fromCharCode(65 + optIdx)}`}
-                                          onError={(e) => {
-                                            (e.currentTarget.parentElement as HTMLElement | null)?.style.setProperty("display", "none");
-                                          }}
-                                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                                        />
-                                      </div>
-                                    )}
-                                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                                      {isMulti ? (
+                                          : undefined
+                                      }
+                                    >
+                                      {opt.imageUrl && (
                                         <div
                                           style={{
-                                            width: 20,
-                                            height: 20,
-                                            borderRadius: 5,
-                                            border: isSelected ? "2px solid #e06d2d" : "2px solid #cbd5e1",
-                                            background: isSelected ? "#e06d2d" : "#ffffff",
+                                            width: "100%",
+                                            height: "135px",
+                                            borderRadius: 8,
+                                            overflow: "hidden",
+                                            background: "#f8fafc",
+                                            border: "1px solid #e2e8f0",
                                             display: "flex",
                                             alignItems: "center",
                                             justifyContent: "center",
-                                            color: "#ffffff",
-                                            fontSize: 13,
-                                            fontWeight: 800,
-                                            flexShrink: 0,
-                                            transition: "all 0.15s ease",
                                           }}
                                         >
-                                          {isSelected && "✓"}
-                                        </div>
-                                      ) : (
-                                        <div className={styles.optionRadioCircle}>
-                                          {isSelected && <div className={styles.optionRadioInnerDot} />}
+                                          <img
+                                            src={resolveMediaDownloadUrl(opt.imageUrl)}
+                                            alt={opt.text || `Option ${String.fromCharCode(65 + optIdx)}`}
+                                            onError={(e) => {
+                                              (e.currentTarget.parentElement as HTMLElement | null)?.style.setProperty("display", "none");
+                                            }}
+                                            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                          />
                                         </div>
                                       )}
-                                      <span className={styles.optionText}>{opt.text || `Option ${String.fromCharCode(65 + optIdx)}`}</span>
+                                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                        {isMulti ? (
+                                          <div
+                                            style={{
+                                              width: 20,
+                                              height: 20,
+                                              borderRadius: 5,
+                                              border: isSelected ? "2px solid #e06d2d" : "2px solid #cbd5e1",
+                                              background: isSelected ? "#e06d2d" : "#ffffff",
+                                              display: "flex",
+                                              alignItems: "center",
+                                              justifyContent: "center",
+                                              color: "#ffffff",
+                                              fontSize: 13,
+                                              fontWeight: 800,
+                                              flexShrink: 0,
+                                              transition: "all 0.15s ease",
+                                            }}
+                                          >
+                                            {isSelected && "✓"}
+                                          </div>
+                                        ) : (
+                                          <div className={styles.optionRadioCircle}>
+                                            {isSelected && <div className={styles.optionRadioInnerDot} />}
+                                          </div>
+                                        )}
+                                        <span className={styles.optionText}>{opt.text || `Option ${String.fromCharCode(65 + optIdx)}`}</span>
+                                      </div>
                                     </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          );
-                        })()}
-
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <button
-                            type="button"
-                            disabled={safeActiveIndex === 0}
-                            onClick={() => setActiveQuizIndex((prev) => Math.max(0, prev - 1))}
-                            className={styles.btnSecondaryOutline}
-                            style={{ opacity: safeActiveIndex === 0 ? 0.5 : 1 }}
-                          >
-                            &larr; Previous Question
-                          </button>
-
-                          {safeActiveIndex < quizQuestions.length - 1 ? (
-                            <button
-                              type="button"
-                              onClick={() => setActiveQuizIndex((prev) => prev + 1)}
-                              className={styles.btnPrimaryOrange}
-                            >
-                              Next Question &rarr;
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              disabled={isSubmittingQuiz}
-                              onClick={handleQuizSubmit}
-                              className={styles.btnPrimaryOrange}
-                            >
-                              {isSubmittingQuiz ? "Submitting..." : "Submit Quiz"}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Right Column: Question Numbers Grid */}
-                      <div className={styles.questionNavCard}>
-                        <h4 className={styles.questionNavTitle}>Questions</h4>
-                        <div className={styles.questionNumGrid}>
-                          {quizQuestions.map((q, idx) => {
-                            const isCurrent = idx === safeActiveIndex;
-                            const isAnswered = !!quizAnswers[q.id];
-                            return (
-                              <button
-                                key={q.id}
-                                type="button"
-                                onClick={() => setActiveQuizIndex(idx)}
-                                className={`${styles.qNumCircle} ${
-                                  isCurrent
-                                    ? styles.qNumCurrent
-                                    : isAnswered
-                                    ? styles.qNumAnswered
-                                    : ""
-                                }`}
-                              >
-                                {idx + 1}
-                              </button>
+                                  );
+                                })}
+                              </div>
                             );
-                          })}
+                          })()}
+
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <button
+                              type="button"
+                              disabled={safeActiveIndex === 0}
+                              onClick={() => setActiveQuizIndex((prev) => Math.max(0, prev - 1))}
+                              className={styles.btnSecondaryOutline}
+                              style={{ opacity: safeActiveIndex === 0 ? 0.5 : 1 }}
+                            >
+                              &larr; Previous Question
+                            </button>
+
+                            {safeActiveIndex < quizQuestions.length - 1 ? (
+                              <button
+                                type="button"
+                                onClick={() => setActiveQuizIndex((prev) => prev + 1)}
+                                className={styles.btnPrimaryOrange}
+                              >
+                                Next Question &rarr;
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={isSubmittingQuiz}
+                                onClick={handleQuizSubmit}
+                                className={styles.btnPrimaryOrange}
+                              >
+                                {isSubmittingQuiz ? "Submitting..." : "Submit Quiz"}
+                              </button>
+                            )}
+                          </div>
                         </div>
 
-                        <div className={styles.quizLegend}>
-                          <div className={styles.legendItem}>
-                            <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#d97706" }} />
-                            <span>Current</span>
+                        {/* Right Column: Question Numbers Grid */}
+                        <div className={styles.questionNavCard}>
+                          <h4 className={styles.questionNavTitle}>Questions</h4>
+                          <div className={styles.questionNumGrid}>
+                            {quizQuestions.map((q, idx) => {
+                              const isCurrent = idx === safeActiveIndex;
+                              const isAnswered = !!quizAnswers[q.id];
+                              return (
+                                <button
+                                  key={q.id}
+                                  type="button"
+                                  onClick={() => setActiveQuizIndex(idx)}
+                                  className={`${styles.qNumCircle} ${isCurrent
+                                      ? styles.qNumCurrent
+                                      : isAnswered
+                                        ? styles.qNumAnswered
+                                        : ""
+                                    }`}
+                                >
+                                  {idx + 1}
+                                </button>
+                              );
+                            })}
                           </div>
-                          <div className={styles.legendItem}>
-                            <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#1c1917" }} />
-                            <span>Answered</span>
-                          </div>
-                          <div className={styles.legendItem}>
-                            <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#e5e7eb" }} />
-                            <span>Not answered</span>
+
+                          <div className={styles.quizLegend}>
+                            <div className={styles.legendItem}>
+                              <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#d97706" }} />
+                              <span>Current</span>
+                            </div>
+                            <div className={styles.legendItem}>
+                              <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#1c1917" }} />
+                              <span>Answered</span>
+                            </div>
+                            <div className={styles.legendItem}>
+                              <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#e5e7eb" }} />
+                              <span>Not answered</span>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  )}
-                </>
-              )}
-                </>
-              )}
-            </div>
-          )}
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
-          {/* TAB 3: DEDICATED NOTES MANAGER (SCREEN 5) - hidden per user request */}
-          {/*
+        {/* TAB 3: DEDICATED NOTES MANAGER (SCREEN 5) - hidden per user request */}
+        {/*
           {activeTab === "notes" && (
             <div className={styles.notesTabStack}>
               <div className={styles.noteEditorCard}>
@@ -2830,218 +2824,217 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           )}
           */}
 
-          {/* TAB 4: LEARNING MATERIALS (SCREEN 6) */}
-          {activeTab === "materials" && stepMaterials.length > 0 && (
-            <div className={styles.materialsTabStack}>
-              <div className={styles.materialsSearchCard}>
-                <div className={styles.searchBarContainer}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
-                    <circle cx="11" cy="11" r="8" />
-                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                  </svg>
-                  <input
-                    type="text"
-                    placeholder="Search materials..."
-                    value={materialsSearch}
-                    onChange={(e) => setMaterialsSearch(e.target.value)}
-                    className={styles.searchInput}
-                  />
-                </div>
+        {/* TAB 4: LEARNING MATERIALS (SCREEN 6) */}
+        {activeTab === "materials" && stepMaterials.length > 0 && (
+          <div className={styles.materialsTabStack}>
+            <div className={styles.materialsSearchCard}>
+              <div className={styles.searchBarContainer}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search materials..."
+                  value={materialsSearch}
+                  onChange={(e) => setMaterialsSearch(e.target.value)}
+                  className={styles.searchInput}
+                />
               </div>
+            </div>
 
-              <div className={styles.materialsListStack}>
-                {stepMaterials
-                  .filter((m) => m.title.toLowerCase().includes(debouncedMaterialsSearch.toLowerCase()))
-                  .map((m) => {
-                    const isPdf = m.type === "PDF" || (m.mediaUrl && m.mediaUrl.toLowerCase().includes(".pdf"));
-                    const isDone = Boolean(lessonProgress[m.id]?.isCompleted || lessonProgress[m.id]?.viewed);
-                    const downloadUrl = sanitizeExternalUrl(
-                      isPdf
-                        ? `${API_URL}/media/document/${encodeURIComponent(m.id)}?token=${encodeURIComponent(typeof window !== "undefined" ? localStorage.getItem("token") || "" : "")}`
-                        : resolveMediaDownloadUrl(m.mediaUrl)
-                    );
-                    return (
-                      <div
-                        key={m.id}
-                        className={`${styles.materialRowCard} ${isPdf ? styles.materialRowCardClickable : ""}`}
-                        onClick={() => {
-                          if (isPdf) handleViewPdf(m);
-                        }}
-                        title={isPdf ? "Click to view PDF in browser" : undefined}
-                      >
-                        <div className={styles.materialLeftGroup}>
-                          <div
-                            className={`${styles.materialTypeBadge} ${
-                              m.type === "PDF"
-                                ? styles.badgePdf
-                                : m.type === "ZIP"
+            <div className={styles.materialsListStack}>
+              {stepMaterials
+                .filter((m) => m.title.toLowerCase().includes(debouncedMaterialsSearch.toLowerCase()))
+                .map((m) => {
+                  const isPdf = m.type === "PDF" || (m.mediaUrl && m.mediaUrl.toLowerCase().includes(".pdf"));
+                  const isDone = Boolean(lessonProgress[m.id]?.isCompleted || lessonProgress[m.id]?.viewed);
+                  const downloadUrl = sanitizeExternalUrl(
+                    isPdf
+                      ? `${API_URL}/media/document/${encodeURIComponent(m.id)}?token=${encodeURIComponent(typeof window !== "undefined" ? localStorage.getItem("token") || "" : "")}`
+                      : resolveMediaDownloadUrl(m.mediaUrl)
+                  );
+                  return (
+                    <div
+                      key={m.id}
+                      className={`${styles.materialRowCard} ${isPdf ? styles.materialRowCardClickable : ""}`}
+                      onClick={() => {
+                        if (isPdf) handleViewPdf(m);
+                      }}
+                      title={isPdf ? "Click to view PDF in browser" : undefined}
+                    >
+                      <div className={styles.materialLeftGroup}>
+                        <div
+                          className={`${styles.materialTypeBadge} ${m.type === "PDF"
+                              ? styles.badgePdf
+                              : m.type === "ZIP"
                                 ? styles.badgeZip
                                 : styles.badgeGeneric
                             }`}
-                          >
-                            {m.type}
-                          </div>
-                          <div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                              <h4 className={styles.materialTitle}>{m.title}</h4>
-                              {isDone ? (
-                                <span
-                                  className={styles.watchedPill}
-                                  style={{
-                                    background: "#dcfce7",
-                                    color: "#15803d",
-                                    border: "1px solid #bbf7d0",
-                                    padding: "2px 8px",
-                                    borderRadius: 6,
-                                    fontSize: "0.74rem",
-                                    fontWeight: 700,
-                                  }}
-                                >
-                                  ✓ Read
-                                </span>
-                              ) : (
-                                <span
-                                  style={{
-                                    fontSize: "0.72rem",
-                                    background: "#fef3c7",
-                                    color: "#b45309",
-                                    padding: "2px 8px",
-                                    borderRadius: 6,
-                                    fontWeight: 700,
-                                  }}
-                                >
-                                  Ready to Read
-                                </span>
-                              )}
-                            </div>
-                            <span className={styles.materialMeta}>
-                              {m.type}
-                              {m.size ? ` • ${m.size}` : m.durationSec ? ` • ${Math.ceil(m.durationSec / 60)} min read` : ""}
-                            </span>
-                          </div>
+                        >
+                          {m.type}
                         </div>
-
-                        <div className={styles.materialActionsGroup} onClick={(e) => e.stopPropagation()}>
-                          {isPdf && (
-                            <button
-                              type="button"
-                              onClick={() => handleViewPdf(m)}
-                              className={styles.btnPrimaryView}
-                              title="Read this PDF directly in the browser"
-                            >
-                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                              </svg>
-                              <span>{isDone ? "Read Again" : "Read PDF"}</span>
-                            </button>
-                          )}
-
-                          {!isDone && (
-                            <button
-                              type="button"
-                              onClick={() => handleMaterialComplete(m.id)}
-                              className={styles.btnSecondaryOutline}
-                              style={{
-                                color: "#15803d",
-                                borderColor: "#86efac",
-                                background: "#f0fdf4",
-                                fontWeight: 600,
-                              }}
-                              title="Mark this document as read"
-                            >
-                              ✓ Mark as Read
-                            </button>
-                          )}
-
-                          {downloadUrl ? (
-                            <a
-                              href={downloadUrl}
-                              download={m.title}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={styles.btnSecondaryOutline}
-                              style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}
-                              title="Download PDF file"
-                            >
-                              &darr; Download
-                            </a>
-                          ) : (
-                            <button
-                              type="button"
-                              disabled
-                              className={styles.btnSecondaryOutline}
-                              style={{ opacity: 0.5, cursor: "not-allowed" }}
-                            >
-                              Unavailable
-                            </button>
-                          )}
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <h4 className={styles.materialTitle}>{m.title}</h4>
+                            {isDone ? (
+                              <span
+                                className={styles.watchedPill}
+                                style={{
+                                  background: "#dcfce7",
+                                  color: "#15803d",
+                                  border: "1px solid #bbf7d0",
+                                  padding: "2px 8px",
+                                  borderRadius: 6,
+                                  fontSize: "0.74rem",
+                                  fontWeight: 700,
+                                }}
+                              >
+                                ✓ Read
+                              </span>
+                            ) : (
+                              <span
+                                style={{
+                                  fontSize: "0.72rem",
+                                  background: "#fef3c7",
+                                  color: "#b45309",
+                                  padding: "2px 8px",
+                                  borderRadius: 6,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                Ready to Read
+                              </span>
+                            )}
+                          </div>
+                          <span className={styles.materialMeta}>
+                            {m.type}
+                            {m.size ? ` • ${m.size}` : m.durationSec ? ` • ${Math.ceil(m.durationSec / 60)} min read` : ""}
+                          </span>
                         </div>
                       </div>
-                    );
-                  })}
 
-                {/* All Materials Completed Confirmation Banner */}
-                {areAllMaterialsDone && (
+                      <div className={styles.materialActionsGroup} onClick={(e) => e.stopPropagation()}>
+                        {isPdf && (
+                          <button
+                            type="button"
+                            onClick={() => handleViewPdf(m)}
+                            className={styles.btnPrimaryView}
+                            title="Read this PDF directly in the browser"
+                          >
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                            </svg>
+                            <span>{isDone ? "Read Again" : "Read PDF"}</span>
+                          </button>
+                        )}
+
+                        {!isDone && (
+                          <button
+                            type="button"
+                            onClick={() => handleMaterialComplete(m.id)}
+                            className={styles.btnSecondaryOutline}
+                            style={{
+                              color: "#15803d",
+                              borderColor: "#86efac",
+                              background: "#f0fdf4",
+                              fontWeight: 600,
+                            }}
+                            title="Mark this document as read"
+                          >
+                            ✓ Mark as Read
+                          </button>
+                        )}
+
+                        {downloadUrl ? (
+                          <a
+                            href={downloadUrl}
+                            download={m.title}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={styles.btnSecondaryOutline}
+                            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                            title="Download PDF file"
+                          >
+                            &darr; Download
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled
+                            className={styles.btnSecondaryOutline}
+                            style={{ opacity: 0.5, cursor: "not-allowed" }}
+                          >
+                            Unavailable
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+              {/* All Materials Completed Confirmation Banner */}
+              {areAllMaterialsDone && (
+                <div
+                  style={{
+                    marginTop: "1.5rem",
+                    padding: "1rem 1.25rem",
+                    background: "#f0fdf4",
+                    border: "1px solid #bbf7d0",
+                    borderRadius: 12,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                  }}
+                >
                   <div
                     style={{
-                      marginTop: "1.5rem",
-                      padding: "1rem 1.25rem",
-                      background: "#f0fdf4",
-                      border: "1px solid #bbf7d0",
-                      borderRadius: 12,
+                      width: 32,
+                      height: 32,
+                      borderRadius: "50%",
+                      background: "#dcfce7",
                       display: "flex",
                       alignItems: "center",
-                      gap: 12,
+                      justifyContent: "center",
+                      color: "#16a34a",
+                      fontSize: "1rem",
+                      fontWeight: 700,
+                      flexShrink: 0,
                     }}
+                    aria-hidden="true"
                   >
-                    <div
-                      style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: "50%",
-                        background: "#dcfce7",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        color: "#16a34a",
-                        fontSize: "1rem",
-                        fontWeight: 700,
-                        flexShrink: 0,
-                      }}
-                      aria-hidden="true"
-                    >
-                      ✓
-                    </div>
-                    <div>
-                      <strong style={{ display: "block", color: "#166534", fontSize: "0.95rem", marginBottom: 2 }}>
-                        All materials in this module are completed!
-                      </strong>
-                      <span style={{ fontSize: "0.84rem", color: "#15803d" }}>
-                        {hasQuiz && !isQuizAlreadyPassed
-                          ? "You are ready to take the module comprehension quiz."
-                          : nextStepId
+                    ✓
+                  </div>
+                  <div>
+                    <strong style={{ display: "block", color: "#166534", fontSize: "0.95rem", marginBottom: 2 }}>
+                      All materials in this module are completed!
+                    </strong>
+                    <span style={{ fontSize: "0.84rem", color: "#15803d" }}>
+                      {hasQuiz && !isQuizAlreadyPassed
+                        ? "You are ready to take the module comprehension quiz."
+                        : nextStepId
                           ? "You are ready to advance to the next module."
                           : "You have completed this module."}
-                      </span>
-                    </div>
+                    </span>
                   </div>
-                )}
+                </div>
+              )}
 
-                {stepMaterials.filter((m) => m.title.toLowerCase().includes(debouncedMaterialsSearch.toLowerCase())).length === 0 && (
-                  <div className={styles.emptyStateCard} style={{ padding: "2rem", textAlign: "center" }}>
-                    <p style={{ margin: 0, color: "#78716a" }}>
-                      No materials found matching &ldquo;{debouncedMaterialsSearch}&rdquo;
-                    </p>
-                  </div>
-                )}
+              {stepMaterials.filter((m) => m.title.toLowerCase().includes(debouncedMaterialsSearch.toLowerCase())).length === 0 && (
+                <div className={styles.emptyStateCard} style={{ padding: "2rem", textAlign: "center" }}>
+                  <p style={{ margin: 0, color: "#78716a" }}>
+                    No materials found matching &ldquo;{debouncedMaterialsSearch}&rdquo;
+                  </p>
+                </div>
+              )}
 
-                {/* Materials Navigation Row (Previous Part / Next Part) */}
-                {renderMaterialsNavigationRow()}
-              </div>
+              {/* Materials Navigation Row (Previous Part / Next Part) */}
+              {renderMaterialsNavigationRow()}
             </div>
-          )}
-        </div>
+          </div>
+        )}
+      </div>
 
       {/* =====================================================================
           SCREEN 8: CELEBRATION MODAL (Lesson / Module Completed!)
@@ -3124,7 +3117,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                       setIsCelebrationOpen(false);
                       if (videoRef.current) {
                         videoRef.current.currentTime = 0;
-                        videoRef.current.play().catch(() => {});
+                        videoRef.current.play().catch(() => { });
                       }
                     }}
                     className={styles.btnSecondaryOutline}
@@ -3234,13 +3227,12 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                   >
                     <div className={styles.lessonCardLeft}>
                       <div
-                        className={`${styles.lessonPlayCircle} ${
-                          isDone
+                        className={`${styles.lessonPlayCircle} ${isDone
                             ? styles.lessonPlayCircleDone
                             : isCurrent
-                            ? styles.lessonPlayCircleActive
-                            : styles.lessonPlayCircleLocked
-                        }`}
+                              ? styles.lessonPlayCircleActive
+                              : styles.lessonPlayCircleLocked
+                          }`}
                         style={{ width: 30, height: 30, fontSize: "0.75rem" }}
                       >
                         {isDone ? "✓" : "▶"}

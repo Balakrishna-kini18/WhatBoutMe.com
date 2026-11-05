@@ -476,8 +476,8 @@ export default function DiscoveryCallBooking({
                 <span>Available</span>
               </span>
               <span className="inline-flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-sand" />
-                <span>Booked</span>
+                <span className="h-2 w-2 rounded-full bg-rose-500" />
+                <span>Already Booked</span>
               </span>
             </div>
           )}
@@ -509,6 +509,7 @@ export default function DiscoveryCallBooking({
                     type="button"
                     disabled={isBooked}
                     aria-disabled={isBooked}
+                    title={isBooked ? "Already booked for this time period" : `Select 15-minute slot at ${slot.timeLocal}`}
                     onClick={() => {
                       if (isBooked) return;
                       setSelectedSlot(slot);
@@ -522,17 +523,18 @@ export default function DiscoveryCallBooking({
                     }`}
                   >
                     <div className="flex items-center justify-between w-full">
-                      <span className={`text-xs sm:text-sm font-bold block ${isBooked ? "line-through text-ink-soft/60" : ""}`}>
-                        {slot.timeLocal}
+                      <span className={`text-xs sm:text-sm font-bold flex items-center gap-1.5 ${isBooked ? "line-through text-ink-soft/60" : ""}`}>
+                        <Clock className={`h-3.5 w-3.5 shrink-0 ${isBooked ? "text-sand" : "text-gold-deep"}`} />
+                        <span>{slot.timeLocal}</span>
                       </span>
                       {isBooked && (
-                        <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-sand/60 text-ink-soft leading-none">
-                          Booked
+                        <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200/80 leading-none">
+                          Already Booked
                         </span>
                       )}
                     </div>
-                    <span className={`text-[10px] block mt-1 ${isBooked ? "text-ink-soft/40" : "text-ink-soft"}`}>
-                      {slot.timeGst} · {slot.timeIst}
+                    <span className={`text-[10px] block mt-1 ${isBooked ? "text-rose-700/70" : "text-ink-soft"}`}>
+                      {isBooked ? "Already booked for this time period" : `${slot.timeGst} · ${slot.timeIst}`}
                     </span>
                   </button>
                 );

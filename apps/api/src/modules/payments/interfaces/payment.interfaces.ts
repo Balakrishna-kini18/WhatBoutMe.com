@@ -54,5 +54,5 @@ export interface IPaymentProvider {
   verifyWebhook(params: VerifyWebhookParams): Promise<WebhookVerificationResult>;
   expireSession?(orderId: string): Promise<boolean>;
   retrieveSession?(orderId: string): Promise<any>;
-  refundPayment?(params: { paymentIntentId: string; amount?: number; reason?: string }): Promise<any>;
+  refundPayment?(params: { paymentIntentId: string; amount?: number; reason?: string; idempotencyKey?: string }): Promise<any>;
 }

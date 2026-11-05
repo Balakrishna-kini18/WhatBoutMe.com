@@ -499,8 +499,14 @@ export function buildAuthHref(
     params.set("portal", sanitized);
   }
 
-  // Preserve lms_origin when explicitly passed or in extraParams (hydration-safe, never accesses window synchronously)
-  const rawOrigin = explicitLmsOrigin ?? (extraParams?.lms_origin as string | undefined);
+  // Preserve lms_origin when explicitly passed or in extraParams or active window query
+  let rawOrigin = explicitLmsOrigin ?? (extraParams?.lms_origin as string | undefined);
+  if (!rawOrigin && typeof window !== "undefined" && window.location?.search) {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      rawOrigin = q.get("lms_origin") || undefined;
+    } catch {}
+  }
   const originToUse = sanitizeLmsOrigin(rawOrigin);
   if (originToUse) {
     params.set("lms_origin", originToUse);

@@ -9,10 +9,11 @@ import {
   IsDateString,
   Matches,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { CouponDiscountType, CouponScope, CouponCurrency } from '@prisma/client';
 
 export class UpdateCouponDto {
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase().replace(/\s+/g, '-') : value))
   @IsString()
   @IsOptional()
   @Matches(/^[A-Za-z0-9_-]{3,30}$/, {

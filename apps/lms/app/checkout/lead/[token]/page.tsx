@@ -74,7 +74,7 @@ export default function LeadCheckoutPage({
     fetch(`${API_URL}/payments/active-provider`)
       .then((res) => (res.ok ? res.json() : null))
       .then((info) => {
-        if (isMounted && info?.activeProvider) {
+        if (isMounted && info?.activeProvider && info.activeProvider !== "MOCK_TEST") {
           setActiveProvider(info.activeProvider);
         }
       })

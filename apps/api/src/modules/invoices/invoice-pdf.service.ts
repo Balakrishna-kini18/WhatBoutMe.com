@@ -19,6 +19,11 @@ export interface InvoicePdfData {
   total: number;
   paymentMethod?: string;
   paymentReference?: string;
+  localPayment?: {
+    paidCurrency: string;
+    paidAmount: number;
+    fxRate?: string | number | null;
+  } | null;
 }
 
 @Injectable()
@@ -357,6 +362,13 @@ export class InvoicePdfService {
       'This invoice is electronically generated and verified by WhatBoutMe FZE, Dubai, UAE.',
       { x: 45, y, size: 8, font: fontRegular, color: mutedColor }
     );
+    if (data.localPayment) {
+      y -= 11;
+      page.drawText(
+        `* Localized Settlement: Converted at checkout via Stripe Adaptive Pricing to ${data.localPayment.paidAmount} ${data.localPayment.paidCurrency}${data.localPayment.fxRate ? ` (FX Rate: ${data.localPayment.fxRate})` : ''}.`,
+        { x: 45, y, size: 8, font: fontRegular, color: mutedColor }
+      );
+    }
     y -= 11;
     page.drawText(
       'Payment covers curriculum access and digital workshop materials under the terms signed upon enrolment.',

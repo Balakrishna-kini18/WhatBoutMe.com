@@ -46,6 +46,7 @@ function CheckoutContent() {
   const [signedVersion, setSignedVersion] = useState<string>("v1.0");
   const [agreementStatus, setAgreementStatus] = useState<"CHECKING" | "SIGNED" | "REQUIRED">("CHECKING");
 
+  const isDevSimulate = searchParams.get("dev_simulate") === "1" || searchParams.get("test_bypass") === "1";
   const targetEnrolmentId = enrolmentId || queryEnrolmentId;
   const extraParams = `${queryBatchId ? `&batchId=${encodeURIComponent(queryBatchId)}` : ""}${queryCoupon ? `&coupon=${encodeURIComponent(queryCoupon)}` : ""}`;
   const agreementUrl = `/agreement?programId=${programId || ""}${targetEnrolmentId ? `&enrolmentId=${targetEnrolmentId}` : ""}${extraParams}`;
@@ -66,7 +67,7 @@ function CheckoutContent() {
       fetch(`${API_URL}/payments/active-provider`)
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
-          if (data?.activeProvider) {
+          if (data?.activeProvider && data.activeProvider !== "MOCK_TEST") {
             setActiveProvider(data.activeProvider);
           }
         })
@@ -134,49 +135,18 @@ function CheckoutContent() {
     }
   }, [programId]);
 
-  const getBasePrice = () => {
-    if (!program) return 0;
+  // Authoritative USD core pricing
+  const basePriceUSD = Number(program?.price) || 0;
+  const discountAmountUSD = appliedCoupon?.discountAmount ?? 0;
+  const finalAmountUSD = Math.max(0, basePriceUSD - discountAmountUSD);
 
-    // 1. Explicit currency price configured on Program setup
-    if (currency === "INR" && program.priceINR !== undefined && program.priceINR !== null && Number(program.priceINR) > 0) {
-      return Number(program.priceINR);
-    }
-    if (currency === "AED" && program.priceAED !== undefined && program.priceAED !== null && Number(program.priceAED) > 0) {
-      return Number(program.priceAED);
-    }
-    if (currency === "USD" && program.priceUSD !== undefined && program.priceUSD !== null && Number(program.priceUSD) > 0) {
-      return Number(program.priceUSD);
-    }
-
-    // 2. Base tuition with standard dynamic FX conversion (1 USD = 3.67 AED, 1 USD = 83 INR)
-    const baseAmount = Number(program.price) || 0;
-    const baseCurrency = (program.currency || "USD").toUpperCase();
-
-    // Normalize base to USD first
-    let inUSD = baseAmount;
-    if (baseCurrency === "INR") {
-      inUSD = baseAmount / 83;
-    } else if (baseCurrency === "AED") {
-      inUSD = baseAmount / 3.67;
-    }
-
-    // Convert from USD to selected currency
-    if (currency === "INR") {
-      return Math.round(inUSD * 83);
-    }
-    if (currency === "AED") {
-      return Math.round(inUSD * 3.67);
-    }
-    return Math.round(inUSD);
-  };
-
-  const basePrice = getBasePrice();
-  const discountAmount = appliedCoupon?.discountAmount ?? 0;
-  const finalAmount = Math.max(0, basePrice - discountAmount);
-  const currencySymbol = currency === "INR" ? "₹" : currency === "AED" ? "AED " : "$";
+  // Estimator helpers for learner reference
+  const approxINR = Math.round(finalAmountUSD * 86.5);
+  const approxAED = Math.round(finalAmountUSD * 3.67);
 
   const handleApplyCoupon = async () => {
-    if (!couponCode.trim()) return;
+    const cleanCode = couponCode.trim().toUpperCase().replace(/\s+/g, "-");
+    if (!cleanCode) return;
     setIsApplyingCoupon(true);
     setCouponError(null);
     try {
@@ -188,11 +158,10 @@ function CheckoutContent() {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          code: couponCode.trim(),
+          code: cleanCode,
           programId,
-          currency,
+          currency: "USD",
           userId: user?.id || user?.sub,
-          paymentPlanType: "FULL",
         }),
       });
 
@@ -235,8 +204,9 @@ function CheckoutContent() {
         body: JSON.stringify({
           targetType: "ENROLMENT",
           targetId: programId,
-          amount: finalAmount,
-          currency,
+          enrolmentId: targetEnrolmentId || undefined,
+          amount: finalAmountUSD,
+          currency: "USD",
           couponCode: appliedCoupon?.code || couponCode || undefined,
           idempotencyKey,
         }),
@@ -298,11 +268,11 @@ function CheckoutContent() {
           targetType: "ENROLMENT",
           targetId: programId,
           enrolmentId: targetEnrolmentId || undefined,
-          amount: finalAmount,
-          currency,
+          amount: finalAmountUSD,
+          currency: "USD",
           status,
           failureReason: status === "FAILED" ? "Simulated test bank transaction declined." : undefined,
-          idempotencyKey: `chk_${Date.now()}_${currency.toLowerCase()}_${Math.random().toString(36).substring(2, 7)}`,
+          idempotencyKey: `chk_${Date.now()}_usd_${Math.random().toString(36).substring(2, 7)}`,
           couponCode: appliedCoupon?.code || couponCode || undefined,
         }),
       });
@@ -394,33 +364,12 @@ function CheckoutContent() {
             Review your order and finalize enrollment
           </h2>
 
-        {/* Currency Switcher */}
+        {/* Currency Core Badge */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-          <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#1C1917" }}>Select Currency:</span>
-          <div style={{ display: "inline-flex", gap: "0.35rem", background: "#F7F3EC", padding: "4px", borderRadius: "10px", border: "1px solid #E7E0D6" }}>
-            {(["USD", "AED", "INR"] as const).map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => {
-                  setCurrency(c);
-                  setAppliedCoupon(null);
-                }}
-                style={{
-                  border: "none",
-                  background: currency === c ? "#B86B11" : "transparent",
-                  color: currency === c ? "#FFFFFF" : "#78716A",
-                  padding: "4px 10px",
-                  borderRadius: "6px",
-                  fontSize: "0.8rem",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  transition: "all 0.15s ease",
-                }}
-              >
-                {c === "USD" ? "$ USD" : c === "AED" ? "AED" : "₹ INR"}
-              </button>
-            ))}
+          <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#1C1917" }}>Core Tuition Currency:</span>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", background: "#FEF3C7", padding: "5px 12px", borderRadius: "8px", border: "1px solid #FDE68A", fontSize: "0.82rem", fontWeight: 700, color: "#92400E" }}>
+            <span>$ USD Core</span>
+            <span style={{ fontWeight: 400, color: "#B45309", fontSize: "0.75rem" }}>• Converted live by Stripe at checkout</span>
           </div>
         </div>
 
@@ -492,26 +441,20 @@ function CheckoutContent() {
           {/* Pricing Breakdown */}
           <div style={{ borderTop: "1px dashed #E7E0D6", paddingTop: "0.85rem", marginTop: "0.5rem", fontSize: "0.9rem" }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.35rem", color: "#78716A" }}>
-              <span>Base Tuition ({currency}):</span>
-              <span>{currencySymbol}{basePrice.toLocaleString()}</span>
+              <span>Base Tuition:</span>
+              <span style={{ fontWeight: 600 }}>${basePriceUSD.toLocaleString()} USD</span>
             </div>
 
             {appliedCoupon && (
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.35rem", color: "#16A34A", fontWeight: 600 }}>
                 <span>Coupon ({appliedCoupon.code}):</span>
-                <span>-{currencySymbol}{discountAmount.toLocaleString()}</span>
+                <span>-${discountAmountUSD.toLocaleString()} USD</span>
               </div>
             )}
 
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", color: "#78716A", fontSize: "0.8rem" }}>
               <span>Taxes:</span>
-              <span>
-                {currency === "AED"
-                  ? "Includes 5% UAE VAT"
-                  : currency === "INR"
-                  ? "Includes 18% India GST"
-                  : "0% Export / Int'l Tax"}
-              </span>
+              <span>0% Export / Int'l Tax (WhatBoutMe FZE)</span>
             </div>
 
             <div
@@ -527,8 +470,30 @@ function CheckoutContent() {
               <span style={{ color: "#1C1917", fontWeight: 700, fontSize: "1.05rem" }}>Total Due:</span>
               <div style={{ textAlign: "right" }}>
                 <span style={{ color: "#B86B11", fontSize: "1.6rem", fontWeight: 700 }}>
-                  {currencySymbol}{finalAmount.toLocaleString()}
+                  ${finalAmountUSD.toLocaleString()} USD
                 </span>
+              </div>
+            </div>
+
+            {/* Dynamic Stripe Adaptive Pricing Callout */}
+            <div
+              style={{
+                marginTop: "0.85rem",
+                background: "#F0FDF4",
+                border: "1px solid #BBF7D0",
+                borderRadius: "10px",
+                padding: "0.75rem 0.95rem",
+                fontSize: "0.8rem",
+                color: "#166534",
+                lineHeight: 1.45,
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "0.5rem",
+              }}
+            >
+              <span style={{ fontSize: "1rem" }}>🌍</span>
+              <div>
+                <strong>Stripe Adaptive Pricing:</strong> When paying from India or UAE, Stripe automatically converts this to <strong>₹ INR (~₹{approxINR.toLocaleString()})</strong> with UPI &amp; Netbanking, or <strong>AED (~{approxAED.toLocaleString()} AED)</strong> on the secure checkout screen.
               </div>
             </div>
           </div>
@@ -544,7 +509,7 @@ function CheckoutContent() {
               type="text"
               placeholder="Enter coupon code (e.g. WELCOME10)"
               value={couponCode}
-              onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+              onChange={(e) => setCouponCode(e.target.value.toUpperCase().replace(/\s+/g, "-"))}
               disabled={isApplyingCoupon || !!appliedCoupon}
               style={{
                 flex: 1,
@@ -603,7 +568,7 @@ function CheckoutContent() {
           )}
           {appliedCoupon && (
             <p style={{ margin: "0.4rem 0 0 0", color: "#16A34A", fontSize: "0.8rem", fontWeight: 600 }}>
-              ✓ Coupon applied! Saved {currencySymbol}{discountAmount.toLocaleString()}.
+              ✓ Coupon applied! Saved ${discountAmountUSD.toLocaleString()} USD.
             </p>
           )}
         </div>
@@ -926,110 +891,108 @@ function CheckoutContent() {
                   padding: "4px 12px",
                   borderRadius: "9999px",
                   marginBottom: "0.85rem",
-                  border: activeProvider === "STRIPE" ? "1px solid #BBF7D0" : "1px solid #E7E0D6",
+                  border: "1px solid #BBF7D0",
                   fontWeight: 600,
                 }}
               >
                 <span>
-                  {activeProvider === "STRIPE"
-                    ? "🔒 Stripe Checkout: Bank-Grade Security • Adaptive Local Pricing"
-                    : "TEST_BYPASS Mode: Server-Side Webhook Emulation Active"}
+                  🔒 Stripe Checkout: Bank-Grade Security • Adaptive Local Pricing
                 </span>
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                {activeProvider === "STRIPE" ? (
-                  <button
-                    className={styles.submitBtn}
-                    onClick={handleStripeCheckout}
-                    disabled={processing || !user || agreementStatus !== "SIGNED"}
-                    style={{
-                      width: "100%",
-                      background: "#635BFF",
-                      color: "#FFFFFF",
-                      borderRadius: "12px",
-                      padding: "1.1rem",
-                      fontSize: "1.05rem",
-                      fontWeight: 700,
-                      border: "none",
-                      cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
-                      opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.65 : 1,
-                      display: "flex",
-                      justifyContent: "center",
-                      alignItems: "center",
-                      gap: "0.5rem",
-                      boxShadow: "0 2px 8px rgba(99, 91, 255, 0.3)",
-                      transition: "all 0.2s ease",
-                    }}
-                  >
-                    {processing ? (
-                      "Connecting to Stripe..."
-                    ) : !user ? (
-                      "Log In to Finalize Enrollment"
-                    ) : (
-                      <>
-                        <span>Pay with Stripe</span>
-                        <span>({currencySymbol}{finalAmount.toLocaleString()})</span>
-                      </>
-                    )}
-                  </button>
-                ) : (
-                  <button
-                    className={styles.submitBtn}
-                    onClick={() => handleSimulatePayment("PAID")}
-                    disabled={processing || !user || agreementStatus !== "SIGNED"}
-                    style={{
-                      width: "100%",
-                      background: "#B86B11",
-                      color: "#FFFFFF",
-                      borderRadius: "12px",
-                      padding: "1rem",
-                      fontSize: "1rem",
-                      fontWeight: 700,
-                      border: "none",
-                      cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
-                      opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.65 : 1,
-                      display: "flex",
-                      justifyContent: "center",
-                      alignItems: "center",
-                      gap: "0.5rem",
-                      transition: "opacity 0.2s ease",
-                    }}
-                  >
-                    {processing ? (
-                      "Processing Simulated Payment..."
-                    ) : !user ? (
-                      "Log In to Finalize Enrollment"
-                    ) : (
-                      <>
-                        <span>Simulate Test Payment (Instant Paid)</span>
-                        <span>({currencySymbol}{finalAmount.toLocaleString()})</span>
-                      </>
-                    )}
-                  </button>
-                )}
-
-                {/* Developer Fallback / Test Failure Button */}
+                {/* Official Stripe Checkout Button */}
                 <button
-                  type="button"
-                  onClick={() => handleSimulatePayment("FAILED")}
+                  className={styles.submitBtn}
+                  onClick={handleStripeCheckout}
                   disabled={processing || !user || agreementStatus !== "SIGNED"}
                   style={{
                     width: "100%",
-                    background: "transparent",
-                    color: "#DC2626",
+                    background: "#635BFF",
+                    color: "#FFFFFF",
                     borderRadius: "12px",
-                    padding: "0.65rem",
-                    fontSize: "0.82rem",
-                    fontWeight: 600,
-                    border: "1px dashed #FECACA",
+                    padding: "1.1rem",
+                    fontSize: "1.05rem",
+                    fontWeight: 700,
+                    border: "none",
                     cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
-                    opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.5 : 0.8,
-                    transition: "all 0.15s ease",
+                    opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.65 : 1,
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    gap: "0.5rem",
+                    boxShadow: "0 2px 8px rgba(99, 91, 255, 0.3)",
+                    transition: "all 0.2s ease",
                   }}
                 >
-                  Test Payment Failure Path (Decline Simulation)
+                  {processing ? (
+                    "Connecting to Stripe..."
+                  ) : !user ? (
+                    "Log In to Finalize Enrollment"
+                  ) : (
+                    <>
+                      <span>Pay with Stripe</span>
+                      <span>(${finalAmountUSD.toLocaleString()} USD)</span>
+                    </>
+                  )}
                 </button>
+
+                {/* Developer-Only Bypass Controls (visible only when ?dev_simulate=1) */}
+                {isDevSimulate && (
+                  <>
+                    <button
+                      className={styles.submitBtn}
+                      onClick={() => handleSimulatePayment("PAID")}
+                      disabled={processing || !user || agreementStatus !== "SIGNED"}
+                      style={{
+                        width: "100%",
+                        background: "#B86B11",
+                        color: "#FFFFFF",
+                        borderRadius: "12px",
+                        padding: "0.85rem",
+                        fontSize: "0.9rem",
+                        fontWeight: 700,
+                        border: "none",
+                        cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
+                        opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.65 : 1,
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        gap: "0.5rem",
+                      }}
+                    >
+                      {processing ? (
+                        "Processing Simulated Payment..."
+                      ) : (
+                        <>
+                          <span>Simulate Test Payment (Instant Paid)</span>
+                          <span>(${finalAmountUSD.toLocaleString()} USD)</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSimulatePayment("FAILED")}
+                      disabled={processing || !user || agreementStatus !== "SIGNED"}
+                      style={{
+                        width: "100%",
+                        background: "transparent",
+                        color: "#DC2626",
+                        borderRadius: "12px",
+                        padding: "0.65rem",
+                        fontSize: "0.82rem",
+                        fontWeight: 600,
+                        border: "1px dashed #FECACA",
+                        cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
+                        opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.5 : 0.8,
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      Test Payment Failure Path (Decline Simulation)
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )

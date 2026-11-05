@@ -12,6 +12,7 @@ import LearnerCertificates, {
   CertificateData,
 } from "./components/dashboard/LearnerCertificates";
 import { API_URL, renewOnce } from "./lib/api";
+import { courseImageFor } from "./lib/courseImage";
 
 interface EnrolledProgram {
   enrolmentId: string;
@@ -19,6 +20,7 @@ interface EnrolledProgram {
   batchName: string;
   programId: string;
   programTitle: string;
+  coverImage?: string | null;
   status: string;
   progress: number;
   totalItems?: number;
@@ -238,8 +240,7 @@ export default function LearnerDashboardPage() {
       progress: progressVal,
       totalLessons,
       completedLessons,
-      image:
-        courseImages[idx % courseImages.length] || "/brand/course-learning.webp",
+      image: courseImageFor(p.programTitle, p.coverImage),
       route:
         p.status === "PENDING_AGREEMENT"
           ? `/agreement?programId=${p.programId}&enrolmentId=${p.enrolmentId}`

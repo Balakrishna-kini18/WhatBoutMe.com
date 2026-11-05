@@ -28,6 +28,8 @@ export type SessionUser = {
   email: string;
   name?: string | null;
   role?: string;
+  country?: string | null;
+  timezone?: string | null;
   enrolledPrograms?: EnrolledProgramItem[];
 };
 

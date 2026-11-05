@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import EnrolLink from "./EnrolLink";
 import { stripFormatting } from "./FormattedText";
+import LocalizedCoursePrice from "./LocalizedCoursePrice";
 import { formatPrice, isOptimisable, type Course } from "@/lib/courses";
 
 /**
@@ -12,13 +13,8 @@ import { formatPrice, isOptimisable, type Course } from "@/lib/courses";
  */
 export default function FeaturedCourse({ course }: { course?: Course }) {
   if (!course || !course.slug) return null;
-  const facts = [
-    course.duration,
-    course.meta,
-    typeof course.price === "number" && !isNaN(course.price) && course.price > 0
-      ? formatPrice(course.price)
-      : "",
-  ].filter(Boolean);
+  const metaFacts = [course.duration, course.meta].filter(Boolean);
+  const hasPrice = typeof course.price === "number" && !isNaN(course.price) && course.price > 0;
 
   return (
     <div className="grid overflow-hidden rounded-3xl border border-line bg-white lg:grid-cols-[1.1fr_1fr]">
@@ -50,8 +46,21 @@ export default function FeaturedCourse({ course }: { course?: Course }) {
         <h2 className="text-2xl font-bold leading-[1.15] tracking-tight sm:text-3xl lg:text-4xl">
           {course.title}
         </h2>
-        {facts.length > 0 && (
-          <p className="mt-2 text-sm text-ink-soft">{facts.join(" · ")}</p>
+        {(metaFacts.length > 0 || hasPrice) && (
+          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-soft">
+            {metaFacts.map((fact, idx) => (
+              <span key={fact} className="flex items-center gap-2">
+                {idx > 0 && <span>·</span>}
+                <span>{fact}</span>
+              </span>
+            ))}
+            {hasPrice && (
+              <>
+                {metaFacts.length > 0 && <span>·</span>}
+                <LocalizedCoursePrice amountUSD={course.price!} variant="inline" />
+              </>
+            )}
+          </div>
         )}
         {course.body && (
           <p className="mt-4 line-clamp-2 max-w-xl leading-relaxed text-ink-soft">{stripFormatting(course.body)}</p>

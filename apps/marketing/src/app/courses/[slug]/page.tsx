@@ -9,6 +9,7 @@ import Nav from "@/components/site/Nav";
 import Footer from "@/components/site/Footer";
 import CourseCard from "@/components/site/CourseCard";
 import EnrolLink from "@/components/site/EnrolLink";
+import LocalizedCoursePrice from "@/components/site/LocalizedCoursePrice";
 import { formatPrice, getCourses, isOptimisable } from "@/lib/courses";
 import {
   Accordion,
@@ -40,13 +41,6 @@ export default async function CoursePage({ params }: Props) {
     { label: "In person", value: course.inPerson },
     { label: "Online", value: course.online },
     { label: "For", value: course.meta },
-    {
-      label: "Price",
-      value:
-        typeof course.price === "number" && !isNaN(course.price) && course.price > 0
-          ? formatPrice(course.price)
-          : "",
-    },
   ].filter((f) => f.value);
 
   const others = courses.filter((c) => c && c.slug && c.slug !== course.slug).slice(0, 3);
@@ -199,6 +193,14 @@ export default async function CoursePage({ params }: Props) {
                   <dd className="mt-1.5 leading-relaxed">{f.value}</dd>
                 </div>
               ))}
+              {typeof course.price === "number" && !isNaN(course.price) && course.price > 0 && (
+                <div className="py-4">
+                  <dt className="text-sm text-ink-soft">Price</dt>
+                  <dd className="mt-2">
+                    <LocalizedCoursePrice amountUSD={course.price} />
+                  </dd>
+                </div>
+              )}
             </dl>
 
             {course.programId && (

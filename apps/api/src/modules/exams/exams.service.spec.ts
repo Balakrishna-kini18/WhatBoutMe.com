@@ -511,6 +511,59 @@ describe('D1-038: ExamsService - Comprehensive 50-Question Final Exam', () => {
       expect(result.stepToRevisit).toBeNull();
     });
 
+    it('grades single-correct MULTIPLE_CHOICE questions accurately when submitted via selectedOptionIds array', async () => {
+      prismaMock.exam.findUnique.mockResolvedValueOnce(mockExam);
+      prismaMock.enrolment.findFirst.mockResolvedValueOnce(mockEnrolment);
+
+      const boundQuestions = [
+        { id: 'q-mc-1', points: 1, type: 'MULTIPLE_CHOICE' },
+        { id: 'q-mc-2', points: 1, type: 'MULTIPLE_CHOICE' },
+      ];
+
+      prismaMock.examAttempt.findFirst.mockResolvedValueOnce({
+        id: 'attempt-mc-arr',
+        attemptNumber: 1,
+        enrolmentId: 'enrolment-1',
+        examId: 'exam-final-1',
+        status: AttemptStatus.IN_PROGRESS,
+        startedAt: new Date(),
+        answers: {
+          boundQuestions,
+          boundQuestionIds: boundQuestions.map((q) => q.id),
+        },
+      });
+
+      prismaMock.examAttempt.findUnique.mockResolvedValueOnce({
+        id: 'attempt-mc-arr',
+        status: AttemptStatus.IN_PROGRESS,
+      });
+
+      prismaMock.question.findMany.mockResolvedValueOnce(
+        boundQuestions.map((q) => ({
+          ...q,
+          options: [
+            { id: `${q.id}-opt-correct`, text: 'Correct', isCorrect: true },
+            { id: `${q.id}-opt-wrong`, text: 'Wrong', isCorrect: false },
+          ],
+        })),
+      );
+
+      const result = await service.submitExam(
+        'exam-final-1',
+        {
+          answers: boundQuestions.map((q) => ({
+            questionId: q.id,
+            selectedOptionIds: [`${q.id}-opt-correct`],
+          })) as any,
+        },
+        mockLearner,
+      );
+
+      expect(result.score).toBe(100);
+      expect(result.passed).toBe(true);
+      expect(result.status).toBe(AttemptStatus.PASSED);
+    });
+
     it('evaluates failing score (< 75%), triggers 24h cooldown, and identifies stepToRevisit', async () => {
       prismaMock.exam.findUnique.mockResolvedValueOnce(mockExam);
       prismaMock.enrolment.findFirst.mockResolvedValueOnce(mockEnrolment);

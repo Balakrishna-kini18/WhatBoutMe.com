@@ -191,7 +191,7 @@ export function buildExamAnswersPayload(
 
     const rawType = String(q.type || "").toUpperCase();
     const isText = rawType === "SHORT_ANSWER" || rawType === "TEXT_BOX";
-    const isMulti = !isText && (rawType === "MULTI_SELECT" || rawType === "MULTIPLE_CHOICE");
+    const isMulti = !isText && rawType === "MULTI_SELECT";
 
     if (isMulti) {
       const ids = rawAns
@@ -203,6 +203,7 @@ export function buildExamAnswersPayload(
         questionId: q.id,
         selectedOptionIds: ids,
         optionIds: ids,
+        ...(ids.length === 1 ? { optionId: ids[0], selectedOptionId: ids[0] } : {}),
       });
     } else if (isText) {
       payload.push({
@@ -217,6 +218,8 @@ export function buildExamAnswersPayload(
         questionId: q.id,
         optionId: optId,
         selectedOptionId: optId,
+        selectedOptionIds: [optId],
+        optionIds: [optId],
       });
     }
   }

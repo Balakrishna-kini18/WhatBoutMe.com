@@ -1290,9 +1290,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         const multiArray = rawAns ? rawAns.split(",").map((s) => s.trim()).filter(Boolean) : [];
         return {
           questionId: q.id,
-          optionId: !isMulti && !isText ? rawAns || undefined : undefined,
-          selectedOptionId: !isMulti && !isText ? rawAns || undefined : undefined,
-          selectedOptionIds: isMulti ? multiArray : undefined,
+          optionId: !isText && multiArray.length === 1 ? multiArray[0] : undefined,
+          selectedOptionId: !isText && multiArray.length === 1 ? multiArray[0] : undefined,
+          selectedOptionIds: !isText && (isMulti || multiArray.length > 0) ? multiArray : undefined,
           textResponse: isText ? rawAns.trim() : undefined,
           textAnswer: isText ? rawAns.trim() : undefined,
         };

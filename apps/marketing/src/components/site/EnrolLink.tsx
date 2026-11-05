@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { CheckCircle2, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { enrolUrl } from "@/lib/courses";
 import { LMS_URL } from "@/lib/api";
 import { openPortal, useEnrolmentStatus } from "@/lib/auth";
@@ -49,7 +49,6 @@ export default function EnrolLink({
   activeClassName,
   wrapperClassName,
   children,
-  showStatusBadge = true,
 }: {
   programId: string;
   slug?: string;
@@ -85,20 +84,6 @@ export default function EnrolLink({
       </a>
     );
 
-    if (showStatusBadge) {
-      return (
-        <div className={wrapperClassName || "flex flex-col gap-2.5 w-full"}>
-          <div className="flex items-center justify-center gap-2 rounded-2xl bg-amber-500/10 border border-amber-500/25 py-2.5 px-4 text-xs sm:text-sm font-semibold text-amber-900 shadow-sm">
-            <CheckCircle2 className="h-4 w-4 text-amber-600 shrink-0" />
-            <span className="truncate">
-              Enrolled {enrolment?.batchName ? `• ${enrolment.batchName}` : ""}
-            </span>
-          </div>
-          {buttonContent}
-        </div>
-      );
-    }
-
     return wrapperClassName ? (
       <div className={wrapperClassName}>{buttonContent}</div>
     ) : (
@@ -121,17 +106,6 @@ export default function EnrolLink({
       </a>
     );
 
-    if (showStatusBadge) {
-      return (
-        <div className={wrapperClassName || "flex flex-col gap-2.5 w-full"}>
-          <div className="flex items-center justify-center gap-2 rounded-2xl bg-amber-500/10 border border-amber-500/25 py-2 px-3 text-xs font-semibold text-amber-900">
-            <span>Agreement Pending</span>
-          </div>
-          {buttonContent}
-        </div>
-      );
-    }
-
     return wrapperClassName ? (
       <div className={wrapperClassName}>{buttonContent}</div>
     ) : (
@@ -153,17 +127,6 @@ export default function EnrolLink({
         <ArrowRight className="h-4 w-4 shrink-0 transition-transform duration-200 group-hover:translate-x-1" />
       </a>
     );
-
-    if (showStatusBadge) {
-      return (
-        <div className={wrapperClassName || "flex flex-col gap-2.5 w-full"}>
-          <div className="flex items-center justify-center gap-2 rounded-2xl bg-amber-500/10 border border-amber-500/25 py-2 px-3 text-xs font-semibold text-amber-900">
-            <span>Payment Pending</span>
-          </div>
-          {buttonContent}
-        </div>
-      );
-    }
 
     return wrapperClassName ? (
       <div className={wrapperClassName}>{buttonContent}</div>

@@ -18,7 +18,7 @@ describe('Phase 4: AttendanceReconciliationService - Multi-Join & 75% Rule', () 
       $transaction: vi.fn(async (cb) => cb(prismaMock)),
       session: {
         findUnique: vi.fn(),
-        update: vi.fn(),
+        update: vi.fn().mockResolvedValue({ id: 'sess-1' }),
       },
       unmatchedAttendance: {
         create: vi.fn(),
@@ -189,6 +189,43 @@ describe('Phase 4: AttendanceReconciliationService - Multi-Join & 75% Rule', () 
         expect.objectContaining({
           status: AttendanceStatus.ABSENT,
           durationMin: 30,
+          attendancePercentage: 50,
+        }),
+      );
+    });
+
+    it('correctly evaluates overtime sessions against actual meeting span so late-joiners do not get inflated 89% attendance', async () => {
+      // Mock session scheduled for 15 minutes, but meeting ran from 05:29 to 05:55 (26 minutes)
+      const overtimeSession = {
+        ...mockSession,
+        durationMinutes: 15,
+        startTime: new Date('2026-11-04T11:59:00Z'), // 05:29 PM
+        endTime: new Date('2026-11-04T12:14:00Z'),   // 05:44 PM (15 mins scheduled)
+      };
+      prismaMock.session.findUnique.mockResolvedValueOnce(overtimeSession);
+
+      await service.reconcileSession('sess-1', [
+        {
+          provider: 'ZOOM',
+          participantEmail: 'host@example.com',
+          joinTime: new Date('2026-11-04T11:59:00Z'), // 05:29 PM
+          leaveTime: new Date('2026-11-04T12:25:00Z'), // 05:55 PM (26 mins total meeting)
+        } as any,
+        {
+          provider: 'ZOOM',
+          participantEmail: 'enrolled1@example.com', // Siddhlinga: joined late at 05:42 PM
+          joinTime: new Date('2026-11-04T12:12:00Z'), // 05:42 PM
+          leaveTime: new Date('2026-11-04T12:25:00Z'), // 05:55 PM (13 mins attended)
+        } as any,
+      ]);
+
+      // Late-joiner attended 13 mins out of 26 total mins = 50% (< 75% threshold) -> status ABSENT
+      expect(attendanceServiceMock.recordPresentAuto).toHaveBeenCalledWith(
+        'sess-1',
+        'user-1',
+        expect.objectContaining({
+          status: AttendanceStatus.ABSENT,
+          durationMin: 13,
           attendancePercentage: 50,
         }),
       );

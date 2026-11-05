@@ -10,7 +10,7 @@
  * Does NOT implement reschedule/cancel (D1-046) or timezone utilities (D1-045).
  */
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -455,6 +455,29 @@ export default function LiveSessionsPage() {
       localStorage.setItem("active_live_session", s.id);
     } catch {}
   }, []);
+
+  // Smart Classroom Auto-Join from Email Notification Links:
+  // Listens for /live?autoJoin=<sessionId> or /live?session=<sessionId>
+  // Automatically logs check-in, starts live presence tracking, and opens Zoom
+  const autoJoinHandledRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined" || loading || sessions.length === 0) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const autoJoinId = params.get("autoJoin") || params.get("session");
+      if (!autoJoinId || autoJoinHandledRef.current === autoJoinId) return;
+
+      const target = sessions.find((s) => s.id === autoJoinId);
+      if (target && target.status !== "CANCELLED") {
+        autoJoinHandledRef.current = autoJoinId;
+        handleJoinLiveSession(target);
+        const zoomUrl = buildLearnerJoinUrl(target.joinUrl);
+        if (zoomUrl) {
+          window.open(zoomUrl, "_blank", "noopener,noreferrer");
+        }
+      }
+    } catch {}
+  }, [loading, sessions, handleJoinLiveSession]);
 
   const handleLeaveLiveSession = useCallback((sessionId: string) => {
     fetch(`${API_URL}/sessions/${sessionId}/live-heartbeat`, {

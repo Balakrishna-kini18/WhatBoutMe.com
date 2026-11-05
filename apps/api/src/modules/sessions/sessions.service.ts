@@ -1300,10 +1300,13 @@ export class SessionsService {
     }
 
     const prevLiveMin = existing ? (existing.liveMinutes ?? (existing.minutesPresent ?? 0)) : 0;
-    const currentLiveMin = Math.min(scheduledMin, prevLiveMin + creditedMin);
+    // Overtime support: allow live minutes to accrue beyond scheduledMin while session is ongoing!
+    const currentLiveMin = prevLiveMin + creditedMin;
     const totalMinutes = currentLiveMin + (existing?.recordedMinutes ?? 0);
+    const elapsedSinceStart = now >= session.startTime ? Math.round((now.getTime() - session.startTime.getTime()) / 60000) : 0;
+    const effectiveTotalMin = Math.max(scheduledMin, elapsedSinceStart);
     const attendancePercentage =
-      scheduledMin > 0 ? Math.min(100, Math.round((totalMinutes / scheduledMin) * 10000) / 100) : 0;
+      effectiveTotalMin > 0 ? Math.min(100, Math.round((totalMinutes / effectiveTotalMin) * 10000) / 100) : 0;
 
     const batchThreshold = (session.batch as any)?.attendanceThreshold;
     const programThreshold = (session.batch?.program as any)?.attendanceThreshold;
@@ -1317,7 +1320,7 @@ export class SessionsService {
     const requiredMinutes =
       session.minAttendanceMinutes && session.minAttendanceMinutes > 0
         ? session.minAttendanceMinutes
-        : Math.round((scheduledMin * thresholdPercent) / 100);
+        : Math.round((effectiveTotalMin * thresholdPercent) / 100);
 
     const meetsThreshold = totalMinutes >= requiredMinutes;
     const isManual =
@@ -1563,7 +1566,9 @@ export class SessionsService {
             timeZone: tz,
           });
           const formattedTime = `${formattedStartTime} – ${formattedEndTime}`;
-          const joinLink = session.joinUrl || `${lmsUrl}/live`;
+          // Direct learners to the LMS live classroom with autoJoin so attendance is tracked,
+          // while providing fallback direct meeting URL
+          const joinLink = `${lmsUrl}/live?autoJoin=${session.id}`;
 
           await this.emailService!.sendTemplateEmail({
             to: learner.email,

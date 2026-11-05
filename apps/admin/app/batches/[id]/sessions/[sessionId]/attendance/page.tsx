@@ -517,6 +517,21 @@ export default function SessionAttendancePage({
     }
   };
 
+  /**
+   * Determines if a learner is actively participating in an ongoing live session right now.
+   * If they pinged within the last 90 seconds and the session is not concluded, they have not left.
+   */
+  const isLearnerCurrentlyActive = (learner: LearnerAttendanceItem): boolean => {
+    if (!data?.session || data.session.status === "COMPLETED" || data.session.status === "CANCELLED") {
+      return false;
+    }
+    if (!learner.joinTimeUtc || !learner.leaveTimeUtc) {
+      return false;
+    }
+    const lastSeenMs = new Date(learner.leaveTimeUtc).getTime();
+    return !isNaN(lastSeenMs) && Date.now() - lastSeenMs <= 90 * 1000;
+  };
+
   const handleExportCsv = () => {
     if (!data || data.learners.length === 0) {
       toastError("No attendance records to export.");
@@ -544,7 +559,7 @@ export default function SessionAttendancePage({
         `"${l.minutesPresent ?? 0}"`,
         `"${Math.round(l.attendancePercentage ?? 0)}%"`,
         `"${formatLocalTime(l.joinTimeUtc)}"`,
-        `"${formatLocalTime(l.leaveTimeUtc)}"`,
+        `"${isLearnerCurrentlyActive(l) ? "In Session" : formatLocalTime(l.leaveTimeUtc)}"`,
         `"${sourceLabel}"`,
         `"${(l.overrideReason || "").replace(/"/g, '""')}"`,
       ].join(",");
@@ -1012,9 +1027,37 @@ export default function SessionAttendancePage({
                       </td>
 
                       <td>
-                        <span style={{ fontSize: "0.84rem", color: learner.leaveTimeUtc ? "var(--text-primary)" : "var(--text-muted)" }}>
-                          {formatLocalTime(learner.leaveTimeUtc)}
-                        </span>
+                        {isLearnerCurrentlyActive(learner) ? (
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "5px",
+                              fontSize: "0.76rem",
+                              color: "#15803d",
+                              fontWeight: 600,
+                              background: "#dcfce7",
+                              padding: "2px 8px",
+                              borderRadius: "100px",
+                              border: "1px solid #bbf7d0",
+                            }}
+                            title="Learner is currently active in the live classroom"
+                          >
+                            <span
+                              style={{
+                                width: "6px",
+                                height: "6px",
+                                borderRadius: "50%",
+                                background: "#16a34a",
+                              }}
+                            />
+                            In Session
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: "0.84rem", color: learner.leaveTimeUtc ? "var(--text-primary)" : "var(--text-muted)" }}>
+                            {formatLocalTime(learner.leaveTimeUtc)}
+                          </span>
+                        )}
                       </td>
 
                       <td>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useRef, useSyncExternalStore } from "react";
 import { useUser } from "@/lib/auth";
 import {
   detectUserCurrency,
@@ -8,11 +8,15 @@ import {
   setUserCurrencyPreference,
   CURRENCY_CONFIGS,
   type SupportedDisplayCurrency,
+  type PriceOverrides,
 } from "@/lib/currency";
-import { Globe, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
 interface LocalizedCoursePriceProps {
   amountUSD: number;
+  priceAED?: number | null;
+  priceINR?: number | null;
+  priceUSD?: number | null;
   variant?: "card" | "inline";
   showDisclaimer?: boolean;
 }
@@ -28,16 +32,32 @@ const subscribeCurrency = (callback: () => void) => {
 
 export default function LocalizedCoursePrice({
   amountUSD,
+  priceAED,
+  priceINR,
+  priceUSD,
   variant = "card",
   showDisclaimer = true,
 }: LocalizedCoursePriceProps) {
   const user = useUser();
   const [mounted, setMounted] = useState(false);
   const [isOpenMenu, setIsOpenMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!isOpenMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setIsOpenMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpenMenu]);
 
   const currentCurrency = useSyncExternalStore(
     subscribeCurrency,
@@ -45,9 +65,16 @@ export default function LocalizedCoursePrice({
     () => "USD" as SupportedDisplayCurrency
   );
 
+  const overrides: PriceOverrides = {
+    priceAED,
+    priceINR,
+    priceUSD,
+  };
+
   const priceData = formatPriceWithCurrency(
     amountUSD,
-    mounted ? currentCurrency : "USD"
+    mounted ? currentCurrency : "USD",
+    overrides
   );
 
   const handleCurrencySelect = (code: SupportedDisplayCurrency) => {
@@ -76,11 +103,15 @@ export default function LocalizedCoursePrice({
         </span>
 
         {/* Currency Switcher Pill */}
-        <div className="relative inline-block text-left">
+        <div ref={menuRef} className="relative inline-block text-left">
           <button
             type="button"
-            onClick={() => setIsOpenMenu((prev) => !prev)}
-            className="inline-flex items-center gap-1 rounded-full border border-line bg-cream/70 px-2.5 py-1 text-xs font-semibold text-ink-soft transition-colors hover:border-gold hover:text-ink"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setIsOpenMenu((prev) => !prev);
+            }}
+            className="inline-flex items-center gap-1 rounded-full border border-line bg-cream/70 px-2.5 py-1 text-xs font-semibold text-ink-soft transition-colors hover:border-gold hover:text-ink cursor-pointer"
             title="Change display currency"
           >
             <span>{CURRENCY_CONFIGS[currentCurrency].flag}</span>
@@ -89,7 +120,10 @@ export default function LocalizedCoursePrice({
           </button>
 
           {isOpenMenu && (
-            <div className="absolute right-0 top-full z-50 mt-1.5 w-36 rounded-xl border border-line bg-white p-1 shadow-lg ring-1 ring-black/5">
+            <div
+              className="absolute right-0 top-full z-50 mt-1.5 w-36 rounded-xl border border-line bg-white p-1 shadow-lg ring-1 ring-black/5"
+              onClick={(e) => e.stopPropagation()}
+            >
               {(["INR", "AED", "USD"] as SupportedDisplayCurrency[]).map((code) => {
                 const conf = CURRENCY_CONFIGS[code];
                 const isActive = code === currentCurrency;
@@ -97,8 +131,12 @@ export default function LocalizedCoursePrice({
                   <button
                     key={code}
                     type="button"
-                    onClick={() => handleCurrencySelect(code)}
-                    className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-xs text-left transition ${
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleCurrencySelect(code);
+                    }}
+                    className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-xs text-left transition cursor-pointer ${
                       isActive
                         ? "bg-gold/15 font-bold text-ink"
                         : "text-ink-soft hover:bg-cream-deep hover:text-ink"

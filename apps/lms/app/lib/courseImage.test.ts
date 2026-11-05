@@ -28,3 +28,4 @@ describe("courseImageFor", () => {
     expect(courseImageFor("", "")).toBe(DEFAULT_COURSE_IMAGE);
   });
 });
+

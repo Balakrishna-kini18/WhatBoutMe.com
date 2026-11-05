@@ -197,7 +197,12 @@ export default async function CoursePage({ params }: Props) {
                 <div className="py-4">
                   <dt className="text-sm text-ink-soft">Price</dt>
                   <dd className="mt-2">
-                    <LocalizedCoursePrice amountUSD={course.price} />
+                    <LocalizedCoursePrice
+                      amountUSD={course.price}
+                      priceAED={course.priceAED}
+                      priceINR={course.priceINR}
+                      priceUSD={course.priceUSD}
+                    />
                   </dd>
                 </div>
               )}

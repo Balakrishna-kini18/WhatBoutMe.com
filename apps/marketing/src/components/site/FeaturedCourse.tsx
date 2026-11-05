@@ -57,7 +57,13 @@ export default function FeaturedCourse({ course }: { course?: Course }) {
             {hasPrice && (
               <>
                 {metaFacts.length > 0 && <span>·</span>}
-                <LocalizedCoursePrice amountUSD={course.price!} variant="inline" />
+                <LocalizedCoursePrice
+                  amountUSD={course.price!}
+                  priceAED={course.priceAED}
+                  priceINR={course.priceINR}
+                  priceUSD={course.priceUSD}
+                  variant="inline"
+                />
               </>
             )}
           </div>

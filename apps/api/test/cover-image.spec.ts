@@ -31,3 +31,4 @@ Audience: Engineers`;
     expect(extractProgramCoverImage(plainDesc)).toBeNull();
   });
 });
+

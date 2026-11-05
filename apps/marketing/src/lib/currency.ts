@@ -34,15 +34,33 @@ export const CURRENCY_CONFIGS: Record<SupportedDisplayCurrency, CurrencyConfig> 
   },
 };
 
+export interface PriceOverrides {
+  priceAED?: number | null;
+  priceINR?: number | null;
+  priceUSD?: number | null;
+}
+
 /**
  * Automatically detects the user's country and preferred currency:
- * 1. User manual override in localStorage ("wbm_currency")
+ * 1. User manual override in localStorage ("wbm_currency") - HIGHEST PRIORITY
  * 2. Signed-in user's profile country (stored in database / localStorage at signup)
  * 3. Browser system timezone (e.g. Asia/Kolkata or Asia/Calcutta -> India / INR, Asia/Dubai -> UAE / AED)
  * 4. Default: USD
  */
 export function detectUserCurrency(userCountry?: string | null): SupportedDisplayCurrency {
-  // 1. If explicit userCountry is provided (e.g. from user session or profile), evaluate it first
+  const hasStorage = typeof localStorage !== "undefined";
+
+  // 1. User manual override in localStorage ("wbm_currency") - HIGHEST PRIORITY
+  if (hasStorage) {
+    try {
+      const saved = localStorage.getItem("wbm_currency");
+      if (saved && (saved === "INR" || saved === "AED" || saved === "USD")) {
+        return saved as SupportedDisplayCurrency;
+      }
+    } catch {}
+  }
+
+  // 2. If explicit userCountry is provided (e.g. from user session or profile at signup)
   if (userCountry) {
     const normalized = userCountry.trim().toLowerCase();
     if (normalized === "india" || normalized === "in") return "INR";
@@ -58,18 +76,6 @@ export function detectUserCurrency(userCountry?: string | null): SupportedDispla
       return "USD";
     }
   }
-
-  if (typeof window === "undefined") {
-    return "USD";
-  }
-
-  // 2. Check user manual override in localStorage
-  try {
-    const saved = localStorage.getItem("wbm_currency");
-    if (saved && (saved === "INR" || saved === "AED" || saved === "USD")) {
-      return saved as SupportedDisplayCurrency;
-    }
-  } catch {}
 
   // 3. Check signed-in user's country from localStorage
   const effectiveCountry = getStoredUserCountry();
@@ -109,16 +115,18 @@ export function detectUserCurrency(userCountry?: string | null): SupportedDispla
 }
 
 export function setUserCurrencyPreference(currency: SupportedDisplayCurrency) {
-  if (typeof window !== "undefined") {
+  if (typeof localStorage !== "undefined") {
     try {
       localStorage.setItem("wbm_currency", currency);
-      window.dispatchEvent(new CustomEvent("wbm-currency-change", { detail: currency }));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("wbm-currency-change", { detail: currency }));
+      }
     } catch {}
   }
 }
 
 export function getStoredUserCountry(): string | null {
-  if (typeof window === "undefined") return null;
+  if (typeof localStorage === "undefined") return null;
   try {
     const userRaw = localStorage.getItem("wbm_user");
     if (userRaw) {
@@ -131,10 +139,13 @@ export function getStoredUserCountry(): string | null {
 
 /**
  * Formats a base USD price into the target currency.
+ * If specific custom currency prices (priceAED or priceINR) were set by Admin,
+ * they take priority over exchange-rate conversions.
  */
 export function formatPriceWithCurrency(
   amountInUSD: number,
-  currency: SupportedDisplayCurrency
+  currency: SupportedDisplayCurrency,
+  overrides?: PriceOverrides
 ): {
   primaryFormatted: string;
   usdFormatted: string;
@@ -142,11 +153,16 @@ export function formatPriceWithCurrency(
   symbol: string;
   isConverted: boolean;
 } {
+  const effectiveUSD =
+    typeof overrides?.priceUSD === "number" && !isNaN(overrides.priceUSD) && overrides.priceUSD > 0
+      ? overrides.priceUSD
+      : amountInUSD;
+
   const usdFormatted = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 2,
-  }).format(amountInUSD);
+  }).format(effectiveUSD);
 
   if (currency === "USD") {
     return {
@@ -159,7 +175,26 @@ export function formatPriceWithCurrency(
   }
 
   const config = CURRENCY_CONFIGS[currency];
-  const convertedAmount = Math.round(amountInUSD * config.fxRateToUSD);
+
+  // If the admin explicitly provided a custom price for INR or AED, prioritize it
+  let convertedAmount: number;
+  if (
+    currency === "INR" &&
+    typeof overrides?.priceINR === "number" &&
+    !isNaN(overrides.priceINR) &&
+    overrides.priceINR > 0
+  ) {
+    convertedAmount = Math.round(overrides.priceINR);
+  } else if (
+    currency === "AED" &&
+    typeof overrides?.priceAED === "number" &&
+    !isNaN(overrides.priceAED) &&
+    overrides.priceAED > 0
+  ) {
+    convertedAmount = Math.round(overrides.priceAED);
+  } else {
+    convertedAmount = Math.round(effectiveUSD * config.fxRateToUSD);
+  }
 
   let primaryFormatted: string;
   if (currency === "INR") {

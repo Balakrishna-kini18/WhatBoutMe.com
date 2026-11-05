@@ -25,6 +25,10 @@ export type Course = {
   /** Present when the course comes from the admin portal. */
   programId?: string;
   price?: number;
+  priceUSD?: number;
+  priceAED?: number;
+  priceINR?: number;
+  currency?: string;
   faqs?: Array<{
     id?: string;
     question: string;
@@ -112,6 +116,10 @@ function toCourse(program: Program, index: number): Course {
     links: brochure?.links,
     programId: program.id,
     price: typeof program.price === "number" && !isNaN(program.price) ? program.price : undefined,
+    priceUSD: typeof (program as any).priceUSD === "number" ? (program as any).priceUSD : undefined,
+    priceAED: typeof (program as any).priceAED === "number" ? (program as any).priceAED : undefined,
+    priceINR: typeof (program as any).priceINR === "number" ? (program as any).priceINR : undefined,
+    currency: (program as any).currency || "USD",
     faqs,
   };
 }

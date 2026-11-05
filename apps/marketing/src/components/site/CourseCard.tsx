@@ -59,7 +59,13 @@ export default function CourseCard({ course }: { course: Course }) {
         </span>
         {typeof course.price === "number" && !isNaN(course.price) && course.price > 0 && (
           <span className="mt-3 block text-sm font-semibold text-ink">
-            <LocalizedCoursePrice amountUSD={course.price} variant="inline" />
+            <LocalizedCoursePrice
+              amountUSD={course.price}
+              priceAED={course.priceAED}
+              priceINR={course.priceINR}
+              priceUSD={course.priceUSD}
+              variant="inline"
+            />
           </span>
         )}
       </span>

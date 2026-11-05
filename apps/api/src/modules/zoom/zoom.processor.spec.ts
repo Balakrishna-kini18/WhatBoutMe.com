@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ZoomProcessor } from './zoom.processor.js';
+import { ZoomProcessor, buildZoomEventKey } from './zoom.processor.js';
 import { ZoomMeetingProvider } from './zoom.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { AttendanceReconciliationService } from '../sessions/attendance-reconciliation.service.js';
@@ -23,6 +23,10 @@ describe('ZoomProcessor - Automated Meeting & Attendance Processing', () => {
         update: vi.fn(),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
+      webhookEvent: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 'wh-1', status: 'PROCESSED' }),
+      },
     };
 
     reconciliationMock = {
@@ -41,15 +45,91 @@ describe('ZoomProcessor - Automated Meeting & Attendance Processing', () => {
     );
   });
 
-  const createJob = (event: string, objectPayload: any): Job =>
+  const createJob = (event: string, objectPayload: any, eventTs?: number): Job =>
     ({
+      id: 'zoom-job-1',
       data: {
         event,
+        event_ts: eventTs,
         payload: {
           object: objectPayload,
         },
       },
     }) as unknown as Job;
+
+  describe('Deterministic Event Key & Retry Idempotency', () => {
+    it('builds a deterministic eventKey without Date.now() fallback across retries', () => {
+      const payload = {
+        event: 'meeting.ended',
+        payload: { object: { id: 987654321, uuid: 'uuid-abc' } },
+      };
+      const key1 = buildZoomEventKey(payload);
+      const key2 = buildZoomEventKey(payload);
+      expect(key1).toBe(key2);
+      expect(key1).toContain('meeting.ended:uuid-abc:');
+    });
+
+    it('rolls back attendancePulled and does NOT mark WebhookEvent PROCESSED when getParticipantReport fails on attempt 1, then succeeds on attempt 2', async () => {
+      const mockSession = {
+        id: 'sess-retry',
+        batchId: 'batch-1',
+        providerMeetingId: '987654321',
+      };
+      prismaMock.session.findFirst.mockResolvedValue(mockSession);
+
+      // Attempt 1: Zoom API throws 503
+      zoomServiceMock.getParticipantReport.mockRejectedValueOnce(
+        new Error('Zoom API 503 Unavailable'),
+      );
+
+      const job = createJob('meeting.ended', { id: 987654321 }, 1700000000);
+      await expect(processor.process(job)).rejects.toThrow('Zoom API 503 Unavailable');
+
+      // Must NOT have marked WebhookEvent PROCESSED
+      expect(prismaMock.webhookEvent.create).not.toHaveBeenCalled();
+
+      // Must have rolled back attendancePulled to false so retry can claim it
+      expect(prismaMock.session.updateMany).toHaveBeenCalledWith({
+        where: { id: 'sess-retry' },
+        data: { attendancePulled: false },
+      });
+
+      // Attempt 2: Retry succeeds
+      const joinTime = new Date('2026-10-13T10:00:00Z');
+      const leaveTime = new Date('2026-10-13T10:45:00Z');
+      zoomServiceMock.getParticipantReport.mockResolvedValueOnce([
+        { userEmail: 'learner1@example.com', joinTime, leaveTime, durationMinutes: 45 },
+      ]);
+
+      await processor.process(job);
+
+      expect(reconciliationMock.reconcileSession).toHaveBeenCalledTimes(1);
+      expect(prismaMock.webhookEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          provider: 'ZOOM',
+          eventKey: 'meeting.ended:987654321:1700000000',
+          status: 'PROCESSED',
+        }),
+      });
+    });
+
+    it('skips duplicate webhook delivery when WebhookEvent is already marked PROCESSED', async () => {
+      prismaMock.webhookEvent.findUnique.mockResolvedValueOnce({
+        id: 'wh-existing',
+        status: 'PROCESSED',
+      });
+
+      const job = createJob('meeting.ended', { id: 987654321 }, 1700000000);
+      const res = await processor.process(job);
+
+      expect(res).toEqual({
+        skipped: true,
+        eventKey: 'meeting.ended:987654321:1700000000',
+      });
+      expect(prismaMock.session.findFirst).not.toHaveBeenCalled();
+      expect(zoomServiceMock.getParticipantReport).not.toHaveBeenCalled();
+    });
+  });
 
   describe('meeting.ended Event Processing', () => {
     it('marks session COMPLETED and delegates participant records to AttendanceReconciliationService', async () => {
@@ -72,7 +152,7 @@ describe('ZoomProcessor - Automated Meeting & Attendance Processing', () => {
           durationMinutes: 45,
         },
         {
-          userEmail: 'Guest Participant', // Name fallback when no email present
+          userEmail: 'Guest Participant',
           joinTime,
           leaveTime,
           durationMinutes: 45,
@@ -82,7 +162,6 @@ describe('ZoomProcessor - Automated Meeting & Attendance Processing', () => {
       const job = createJob('meeting.ended', { id: 987654321 });
       await processor.process(job);
 
-      // 1. Session found and atomically claimed
       expect(prismaMock.session.findFirst).toHaveBeenCalledWith({
         where: { providerMeetingId: '987654321' },
       });
@@ -91,10 +170,8 @@ describe('ZoomProcessor - Automated Meeting & Attendance Processing', () => {
         data: { attendancePulled: true, status: 'COMPLETED' },
       });
 
-      // 2. Participant report requested
       expect(zoomServiceMock.getParticipantReport).toHaveBeenCalledWith('987654321');
 
-      // 3. Normalized and passed to reconciliation service
       expect(reconciliationMock.reconcileSession).toHaveBeenCalledWith('sess-100', [
         {
           provider: 'ZOOM',
@@ -137,7 +214,6 @@ describe('ZoomProcessor - Automated Meeting & Attendance Processing', () => {
       const job = createJob('meeting.ended', { id: 987654321 });
       await processor.process(job);
 
-      // Verify no duplicate reconciliation or update was executed
       expect(zoomServiceMock.getParticipantReport).not.toHaveBeenCalled();
       expect(reconciliationMock.reconcileSession).not.toHaveBeenCalled();
     });

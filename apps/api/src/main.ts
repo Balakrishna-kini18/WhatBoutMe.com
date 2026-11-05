@@ -32,6 +32,9 @@ async function bootstrap() {
 
     const app = await NestFactory.create(AppModule, { rawBody: true, bufferLogs: true });
     app.useLogger(app.get(Logger));
+    if (!process.env.VERCEL) {
+      app.enableShutdownHooks();
+    }
 
     // Security
     // @ts-ignore - Ignore TS2349: This expression is not callable

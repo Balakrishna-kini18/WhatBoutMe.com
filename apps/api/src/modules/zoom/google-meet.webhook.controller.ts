@@ -8,9 +8,9 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator.js';
-import * as crypto from 'crypto';
 import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
+import { generateDeterministicJobId } from '../../common/utils/queue.util.js';
 
 @Controller('webhooks/google-meet')
 export class GoogleMeetWebhookController {
@@ -33,23 +33,57 @@ export class GoogleMeetWebhookController {
       throw new HttpException('Invalid signature', HttpStatus.UNAUTHORIZED);
     }
 
-    this.logger.log(`Received Google Meet webhook event. Resource state: ${resourceState}`);
+    const meetingId = String(body?.meetingId || body?.id || 'unknown');
+    const eventKey = String(body?.eventId || body?.event_ts || resourceState || 'event');
+
+    this.logger.log(
+      `Received Google Meet webhook event. Resource state: ${resourceState || 'none'}, meetingId: ${meetingId}`,
+    );
+
+    const minimalPayload = {
+      event: body?.event,
+      meetingId: body?.meetingId || body?.id,
+      recordingUrl: body?.recordingUrl || body?.play_url,
+      participants: Array.isArray(body?.participants) ? body.participants : undefined,
+    };
 
     // If meeting ended event or notification received, push to queue asynchronously
     if (resourceState === 'exists' || body?.event === 'meeting.ended') {
-      await this.meetingSyncQueue.add('SYNC_SESSION_ATTENDANCE', {
-        provider: 'GOOGLE_MEET',
-        meetingId: body?.meetingId || body?.id,
-        payload: body,
-      });
+      await this.meetingSyncQueue.add(
+        'SYNC_SESSION_ATTENDANCE',
+        {
+          provider: 'GOOGLE_MEET',
+          type: 'SYNC_SESSION_ATTENDANCE',
+          meetingId: body?.meetingId || body?.id,
+          payload: minimalPayload,
+        },
+        {
+          jobId: generateDeterministicJobId('gmeet-attendance', meetingId, eventKey),
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 2000 },
+          removeOnComplete: { count: 100, age: 86400 },
+          removeOnFail: { count: 200, age: 7 * 86400 },
+        },
+      );
     }
 
     if (body?.event === 'recording.completed') {
-      await this.meetingSyncQueue.add('SYNC_SESSION_RECORDING', {
-        provider: 'GOOGLE_MEET',
-        meetingId: body?.meetingId || body?.id,
-        payload: body,
-      });
+      await this.meetingSyncQueue.add(
+        'SYNC_SESSION_RECORDING',
+        {
+          provider: 'GOOGLE_MEET',
+          type: 'SYNC_SESSION_RECORDING',
+          meetingId: body?.meetingId || body?.id,
+          payload: minimalPayload,
+        },
+        {
+          jobId: generateDeterministicJobId('gmeet-recording', meetingId, eventKey),
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 2000 },
+          removeOnComplete: { count: 100, age: 86400 },
+          removeOnFail: { count: 200, age: 7 * 86400 },
+        },
+      );
     }
 
     // Return 200 OK immediately

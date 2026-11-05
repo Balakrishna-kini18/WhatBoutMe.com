@@ -563,11 +563,17 @@ describe('SessionsService — D1-043 Live Session Scheduling', () => {
       );
 
       expect(res.id).toBe('sess-1');
-      expect(meetingSyncQueueMock.add).toHaveBeenCalledWith('sync-meeting', expect.objectContaining({
-        outboxId: 'outbox-1',
-        type: 'CREATE',
-        sessionId: 'sess-1',
-      }));
+      expect(meetingSyncQueueMock.add).toHaveBeenCalledWith(
+        'sync-meeting',
+        expect.objectContaining({
+          outboxId: 'outbox-1',
+          type: 'CREATE',
+          sessionId: 'sess-1',
+        }),
+        expect.objectContaining({
+          jobId: 'outbox-outbox-1',
+        }),
+      );
     });
 
     it('throws BadRequestException if meeting provider is omitted and no joinUrl is provided', async () => {
@@ -619,11 +625,17 @@ describe('SessionsService — D1-043 Live Session Scheduling', () => {
         adminActor,
       );
 
-      expect(meetingSyncQueueMock.add).toHaveBeenCalledWith('sync-meeting', expect.objectContaining({
-        outboxId: 'outbox-1',
-        type: 'UPDATE',
-        sessionId: 'sess-1',
-      }));
+      expect(meetingSyncQueueMock.add).toHaveBeenCalledWith(
+        'sync-meeting',
+        expect.objectContaining({
+          outboxId: 'outbox-1',
+          type: 'UPDATE',
+          sessionId: 'sess-1',
+        }),
+        expect.objectContaining({
+          jobId: 'outbox-outbox-1',
+        }),
+      );
 
       expect(prismaMock.auditLog.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -644,10 +656,16 @@ describe('SessionsService — D1-043 Live Session Scheduling', () => {
 
       const cancelled = await service.cancelSession('sess-1', 'Trainer ill', adminActor);
 
-      expect(meetingSyncQueueMock.add).toHaveBeenCalledWith('sync-meeting', expect.objectContaining({
-        outboxId: 'outbox-1',
-        type: 'CANCEL',
-      }));
+      expect(meetingSyncQueueMock.add).toHaveBeenCalledWith(
+        'sync-meeting',
+        expect.objectContaining({
+          outboxId: 'outbox-1',
+          type: 'CANCEL',
+        }),
+        expect.objectContaining({
+          jobId: 'outbox-outbox-1',
+        }),
+      );
       expect(prismaMock.session.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'sess-1' },

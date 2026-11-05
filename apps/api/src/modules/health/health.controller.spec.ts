@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { HealthController } from './health.controller.js';
+import { evaluateWorkerProbe } from '../../worker.js';
 
-describe('HealthController (Keep-Alive & Database Warmup)', () => {
+describe('HealthController & Worker Readiness Probes', () => {
   let controller: HealthController;
   let mockPrisma: any;
   let mockHealthCheckService: any;
@@ -11,6 +12,9 @@ describe('HealthController (Keep-Alive & Database Warmup)', () => {
   beforeEach(() => {
     mockPrisma = {
       $queryRaw: vi.fn(),
+      outboxEvent: {
+        count: vi.fn().mockResolvedValue(0),
+      },
     };
 
     mockHealthCheckService = {
@@ -21,6 +25,9 @@ describe('HealthController (Keep-Alive & Database Warmup)', () => {
     };
 
     mockRedisService = {
+      isConfigured: vi.fn().mockReturnValue(true),
+      isReady: vi.fn().mockReturnValue(true),
+      ping: vi.fn().mockResolvedValue(true),
       getClient: vi.fn(() => ({
         status: 'ready',
         ping: vi.fn().mockResolvedValue('PONG'),
@@ -56,6 +63,7 @@ describe('HealthController (Keep-Alive & Database Warmup)', () => {
 
       await expect(controller.check()).rejects.toThrow(ServiceUnavailableException);
 
+      mockPrisma.$queryRaw.mockRejectedValueOnce(dbError);
       try {
         await controller.check();
       } catch (err: any) {
@@ -81,13 +89,21 @@ describe('HealthController (Keep-Alive & Database Warmup)', () => {
   });
 
   describe('Detailed Diagnostics Check: GET /health/details', () => {
-    it('runs comprehensive indicators for database and redis', async () => {
+    it('runs comprehensive indicators for database, redis, and outbox', async () => {
       mockPrisma.$queryRaw.mockResolvedValueOnce([{ '?column?': 1 }]);
 
       const res = (await controller.detailedCheck()) as any;
 
       expect(mockHealthCheckService.check).toHaveBeenCalledTimes(1);
       expect(res.database.status).toBe('up');
+      expect(res.redis.status).toBe('up');
+      expect(res.outbox).toEqual({
+        status: 'up',
+        pending: 0,
+        leased: 0,
+        retryableFailed: 0,
+        terminalFailed: 0,
+      });
     });
 
     it('reports database down if query fails during detailed check', async () => {
@@ -97,6 +113,60 @@ describe('HealthController (Keep-Alive & Database Warmup)', () => {
 
       expect(res.database.status).toBe('down');
       expect(res.database.error).toBe('Connection terminated');
+    });
+
+    it('distinguishes Redis disabled vs down (never falsely reports up when Redis ping fails)', async () => {
+      mockPrisma.$queryRaw.mockResolvedValue([{ '?column?': 1 }]);
+
+      // Case 1: Redis disabled by configuration
+      mockRedisService.isConfigured.mockReturnValueOnce(false);
+      const disabledRes = (await controller.detailedCheck()) as any;
+      expect(disabledRes.redis.status).toBe('disabled');
+
+      // Case 2: Redis configured but unreachable -> must report 'down', NOT 'up'
+      mockRedisService.isConfigured.mockReturnValueOnce(true);
+      mockRedisService.getClient.mockReturnValueOnce({
+        status: 'close',
+        connect: vi.fn().mockRejectedValue(new Error('ECONNREFUSED')),
+        ping: vi.fn().mockRejectedValue(new Error('Connection is closed.')),
+      });
+      const downRes = (await controller.detailedCheck()) as any;
+      expect(downRes.redis.status).toBe('down');
+      expect(downRes.redis.error).toContain('Connection is closed');
+    });
+  });
+
+  describe('Worker Liveness (/health) and Readiness (/ready) Probes', () => {
+    it('returns 200 ready on /ready when Redis is configured and ping succeeds', async () => {
+      const res = await evaluateWorkerProbe('/ready', false, {
+        isConfigured: () => true,
+        isReady: () => true,
+        ping: vi.fn().mockResolvedValue(true),
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.body.status).toBe('ready');
+      expect(res.body.redis).toBe('up');
+    });
+
+    it('returns 503 not_ready on /ready when Redis is unavailable', async () => {
+      const res = await evaluateWorkerProbe('/ready', false, {
+        isConfigured: () => true,
+        isReady: () => false,
+        ping: vi.fn().mockResolvedValue(false),
+      });
+      expect(res.statusCode).toBe(503);
+      expect(res.body.status).toBe('not_ready');
+      expect(res.body.redis).toBe('down');
+    });
+
+    it('returns 503 shutting_down when worker is terminating', async () => {
+      const res = await evaluateWorkerProbe('/health', true, {
+        isConfigured: () => true,
+        isReady: () => true,
+        ping: vi.fn().mockResolvedValue(true),
+      });
+      expect(res.statusCode).toBe(503);
+      expect(res.body.status).toBe('shutting_down');
     });
   });
 });

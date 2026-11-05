@@ -174,6 +174,7 @@ describe('D1-052 & D1-053: CertificatesService (Workflow, Code & Public Verifica
       expect(queueMock.add).toHaveBeenCalledWith(
         'generate-certificate',
         expect.objectContaining({ certificateId: 'cert-1' }),
+        expect.objectContaining({ jobId: 'certificate-gen:cert-1' }),
       );
     });
 

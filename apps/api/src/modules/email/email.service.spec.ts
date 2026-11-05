@@ -14,6 +14,7 @@ describe('Email Service & Notifications (R-55)', () => {
     delete process.env.SMTP_HOST;
     delete process.env.SMTP_USER;
     delete process.env.SMTP_PASS;
+    delete process.env.DISABLE_EMAIL_QUEUE;
 
     prismaMock = {
       emailDeliveryLog: {
@@ -95,10 +96,69 @@ describe('Email Service & Notifications (R-55)', () => {
     });
   });
 
-  describe('Queue Processing & Retries', () => {
+  describe('Queue Processing, API Producer Enqueueing & Retries', () => {
+    it('enqueues template emails to BullMQ from both API producer (WORKER_MODE=false) and worker processes', async () => {
+      const originalWorkerMode = process.env.WORKER_MODE;
+      process.env.WORKER_MODE = 'false';
+
+      const apiRes = await emailService.sendTemplateEmail({
+        to: 'learner@example.com',
+        subject: 'Reset Password',
+        template: 'PasswordResetEmail',
+        props: { firstName: 'Charlie', resetUrl: 'https://whatboutme.com/reset' },
+        idempotencyKey: 'reset:learner-1',
+      });
+
+      expect(apiRes.jobId).toBe('job-1');
+      expect(queueMock.add).toHaveBeenCalledWith(
+        'send-email',
+        expect.objectContaining({
+          to: 'learner@example.com',
+          template: 'PasswordResetEmail',
+        }),
+        expect.objectContaining({
+          jobId: 'email:reset:learner-1',
+          removeOnComplete: { count: 100, age: 86400 },
+          removeOnFail: { count: 500, age: 604800 },
+        }),
+      );
+
+      process.env.WORKER_MODE = 'true';
+      const workerRes = await emailService.sendTemplateEmail({
+        to: 'learner2@example.com',
+        subject: 'OTP',
+        template: 'OneTimeOtpEmail',
+        props: { code: '123456' },
+      });
+      expect(workerRes.jobId).toBe('job-1');
+      expect(queueMock.add).toHaveBeenCalledTimes(2);
+
+      process.env.WORKER_MODE = originalWorkerMode;
+    });
+
+    it('falls back to direct delivery when emailQueue.add fails during Redis outage', async () => {
+      queueMock.add.mockRejectedValueOnce(new Error('Redis connection refused'));
+
+      const res = await emailService.sendTemplateEmail({
+        to: 'fallback@example.com',
+        subject: 'Fallback OTP',
+        template: 'OneTimeOtpEmail',
+        props: { code: '999888' },
+      });
+
+      expect(res.id).toBe('log-uuid-1');
+      expect(prismaMock.emailDeliveryLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          to: 'fallback@example.com',
+          status: 'QUEUED',
+        }),
+      });
+    });
+
     it('EmailProcessor renders template and executes emailService delivery', async () => {
       const jobMock: any = {
         id: 'job-789',
+        name: 'send-email',
         data: {
           to: 'learner@example.com',
           subject: 'Reset Password',
@@ -119,6 +179,7 @@ describe('Email Service & Notifications (R-55)', () => {
 
       const jobMock: any = {
         id: 'job-fail',
+        name: 'send-email',
         data: {
           to: 'fail@example.com',
           subject: 'Fail Test',

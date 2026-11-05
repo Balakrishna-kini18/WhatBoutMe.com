@@ -112,6 +112,8 @@ describe('WhatBoutMe Agreement Administration & Enrollment Audit Suite', () => {
   };
 
   beforeEach(() => {
+    delete process.env.STRIPE_WEBHOOK_SECRET;
+    delete process.env.PAYMENT_WEBHOOK_SECRET;
     cacheHelperMock = {
       invalidateNamespace: vi.fn().mockResolvedValue(undefined),
       invalidateKey: vi.fn().mockResolvedValue(undefined),

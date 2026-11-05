@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   Logger,
   Optional,
 } from '@nestjs/common';
@@ -242,6 +243,24 @@ export class PaymentsService {
     // TIER 2: IN-FLIGHT SESSION DE-DUPLICATION (EXPIRE STALE OPEN SESSIONS)
     // ─────────────────────────────────────────────────────────────────────────
     const targetEnrolmentId = dto.enrolmentId || (pricing as any).enrolmentId || (dto.targetType === 'ENROLMENT' ? dto.targetId : undefined);
+
+    // Ownership Authorization Check: Prevent User A from initiating payment on User B's enrolment
+    if (dto.targetType === 'ENROLMENT' && targetEnrolmentId) {
+      const targetEnrol = await this.prisma.enrolment.findUnique({
+        where: { id: targetEnrolmentId },
+        select: { id: true, userId: true },
+      });
+      if (targetEnrol && targetEnrol.userId) {
+        const isStaff = user?.role === Role.ADMIN || user?.role === Role.SUPER_ADMIN;
+        if (targetUserId && targetEnrol.userId !== targetUserId && !isStaff) {
+          this.logger.warn(
+            `[Unauthorized Checkout Blocked] User ${targetUserId} attempted to initiate checkout for enrollment ${targetEnrolmentId} owned by ${targetEnrol.userId}`
+          );
+          throw new ForbiddenException('You are not authorized to initiate checkout for this enrollment.');
+        }
+      }
+    }
+
     if (targetEnrolmentId && this.stripeProvider?.expireSession) {
       try {
         const stalePendingPayment = await this.prisma.payment.findFirst({

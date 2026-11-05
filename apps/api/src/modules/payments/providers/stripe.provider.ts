@@ -99,33 +99,40 @@ export class StripePaymentProvider implements IPaymentProvider {
         idempotencyKey: String(params.idempotencyKey || ''),
       };
 
-      const session = await stripe.checkout.sessions.create({
-        mode: 'payment',
-        customer_email: params.customerEmail ? String(params.customerEmail).trim().toLowerCase() : undefined,
-        line_items: [
-          {
-            price_data: {
-              currency: currencyLower,
-              unit_amount: unitAmountMinor,
-              product_data: {
-                name: params.metadata?.title || 'WhatBoutMe Learning Program',
-                description: isEvent
-                  ? 'WhatBoutMe Masterclass / Workshop Entry Ticket'
-                  : 'WhatBoutMe FZE Online Professional Program Enrolment',
+      const requestOptions: Stripe.RequestOptions | undefined = params.idempotencyKey
+        ? { idempotencyKey: String(params.idempotencyKey) }
+        : undefined;
+
+      const session = await stripe.checkout.sessions.create(
+        {
+          mode: 'payment',
+          customer_email: params.customerEmail ? String(params.customerEmail).trim().toLowerCase() : undefined,
+          line_items: [
+            {
+              price_data: {
+                currency: currencyLower,
+                unit_amount: unitAmountMinor,
+                product_data: {
+                  name: params.metadata?.title || 'WhatBoutMe Learning Program',
+                  description: isEvent
+                    ? 'WhatBoutMe Masterclass / Workshop Entry Ticket'
+                    : 'WhatBoutMe FZE Online Professional Program Enrolment',
+                },
               },
+              quantity: 1,
             },
-            quantity: 1,
+          ],
+          adaptive_pricing: {
+            enabled: true,
           },
-        ],
-        adaptive_pricing: {
-          enabled: true,
+          metadata: sanitizedMetadata,
+          client_reference_id: params.metadata?.enrolmentId || params.targetId,
+          expires_at: Math.floor(Date.now() / 1000) + 1800, // 30 minutes
+          success_url: successUrl,
+          cancel_url: cancelUrl,
         },
-        metadata: sanitizedMetadata,
-        client_reference_id: params.metadata?.enrolmentId || params.targetId,
-        expires_at: Math.floor(Date.now() / 1000) + 1800, // 30 minutes
-        success_url: successUrl,
-        cancel_url: cancelUrl,
-      });
+        requestOptions,
+      );
 
       this.logger.log(
         `[StripeProvider] Created Stripe Checkout Session ${session.id} for ${params.targetType}:${params.targetId} (${params.amount} ${params.currency})`
@@ -273,16 +280,23 @@ export class StripePaymentProvider implements IPaymentProvider {
   /**
    * Automated Stripe refund creation for duplicate payment protection or sold-out events
    */
-  async refundPayment(params: { paymentIntentId: string; amount?: number; reason?: string }): Promise<any> {
+  async refundPayment(params: { paymentIntentId: string; amount?: number; reason?: string; idempotencyKey?: string }): Promise<any> {
     const stripe = this.getStripe();
     if (!stripe || !params.paymentIntentId) return null;
 
     try {
-      const refund = await stripe.refunds.create({
-        payment_intent: params.paymentIntentId,
-        amount: params.amount ? Math.round(params.amount * 100) : undefined,
-        reason: (params.reason as any) || 'duplicate',
-      });
+      const requestOptions: Stripe.RequestOptions | undefined = params.idempotencyKey
+        ? { idempotencyKey: String(params.idempotencyKey) }
+        : undefined;
+
+      const refund = await stripe.refunds.create(
+        {
+          payment_intent: params.paymentIntentId,
+          amount: params.amount ? Math.round(params.amount * 100) : undefined,
+          reason: (params.reason as any) || 'duplicate',
+        },
+        requestOptions,
+      );
       this.logger.log(`[StripeProvider] Issued refund ${refund.id} for payment intent ${params.paymentIntentId}`);
       return refund;
     } catch (err: any) {

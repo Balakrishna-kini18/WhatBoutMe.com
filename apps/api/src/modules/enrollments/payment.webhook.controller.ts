@@ -77,12 +77,82 @@ function verifyStripeSignature(
 export class PaymentWebhookController {
   private readonly logger = new Logger(PaymentWebhookController.name);
 
+  private readonly inFlightEvents = new Map<string, Promise<any>>();
+
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly cacheHelper?: CacheHelperService,
     @Optional() private readonly emailService?: EmailService,
     @Optional() private readonly stripeClient?: Stripe,
   ) {}
+
+  private async isEventProcessedInDatabase(eventId: string): Promise<boolean> {
+    if (typeof (this.prisma as any)?.webhookEvent?.findUnique !== 'function') {
+      return false;
+    }
+    try {
+      const existing = await (this.prisma as any).webhookEvent.findUnique({
+        where: { eventKey: eventId },
+      });
+      return existing?.status === 'PROCESSED';
+    } catch {
+      return false;
+    }
+  }
+
+  private async recordWebhookEventInDb(
+    client: any,
+    eventId?: string,
+    eventType?: string,
+    stripeSessionId?: string,
+    enrolmentId?: string,
+  ): Promise<void> {
+    if (typeof eventId !== 'string' || !eventId.startsWith('evt_')) {
+      return;
+    }
+    const webhookEventRepo = client?.webhookEvent || (this.prisma as any)?.webhookEvent;
+    if (!webhookEventRepo) {
+      return;
+    }
+    const payloadSummary = {
+      id: eventId,
+      type: eventType || 'payment.succeeded',
+      ...(stripeSessionId ? { stripeSessionId } : {}),
+      ...(enrolmentId ? { enrolmentId } : {}),
+    };
+    if (typeof webhookEventRepo.upsert === 'function') {
+      await webhookEventRepo.upsert({
+        where: { eventKey: eventId },
+        update: {
+          status: 'PROCESSED',
+          payload: payloadSummary,
+        },
+        create: {
+          provider: 'STRIPE',
+          eventKey: eventId,
+          status: 'PROCESSED',
+          payload: payloadSummary,
+        },
+      });
+    } else if (typeof webhookEventRepo.create === 'function') {
+      await webhookEventRepo.create({
+        data: {
+          provider: 'STRIPE',
+          eventKey: eventId,
+          status: 'PROCESSED',
+          payload: payloadSummary,
+        },
+      });
+    }
+  }
+
+  private async markEventProcessedInCache(eventId?: string): Promise<void> {
+    if (this.cacheHelper && typeof eventId === 'string' && eventId.startsWith('evt_')) {
+      await this.cacheHelper
+        .set(`stripe_event_id:${eventId}`, { status: 'processed', at: new Date().toISOString() }, 86400)
+        .catch(() => {});
+    }
+  }
 
   @Post()
   async handlePaymentWebhook(
@@ -142,12 +212,23 @@ export class PaymentWebhookController {
     const eventType = payload?.type || payload?.event || payload?.action || 'payment.succeeded';
     this.logger.log(`Processing payment webhook event: ${eventType}`);
 
-    // 1.5 Stripe Event-Level Deduplication (Blocks duplicate / concurrent webhook replays)
+    // 1.5 Stripe Event-Level Deduplication (Durable PostgreSQL primary + post-commit cache)
     const eventId = payload?.id;
-    if (this.cacheHelper && typeof eventId === 'string' && eventId.startsWith('evt_')) {
-      const isDuplicateEvent = await this.cacheHelper.get(`stripe_event_id:${eventId}`).catch(() => null);
-      if (isDuplicateEvent) {
-        this.logger.log(`[Idempotent Bypass] Stripe event ${eventId} already processed or in-flight. Returning 200 OK.`);
+    const hasStripeEventId = typeof eventId === 'string' && eventId.startsWith('evt_');
+
+    if (hasStripeEventId) {
+      const existingInFlight = this.inFlightEvents.get(eventId);
+      if (existingInFlight) {
+        try {
+          await existingInFlight;
+        } catch {
+          // If the in-flight execution failed, allow this retry to proceed
+        }
+      }
+
+      if (await this.isEventProcessedInDatabase(eventId)) {
+        await this.markEventProcessedInCache(eventId);
+        this.logger.log(`[Idempotent Bypass] Stripe event ${eventId} already processed in PostgreSQL. Returning 200 OK.`);
         return {
           received: true,
           idempotent: true,
@@ -155,8 +236,67 @@ export class PaymentWebhookController {
           status: 'EVENT_ALREADY_PROCESSED',
         };
       }
-      await this.cacheHelper.set(`stripe_event_id:${eventId}`, { status: 'processing', at: new Date().toISOString() }, 86400).catch(() => {});
+
+      if (this.cacheHelper) {
+        const cachedEvent = await this.cacheHelper
+          .get<{ status?: string }>(`stripe_event_id:${eventId}`)
+          .catch(() => null);
+        if (cachedEvent?.status === 'processed') {
+          const hasWebhookEventTable = typeof (this.prisma as any)?.webhookEvent?.findUnique === 'function';
+          if (!hasWebhookEventTable) {
+            this.logger.log(`[Idempotent Bypass] Stripe event ${eventId} already processed. Returning 200 OK.`);
+            return {
+              received: true,
+              idempotent: true,
+              eventId,
+              status: 'EVENT_ALREADY_PROCESSED',
+            };
+          }
+          // Cache hit without matching durable DB record: evict stale cache key and proceed
+          await this.cacheHelper.del(`stripe_event_id:${eventId}`).catch(() => {});
+        } else if (cachedEvent) {
+          // Never allow an uncommitted 'processing' cache key to block retries
+          await this.cacheHelper.del(`stripe_event_id:${eventId}`).catch(() => {});
+        }
+      }
     }
+
+    const executeWebhook = async () => {
+      try {
+        const result = await this.processVerifiedWebhookPayload(payload, eventType, eventId, clientIp);
+        if (hasStripeEventId) {
+          await this.markEventProcessedInCache(eventId);
+        }
+        return result;
+      } catch (err) {
+        if (hasStripeEventId && this.cacheHelper) {
+          await this.cacheHelper.del(`stripe_event_id:${eventId}`).catch(() => {});
+        }
+        throw err;
+      }
+    };
+
+    if (hasStripeEventId) {
+      const executionPromise = executeWebhook();
+      this.inFlightEvents.set(eventId, executionPromise);
+      try {
+        return await executionPromise;
+      } finally {
+        if (this.inFlightEvents.get(eventId) === executionPromise) {
+          this.inFlightEvents.delete(eventId);
+        }
+      }
+    }
+
+    return executeWebhook();
+  }
+
+  private async processVerifiedWebhookPayload(
+    payload: any,
+    eventType: string,
+    eventId: string | undefined,
+    clientIp: string,
+  ) {
 
     // Extract identifiers from payload (supports both direct JSON payloads and standard Stripe event payloads)
     const dataObj = payload?.data?.object || payload || {};
@@ -241,6 +381,7 @@ export class PaymentWebhookController {
               where: { id: reg.eventId },
               data: { seatsBooked: { increment: 1 } },
             });
+            await this.recordWebhookEventInDb(tx, eventId, eventType, stripeSessionId, reg.id);
           });
 
           this.logger.log(`Event registration ${reg.id} confirmed via Stripe webhook.`);
@@ -465,6 +606,8 @@ export class PaymentWebhookController {
             },
           });
 
+          await this.recordWebhookEventInDb(tx, eventId, eventType, stripeSessionId, enrolment.id);
+
           return { isDuplicate: true };
         }
 
@@ -598,6 +741,8 @@ export class PaymentWebhookController {
           },
         });
 
+        await this.recordWebhookEventInDb(tx, eventId, eventType, stripeSessionId, enrolment.id);
+
         return { isDuplicate: false };
       });
 
@@ -698,6 +843,8 @@ export class PaymentWebhookController {
         },
       });
 
+      await this.recordWebhookEventInDb(this.prisma, eventId, eventType, stripeSessionId, enrolmentId);
+
       return {
         received: true,
         status: 'FAILED',
@@ -767,6 +914,8 @@ export class PaymentWebhookController {
           ip: clientIp,
         },
       });
+
+      await this.recordWebhookEventInDb(this.prisma, eventId, eventType, stripeSessionId, targetEnrolmentId);
 
       // Invalidate cache immediately so LMS locks down steps
       if (this.cacheHelper) {

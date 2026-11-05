@@ -24,6 +24,17 @@ import { EmailService } from '../email/email.service.js';
 import { CouponsService } from '../coupons/coupons.service.js';
 import { InvoicePdfService } from '../invoices/invoice-pdf.service.js';
 import { isRegistrationDeadlinePassed } from '../../common/utils/deadline.util.js';
+import { isUUID } from 'class-validator';
+
+const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/i;
+
+export function isValidUuid(value: unknown): value is string {
+  return typeof value === 'string' && isUUID(value);
+}
+
+function isValidSlug(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 200 && SLUG_PATTERN.test(value);
+}
 
 export function getCurrencySymbol(currency: string): string {
   switch (currency.toUpperCase()) {
@@ -103,8 +114,68 @@ export class PaymentsService {
     else if (origCurrency === 'AED') inUSD = inUSD / 3.67;
 
     if (targetCurrency === 'INR') return Math.round(inUSD * 83);
-    if (targetCurrency === 'AED') return Math.round(inUSD * 3.67 * 100) / 100;
-    return Math.round(inUSD * 100) / 100;
+    if (targetCurrency === 'AED') return Math.round(inUSD * 3.67);
+    return Math.round(inUSD);
+  }
+
+  private computeAuthoritativeProgramPrice(
+    program: any,
+    batch: any | null | undefined,
+    currency: SupportedCurrency,
+  ): number {
+    let amount = this.convertCurrencyAmount(
+      currency,
+      program.price,
+      program.currency,
+      program.priceINR,
+      program.priceAED,
+      program.priceUSD,
+    );
+
+    // Program early-bird check: convert from earlyBirdCurrency || program.currency
+    if (
+      program.earlyBirdPrice != null &&
+      Number(program.earlyBirdPrice) > 0 &&
+      program.earlyBirdDeadline &&
+      new Date() < new Date(program.earlyBirdDeadline)
+    ) {
+      const earlyBirdSourceCurrency = program.earlyBirdCurrency || program.currency || 'USD';
+      amount = this.convertCurrencyAmount(
+        currency,
+        Number(program.earlyBirdPrice),
+        earlyBirdSourceCurrency,
+      );
+    }
+
+    // Batch-specific price override takes precedence when configured
+    if (batch?.price != null && Number(batch.price) > 0) {
+      const batchSourceCurrency = batch.currency || program.currency || 'USD';
+      amount = this.convertCurrencyAmount(
+        currency,
+        Number(batch.price),
+        batchSourceCurrency,
+        batch.priceINR,
+        batch.priceAED,
+        batch.priceUSD,
+      );
+    }
+
+    // Batch-specific early-bird check when configured
+    if (
+      batch?.earlyBirdPrice != null &&
+      Number(batch.earlyBirdPrice) > 0 &&
+      batch.earlyBirdDeadline &&
+      new Date() < new Date(batch.earlyBirdDeadline)
+    ) {
+      const batchEbSourceCurrency = batch.earlyBirdCurrency || batch.currency || program.currency || 'USD';
+      amount = this.convertCurrencyAmount(
+        currency,
+        Number(batch.earlyBirdPrice),
+        batchEbSourceCurrency,
+      );
+    }
+
+    return amount;
   }
 
   /**
@@ -119,41 +190,60 @@ export class PaymentsService {
     const currency: SupportedCurrency = requestedCurrency || 'USD';
 
     if (targetType === 'ENROLMENT') {
-      const candidateEnrolmentId = enrolmentId || targetId;
-      let enrolment = await this.prisma.enrolment.findUnique({
-        where: { id: candidateEnrolmentId },
-        include: { program: true, batch: true },
-      });
+      let enrolment: any = null;
 
-      if (!enrolment && targetId !== candidateEnrolmentId) {
+      if (enrolmentId !== undefined && enrolmentId !== null && String(enrolmentId).trim() !== '') {
+        if (!isValidUuid(enrolmentId)) {
+          throw new BadRequestException('Invalid enrolmentId: must be a valid UUID');
+        }
         enrolment = await this.prisma.enrolment.findUnique({
-          where: { id: targetId },
+          where: { id: enrolmentId },
           include: { program: true, batch: true },
         });
-      }
-
-      if (!enrolment) {
-        // Fallback: targetId could be programId
-        const program = await this.prisma.program.findUnique({ where: { id: targetId } });
-        if (!program) throw new NotFoundException('Program or Enrolment not found');
-
-        let amount = this.convertCurrencyAmount(currency, program.price, program.currency, program.priceINR, program.priceAED, program.priceUSD);
-
-        // Early bird check
-        if (program.earlyBirdPrice && program.earlyBirdDeadline && new Date() < new Date(program.earlyBirdDeadline)) {
-          amount = program.earlyBirdPrice;
+        if (!enrolment) {
+          throw new NotFoundException('Enrolment not found');
+        }
+        if (
+          targetId &&
+          targetId !== enrolment.id &&
+          targetId !== enrolment.programId &&
+          targetId !== enrolment.program?.slug
+        ) {
+          throw new BadRequestException('Target program does not match the specified enrolment');
+        }
+      } else {
+        if (!targetId || typeof targetId !== 'string' || !targetId.trim()) {
+          throw new BadRequestException('targetId is required');
         }
 
-        return { amount, currency, title: program.title, programId: program.id };
+        if (isValidUuid(targetId)) {
+          enrolment = await this.prisma.enrolment.findUnique({
+            where: { id: targetId },
+            include: { program: true, batch: true },
+          });
+        }
+
+        if (!enrolment) {
+          let program: any = null;
+          if (isValidUuid(targetId)) {
+            program = await this.prisma.program.findUnique({ where: { id: targetId } });
+          } else if (isValidSlug(targetId)) {
+            program = await this.prisma.program.findUnique({ where: { slug: targetId } });
+          } else {
+            throw new BadRequestException('Invalid targetId: must be a valid UUID or program slug');
+          }
+
+          if (!program) throw new NotFoundException('Program or Enrolment not found');
+
+          const amount = this.computeAuthoritativeProgramPrice(program, null, currency);
+          return { amount, currency, title: program.title, programId: program.id };
+        }
       }
 
       const program = enrolment.program;
-      let amount = this.convertCurrencyAmount(currency, program.price, program.currency, program.priceINR, program.priceAED, program.priceUSD);
+      if (!program) throw new NotFoundException('Program or Enrolment not found');
 
-      if (enrolment.batch?.price) {
-        amount = this.convertCurrencyAmount(currency, enrolment.batch.price, program.currency, enrolment.batch.priceINR, enrolment.batch.priceAED, enrolment.batch.priceUSD);
-      }
-
+      const amount = this.computeAuthoritativeProgramPrice(program, enrolment.batch, currency);
       return { amount, currency, title: program.title, enrolmentId: enrolment.id, programId: program.id };
     }
 
@@ -262,10 +352,11 @@ export class PaymentsService {
     // ─────────────────────────────────────────────────────────────────────────
     // TIER 2: IN-FLIGHT SESSION DE-DUPLICATION (EXPIRE STALE OPEN SESSIONS)
     // ─────────────────────────────────────────────────────────────────────────
-    const targetEnrolmentId = dto.enrolmentId || (pricing as any).enrolmentId || (dto.targetType === 'ENROLMENT' ? dto.targetId : undefined);
+    const targetEnrolmentId: string | undefined =
+      (pricing as any).enrolmentId || (isValidUuid(dto.enrolmentId) ? dto.enrolmentId : undefined);
 
     // Ownership Authorization Check: Prevent User A from initiating payment on User B's enrolment
-    if (dto.targetType === 'ENROLMENT' && targetEnrolmentId) {
+    if (dto.targetType === 'ENROLMENT' && targetEnrolmentId && isValidUuid(targetEnrolmentId)) {
       const targetEnrol = await this.prisma.enrolment.findUnique({
         where: { id: targetEnrolmentId },
         select: { id: true, userId: true },
@@ -353,9 +444,9 @@ export class PaymentsService {
 
     // Ledger pending payment row in database to guarantee tracking
     if (orderResult.orderId && !orderResult.simulationBypass) {
-      const candidateEid = dto.enrolmentId || (pricing as any).enrolmentId || (dto.targetType === 'ENROLMENT' ? dto.targetId : undefined);
+      const candidateEid = targetEnrolmentId;
       let validEnrolmentId: string | null = null;
-      if (candidateEid) {
+      if (candidateEid && isValidUuid(candidateEid)) {
         const checkEnrol = await this.prisma.enrolment.findUnique({
           where: { id: candidateEid },
           select: { id: true },
@@ -431,9 +522,20 @@ export class PaymentsService {
     // A. COURSE ENROLMENT SIMULATION
     // ─────────────────────────────────────────────────────────────────────────
     if (dto.targetType === 'ENROLMENT') {
+      if (
+        dto.enrolmentId !== undefined &&
+        dto.enrolmentId !== null &&
+        String(dto.enrolmentId).trim() !== '' &&
+        !isValidUuid(dto.enrolmentId)
+      ) {
+        throw new BadRequestException('Invalid enrolmentId: must be a valid UUID');
+      }
       const targetId = dto.enrolmentId || dto.targetId;
       if (!targetId) {
         throw new BadRequestException('enrolmentId or targetId is required for ENROLMENT simulation');
+      }
+      if (!isValidUuid(targetId)) {
+        throw new BadRequestException('Invalid enrolment ID: must be a valid UUID');
       }
 
       const enrolment = await this.prisma.enrolment.findUnique({
@@ -558,30 +660,7 @@ export class PaymentsService {
 
       // 1. Authoritative Server-Side Program Price Resolution
       const program = enrolment.program;
-      let authoritativePrice = this.convertCurrencyAmount(
-        currency,
-        program.price,
-        program.currency,
-        program.priceINR,
-        program.priceAED,
-        program.priceUSD,
-      );
-
-      if (enrolment.batch?.price) {
-        authoritativePrice = this.convertCurrencyAmount(
-          currency,
-          enrolment.batch.price,
-          program.currency,
-          enrolment.batch.priceINR,
-          enrolment.batch.priceAED,
-          enrolment.batch.priceUSD,
-        );
-      }
-
-      // Early-bird check
-      if (program.earlyBirdPrice && program.earlyBirdDeadline && new Date() < new Date(program.earlyBirdDeadline)) {
-        authoritativePrice = program.earlyBirdPrice;
-      }
+      const authoritativePrice = this.computeAuthoritativeProgramPrice(program, enrolment.batch, currency);
 
       // 2. Authoritative Coupon Discount Calculation
       let discount = 0;

@@ -476,4 +476,87 @@ describe('Stripe Payment Gateway & Security Hardening Specs', () => {
       expect(analytics.multiCurrencyBreakdown).toBe('$ 100  ·  د.إ 734  ·  ₹ 24,900');
     });
   });
+
+  // =========================================================================
+  // SUITE 6: Fractional / Decimal Currency Precision (Anti-Rounding Underpayment Fix)
+  // =========================================================================
+  describe('Suite 6: Fractional Decimal Precision Support', () => {
+    let paymentsService: PaymentsService;
+    let prismaMock: any;
+    let stripeProviderMock: any;
+
+    beforeEach(() => {
+      prismaMock = {
+        program: {
+          findUnique: vi.fn(),
+        },
+        enrolment: {
+          findUnique: vi.fn(),
+          findFirst: vi.fn(),
+        },
+        payment: {
+          findFirst: vi.fn(),
+          create: vi.fn().mockResolvedValue({ id: 'pay-dec-1' }),
+        },
+      };
+
+      stripeProviderMock = {
+        name: 'STRIPE',
+        createOrder: vi.fn().mockResolvedValue({
+          provider: 'STRIPE',
+          orderId: 'cs_test_decimal_995',
+          amount: 9.95,
+          currency: 'USD',
+          status: 'PENDING',
+          checkoutUrl: 'https://checkout.stripe.com/pay/cs_test_decimal_995',
+        }),
+        expireSession: vi.fn().mockResolvedValue(true),
+        retrieveSession: vi.fn(),
+        refundPayment: vi.fn(),
+      };
+
+      paymentsService = new PaymentsService(
+        prismaMock,
+        {} as any,
+        {} as any,
+        stripeProviderMock,
+        {} as any,
+      );
+    });
+
+    it('Scenario 6A: Correctly handles decimal price (9.95 USD) without rounding up to 10 USD', async () => {
+      const mockProgram = {
+        id: 'prog-dec-1',
+        title: 'Decimal Price Course',
+        price: 9.95,
+        currency: 'USD',
+        priceUSD: 0,
+        priceINR: 0,
+        priceAED: 0,
+      };
+
+      prismaMock.program.findUnique.mockResolvedValue(mockProgram);
+      prismaMock.enrolment.findUnique.mockResolvedValue(null);
+      prismaMock.enrolment.findFirst.mockResolvedValue(null);
+
+      const session = await paymentsService.createCheckoutSession(
+        {
+          targetType: 'ENROLMENT',
+          targetId: 'prog-dec-1',
+          amount: 9.95,
+          currency: 'USD',
+        },
+        { id: 'user-new-1', email: 'test@example.com' },
+      );
+
+      expect(session).toBeDefined();
+      expect(session.orderId).toBe('cs_test_decimal_995');
+      expect(stripeProviderMock.createOrder).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 9.95,
+          currency: 'USD',
+        }),
+      );
+    });
+  });
 });

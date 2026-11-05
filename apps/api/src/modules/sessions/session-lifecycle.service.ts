@@ -493,7 +493,8 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
     const formatted = toTimezone(session.startTime, userTz);
 
     const firstName = recipient.name?.split(' ')[0] || 'Learner';
-    const joinUrl = session.joinUrl || `${process.env.APP_URL || 'https://whatboutme.com'}/meetings`;
+    const lmsUrl = process.env.LMS_URL || process.env.NEXT_PUBLIC_LMS_URL || 'https://lms.whatboutme.com';
+    const joinUrl = `${lmsUrl}/live?autoJoin=${session.id}`;
 
     try {
       await this.emailService.sendTemplateEmail({

@@ -2564,7 +2564,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                                 ✎
                               </button>
                             </div>
-                          ) : sess.status === "COMPLETED" && sess.meetingProvider === "ZOOM" && endIso && Date.now() - new Date(endIso).getTime() < 30 * 60 * 1000 ? (
+                          ) : sess.status === "COMPLETED" && sess.meetingProvider === "ZOOM" && endIso && Date.now() - new Date(endIso).getTime() < 10 * 60 * 1000 ? (
                             <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
                               <span
                                 style={{
@@ -3274,10 +3274,7 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
                 style={{ width: "100%" }}
                 autoFocus
               />
-              <p style={{ margin: "6px 0 0", fontSize: "0.76rem", color: "var(--text-muted)", lineHeight: 1.45 }}>
-                <strong>Zoom Paid Plan:</strong> Copy shareable link from <em>zoom.us/recording → Cloud Recordings → Share</em> (also syncs automatically).<br />
-                <strong>Zoom Free Plan:</strong> Recordings save locally on the host computer in <code>Documents\Zoom\</code> — upload to Google Drive / YouTube (Unlisted) / Cloudinary and paste the link here.
-              </p>
+
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem" }}>
               <button

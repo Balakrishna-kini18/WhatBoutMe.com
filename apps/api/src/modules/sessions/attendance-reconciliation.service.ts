@@ -153,6 +153,9 @@ export class AttendanceReconciliationService {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
       include: {
+        hostTrainer: {
+          select: { id: true, name: true, email: true },
+        },
         batch: {
           include: {
             program: true,
@@ -183,16 +186,54 @@ export class AttendanceReconciliationService {
       sessionDurationMin = 60;
     }
 
-    // Effective session duration: If the host ended early or actual live time is shorter than scheduled,
-    // evaluate percentage against the actual live duration so learners are not penalized for early dismissals.
+    // Determine actual meeting timeline across all participants
+    let minJoinTime: Date | null = null;
+    let maxLeaveTime: Date | null = null;
+    for (const p of aggregated) {
+      if (p.joinTime && (!minJoinTime || p.joinTime.getTime() < minJoinTime.getTime())) {
+        minJoinTime = p.joinTime;
+      }
+      if (p.leaveTime && (!maxLeaveTime || p.leaveTime.getTime() > maxLeaveTime.getTime())) {
+        maxLeaveTime = p.leaveTime;
+      }
+    }
+
+    let actualMeetingDurationMin = 0;
+    if (minJoinTime && maxLeaveTime) {
+      actualMeetingDurationMin = Math.max(
+        0,
+        Math.round((maxLeaveTime.getTime() - minJoinTime.getTime()) / 60000),
+      );
+    }
+
+    // Effective session duration:
+    // 1. If host record exists and host attended, host's duration is the authoritative meeting time.
+    // 2. If host ended early, use host's duration so learners are not penalized for early dismissal.
+    // 3. If session ran overtime (actualMeetingDurationMin > sessionDurationMin), use actual live duration
+    //    so late-joiners who only attended near the end (e.g. at 5:42 of a 5:29-5:55 meeting)
+    //    do not falsely receive an inflated percentage like 89% when they only attended 50% of the class.
     let effectiveSessionDuration = sessionDurationMin;
     const hostEmail = (session as any).hostTrainer?.email?.toLowerCase().trim();
-    if (hostEmail) {
-      const hostRecord = aggregated.find(
-        (p) => p.participantEmail?.toLowerCase().trim() === hostEmail,
-      );
-      if (hostRecord && hostRecord.durationMin > 0 && hostRecord.durationMin < sessionDurationMin) {
-        effectiveSessionDuration = hostRecord.durationMin;
+    const hostRecord = hostEmail
+      ? aggregated.find((p) => p.participantEmail?.toLowerCase().trim() === hostEmail)
+      : null;
+
+    if (hostRecord && hostRecord.durationMin > 0) {
+      effectiveSessionDuration = hostRecord.durationMin;
+    } else if (actualMeetingDurationMin > 0) {
+      // Evaluate against the actual live span when session ran overtime
+      effectiveSessionDuration = Math.max(sessionDurationMin, actualMeetingDurationMin);
+    }
+
+    // Synchronize session duration in the database if actual live duration differs
+    if (effectiveSessionDuration > 0 && effectiveSessionDuration !== session.durationMinutes) {
+      try {
+        await this.prisma.session.update({
+          where: { id: session.id },
+          data: { durationMinutes: effectiveSessionDuration },
+        });
+      } catch (err: any) {
+        this.logger.warn(`Failed to update session duration in DB: ${err.message}`);
       }
     }
 

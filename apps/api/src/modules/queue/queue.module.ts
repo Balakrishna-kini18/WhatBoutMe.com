@@ -1,7 +1,12 @@
-import { Module, Global } from '@nestjs/common';
+import { Module, Global, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { QueueEventsService } from './queue-events.service.js';
 import { OutboxDispatcherService } from './outbox-dispatcher.service.js';
+import { LifecycleProcessor } from './lifecycle.processor.js';
+import { RecoverySweepService } from './recovery-sweep.service.js';
+import { MaintenanceController } from './maintenance.controller.js';
+import { ExamsModule } from '../exams/exams.module.js';
+import { SessionsModule } from '../sessions/sessions.module.js';
 import { Redis as IORedis, RedisOptions } from 'ioredis';
 
 const isWorkerMode = process.env.WORKER_MODE === 'true';
@@ -12,6 +17,14 @@ const defaultJobOptions = {
   backoff: {
     type: 'exponential',
     delay: 1000,
+  },
+  removeOnComplete: {
+    count: 100,
+    age: 24 * 3600,
+  },
+  removeOnFail: {
+    count: 500,
+    age: 7 * 24 * 3600,
   },
 };
 
@@ -132,9 +145,12 @@ const bullRedisOpts = buildBullRedisOptions();
 @Global()
 @Module({
   imports: [
+    forwardRef(() => ExamsModule),
+    forwardRef(() => SessionsModule),
     BullModule.forRoot({
       connection: bullRedisOpts as any,
       defaultJobOptions,
+      prefix: `wbm:${process.env.NODE_ENV || 'development'}:queue`,
     }),
     // D2-019: Register all required queues with exponential backoff defaults
     BullModule.registerQueue(
@@ -146,14 +162,24 @@ const bullRedisOpts = buildBullRedisOptions();
       { name: 'media-process' },
       { name: 'invoice-gen' },
       { name: 'meeting-sync' },
+      { name: 'lifecycle' },
     ),
   ],
+  controllers: [MaintenanceController],
   providers: [
-    ...(isWorkerMode ? [QueueEventsService, OutboxDispatcherService] : []),
+    OutboxDispatcherService,
+    RecoverySweepService,
+    ...(isWorkerMode
+      ? [QueueEventsService, LifecycleProcessor]
+      : []),
   ],
   exports: [
     BullModule,
-    ...(isWorkerMode ? [QueueEventsService, OutboxDispatcherService] : []),
+    OutboxDispatcherService,
+    RecoverySweepService,
+    ...(isWorkerMode
+      ? [QueueEventsService, LifecycleProcessor]
+      : []),
   ],
 })
 export class QueueModule {}

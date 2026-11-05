@@ -58,7 +58,7 @@ export class HealthController {
       // Redis health check
       async () => {
         if (!process.env.REDIS_URL && !process.env.REDIS_HOST) {
-          return { redis: { status: 'up', note: 'memory fallback (REDIS_URL not configured)' } };
+          return { redis: { status: 'degraded', mode: 'memory-fallback', note: 'REDIS_URL not configured' } };
         }
         try {
           const client = this.redisService.getClient();

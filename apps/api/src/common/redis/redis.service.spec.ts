@@ -38,13 +38,13 @@ describe('RedisService', () => {
   describe('Connection & Setup (Edge Cases)', () => {
     it('should connect using REDIS_URL with TLS if it starts with rediss://', () => {
       const originalEnv = process.env;
-      process.env = { ...originalEnv, REDIS_URL: 'rediss://user:pass@cloud.upstash.io:6379' };
+      process.env = { ...originalEnv, REDIS_URL: 'rediss://user:pass@redis-server.example.com:6379' };
       vi.clearAllMocks();
       
       const newService = new RedisService();
       
       expect(Redis).toHaveBeenCalledWith(
-        'rediss://user:pass@cloud.upstash.io:6379',
+        'rediss://user:pass@redis-server.example.com:6379',
         expect.objectContaining({
           tls: { rejectUnauthorized: false },
         })

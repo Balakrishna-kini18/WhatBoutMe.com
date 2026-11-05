@@ -598,10 +598,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   const isManuallyUnlocked = (currentStepProg as any)?.overrideState === "MANUAL_UNLOCKED";
   const isQuizAlreadyPassed = Boolean(
-    lastQuizResult?.passed ||
-    (lastQuizResult && lastQuizResult.score !== undefined) ||
+    lastQuizResult?.passed === true ||
+    (lastQuizResult && typeof lastQuizResult.score === "number" && lastQuizResult.passed !== false && lastQuizResult.score >= (step?.quiz?.passMark ?? 70)) ||
     (currentStepProg as any)?.quiz?.isPassed ||
-    (currentStepProg?.isCompleted && lastQuizResult?.passed !== false)
+    Boolean((currentStepProg as any)?.quizPassed)
   );
 
   const stepMaterials = useMemo(() => {
@@ -1187,7 +1187,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           (l: any) => updated[l.id]?.isCompleted || updated[l.id]?.viewed
         );
 
-        if (areAllVideosDone) {
+        const stepHasQuiz = Boolean(step?.quiz);
+        const quizDone = Boolean(lastQuizResult?.passed === true || (currentStepProg as any)?.quiz?.isPassed === true || (currentStepProg as any)?.quizPassed === true);
+        if (areAllVideosDone && (!stepHasQuiz || quizDone)) {
           // Immediately unlock next module in client state so it never shows locked
           setProgression((prevProg: any) => {
             if (!prevProg?.steps) return prevProg;
@@ -1354,7 +1356,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         label: "Next Part",
         isUnlocked: isCurrentWatched,
         onClick: () => {
-          if (currentMedia?.id) {
+          if (currentMedia?.id && isCurrentWatched) {
             handleLessonComplete(currentMedia.id, false);
           }
           setSelectedMediaId(nextPart.id);
@@ -1367,7 +1369,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         label: "Materials",
         isUnlocked: Boolean(isCurrentWatched || isMaterialsUnlocked),
         onClick: () => {
-          if (currentMedia?.id) {
+          if (currentMedia?.id && isCurrentWatched) {
             handleLessonComplete(currentMedia.id, false);
           }
           if (isCurrentWatched || isMaterialsUnlocked) {
@@ -1382,7 +1384,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         label: "Module Quiz",
         isUnlocked: Boolean(isQuizUnlocked || isCurrentWatched),
         onClick: () => {
-          if (currentMedia?.id) {
+          if (currentMedia?.id && isCurrentWatched) {
             handleLessonComplete(currentMedia.id, false);
           }
           setActiveTab("quiz");
@@ -1399,7 +1401,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         isUnlocked: isReadyForNextStep,
         onClick: () => {
           if (isReadyForNextStep) {
-            if (currentMedia?.id) {
+            if (currentMedia?.id && isCurrentWatched) {
               handleLessonComplete(currentMedia.id, false);
             }
             router.push(`/steps/${nextStepId}`);

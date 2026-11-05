@@ -1245,13 +1245,13 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                       )}
 
                       <h3 className={styles.stepTitle}>
-                        <strong>Final Examination · {examConfig?.questionCount ?? 50} Questions</strong>
+                        <strong>Final Examination{examConfig?.questionCount ? ` · ${examConfig.questionCount} Questions` : ""}</strong>
                       </h3>
 
                       <p style={{ margin: "4px 0 0", fontSize: "0.84rem", color: "var(--text-secondary, #4a443d)" }}>
                         {isExamPassed
                           ? `Passed with ${examBestScore !== null ? `${examBestScore}%` : "success"}. Examination completed.`
-                          : `${examConfig?.questionCount ?? 50} Questions · Pass Mark: ${examConfig?.passMark ?? 75}% · Time Limit: ${examConfig?.timeLimitMin ?? 90} mins`}
+                          : `${examConfig?.questionCount ? `${examConfig.questionCount} Questions · ` : ""}Pass Mark: ${examConfig?.passMark ?? 75}% · Time Limit: ${examConfig?.timeLimitMin ?? 90} mins`}
                       </p>
 
                       {!isExamUnlocked && (

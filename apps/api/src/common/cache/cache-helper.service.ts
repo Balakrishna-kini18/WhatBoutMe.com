@@ -1,6 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Redis } from '@upstash/redis';
+import { Injectable, Logger, Optional, OnModuleDestroy } from '@nestjs/common';
+import type { Redis } from 'ioredis';
+import { RedisService } from '../redis/redis.service.js';
 import { Role } from '@prisma/client';
+import { getEnvPrefix } from './cache-keys.constant.js';
 
 interface LocalCacheItem {
   value: number;
@@ -15,7 +17,7 @@ interface MemoryCacheItem {
 }
 
 @Injectable()
-export class CacheHelperService {
+export class CacheHelperService implements OnModuleDestroy {
   private readonly redis: Redis | null = null;
   private readonly logger = new Logger(CacheHelperService.name);
   private readonly nsVersionCache = new Map<string, LocalCacheItem>();
@@ -26,37 +28,34 @@ export class CacheHelperService {
   private readonly tagToKeys = new Map<string, Set<string>>();
   private readonly keyToTags = new Map<string, Set<string>>();
   private readonly maxCapacity: number;
+  private sweepTimer: NodeJS.Timeout | null = null;
+  private lastWarnTime = 0;
 
   private readonly inFlightPromises = new Map<string, Promise<any>>();
 
-  constructor() {
+  constructor(@Optional() private readonly redisService?: RedisService) {
     this.maxCapacity = process.env.CACHE_MAX_ENTRIES
       ? parseInt(process.env.CACHE_MAX_ENTRIES, 10)
       : 5000;
 
-    const url = process.env.UPSTASH_REDIS_REST_URL;
-    const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-    if (url && token) {
+    if (this.redisService) {
       try {
-        this.redis = new Redis({ url, token });
-        // Probe Redis on cold start: if quota is exceeded, degrade gracefully without blocking
-        this.redis.get('__probe__').catch((err: any) => {
-          if (err?.message?.includes('limit exceeded')) {
-            this.logger.warn('Upstash Redis quota limit reached. Gracefully using high-speed in-memory cache.');
-            (this as any).redis = null;
-          }
-        });
-        this.logger.log('Upstash Redis initialized for caching');
+        this.redis = this.redisService.getClient();
+        this.logger.log('Standard Redis / Valkey initialized for LMS caching via REDIS_URL');
       } catch (err: any) {
-        this.logger.warn(`Upstash Redis constructor error (caching disabled, using local fallbacks): ${err?.message || String(err).slice(0, 200)}`);
-        (this as any).redis = null;
+        this.warnRateLimited(
+          `Redis client retrieval error (degrading to in-memory cache): ${err?.message || err}`,
+        );
+        this.redis = null;
       }
     } else {
-      this.logger.warn('Upstash Redis credentials missing. Using local in-memory cache.');
+      this.warnRateLimited(
+        'RedisService not injected or offline. Caching falling back to in-memory LRU layer.',
+      );
     }
 
     // Periodic sweep every 60 seconds to clean expired items from memory and prevent unbounded growth
-    setInterval(() => {
+    this.sweepTimer = setInterval(() => {
       const now = Date.now();
       for (const [k, v] of this.nsVersionCache.entries()) {
         if (v.expiresAt <= now) {
@@ -69,7 +68,33 @@ export class CacheHelperService {
           this.unregisterKeyTags(k);
         }
       }
-    }, 60000).unref();
+    }, 60000);
+    try {
+      this.sweepTimer.unref();
+    } catch {}
+  }
+
+  onModuleDestroy() {
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = null;
+    }
+    this.inFlightPromises.clear();
+    this.memoryCache.clear();
+    this.tagToKeys.clear();
+    this.keyToTags.clear();
+    this.nsVersionCache.clear();
+  }
+
+  /**
+   * Rate-limited warning helper to prevent log flooding during sustained Redis outages.
+   */
+  private warnRateLimited(message: string): void {
+    const now = Date.now();
+    if (now - this.lastWarnTime > 15000) {
+      this.lastWarnTime = now;
+      this.logger.warn(message);
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -131,7 +156,7 @@ export class CacheHelperService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // CORE CACHE API (LRU + TTL + TAGGED)
+  // CORE CACHE API (LRU + TTL + TAGGED + FAIL-OPEN REDIS)
   // ─────────────────────────────────────────────────────────────────────────────
 
   /**
@@ -141,7 +166,7 @@ export class CacheHelperService {
     key: string,
     fetcher: () => Promise<T>,
     ttlSeconds: number = 3600,
-    tags: string[] = []
+    tags: string[] = [],
   ): Promise<T> {
     const now = Date.now();
 
@@ -157,35 +182,42 @@ export class CacheHelperService {
       this.unregisterKeyTags(key);
     }
 
-    // 2. Promise Coalescing: If there is an active fetcher for this key, return its promise
+    // 2. Promise Coalescing: If there is an active fetcher for this key, return its promise (prevents cache stampede)
     if (this.inFlightPromises.has(key)) {
       return this.inFlightPromises.get(key) as Promise<T>;
     }
 
     const promise = (async () => {
-      // 3. Check Redis tier if available
+      // 3. Check Redis tier if online (Fail-Open: errors fall through to DB fetcher)
       if (this.redis) {
         try {
-          const cached = await this.redis.get(key);
-          if (cached !== null && cached !== undefined) {
-            this.evictLRUIfNeeded();
-            const tagSet = new Set(tags);
-            this.memoryCache.set(key, {
-              value: cached,
-              expiresAt: now + ttlSeconds * 1000,
-              lastAccessed: now,
-              tags: tagSet,
-            });
-            this.registerKeyTags(key, tags);
-            return cached as T;
+          const raw = await this.redis.get(key);
+          if (raw !== null && raw !== undefined) {
+            let parsed: any = null;
+            let isCorrupt = false;
+            try {
+              parsed = JSON.parse(raw);
+            } catch (err: any) {
+              isCorrupt = true;
+              this.warnRateLimited(`Corrupt JSON in Redis cache for key ${key}; deleting and treating as miss: ${err.message}`);
+              this.redis.del(key).catch(() => {});
+            }
+
+            if (!isCorrupt && parsed !== null && parsed !== undefined) {
+              this.evictLRUIfNeeded();
+              const tagSet = new Set(tags);
+              this.memoryCache.set(key, {
+                value: parsed,
+                expiresAt: now + ttlSeconds * 1000,
+                lastAccessed: now,
+                tags: tagSet,
+              });
+              this.registerKeyTags(key, tags);
+              return parsed as T;
+            }
           }
         } catch (e: any) {
-          if (e?.message?.includes('limit exceeded')) {
-            this.logger.warn('Upstash Redis monthly request limit reached. Gracefully degrading to in-memory local fallback.');
-            (this as any).redis = null;
-          } else {
-            this.logger.error(`Redis GET error for key ${key}: ${e.message}`);
-          }
+          this.warnRateLimited(`Redis GET notice (failing open to DB) for key ${key}: ${e.message}`);
         }
       }
 
@@ -204,18 +236,17 @@ export class CacheHelperService {
         });
         this.registerKeyTags(key, tags);
 
-        // Populate Redis if online
+        // Populate Redis asynchronously if online
         if (this.redis) {
           try {
-            this.redis.set(key, data, { ex: ttlSeconds }).catch((e: any) => {
-              if (e?.message?.includes('limit exceeded')) {
-                (this as any).redis = null;
-              } else {
-                this.logger.error(`Redis SET error for key ${key}: ${e.message}`);
-              }
-            });
+            const serialized = JSON.stringify(data);
+            this.redis
+              .set(key, serialized, 'EX', ttlSeconds)
+              .catch((e: any) => {
+                this.warnRateLimited(`Redis SET background notice for key ${key}: ${e.message}`);
+              });
           } catch (e: any) {
-            this.logger.error(`Redis SET init error for key ${key}: ${e.message}`);
+            this.warnRateLimited(`Redis SET serialize warning for key ${key}: ${e.message}`);
           }
         }
       }
@@ -241,13 +272,19 @@ export class CacheHelperService {
     }
     if (!this.redis) return null;
     try {
-      const val = await this.redis.get(key);
-      if (val !== null && val !== undefined) {
-        return val as T;
+      const raw = await this.redis.get(key);
+      if (raw !== null && raw !== undefined) {
+        try {
+          return JSON.parse(raw) as T;
+        } catch (err: any) {
+          this.warnRateLimited(`Corrupt JSON in Redis cache for key ${key}; deleting and treating as miss: ${err.message}`);
+          this.redis.del(key).catch(() => {});
+          return null;
+        }
       }
       return null;
     } catch (e: any) {
-      this.logger.error(`Redis GET error for key ${key}: ${e.message}`);
+      this.warnRateLimited(`Redis GET notice for key ${key}: ${e.message}`);
       return null;
     }
   }
@@ -256,7 +293,7 @@ export class CacheHelperService {
     key: string,
     value: T,
     ttlSeconds: number = 600,
-    tags: string[] = []
+    tags: string[] = [],
   ): Promise<void> {
     this.evictLRUIfNeeded();
     const now = Date.now();
@@ -270,9 +307,10 @@ export class CacheHelperService {
 
     if (!this.redis) return;
     try {
-      await this.redis.set(key, value, { ex: ttlSeconds });
+      const serialized = JSON.stringify(value);
+      await this.redis.set(key, serialized, 'EX', ttlSeconds);
     } catch (e: any) {
-      this.logger.error(`Redis SET error for key ${key}: ${e.message}`);
+      this.warnRateLimited(`Redis SET notice for key ${key}: ${e.message}`);
     }
   }
 
@@ -283,7 +321,7 @@ export class CacheHelperService {
     try {
       await this.redis.del(key);
     } catch (e: any) {
-      this.logger.error(`Redis DEL error for key ${key}: ${e.message}`);
+      this.warnRateLimited(`Redis DEL notice for key ${key}: ${e.message}`);
     }
   }
 
@@ -313,16 +351,15 @@ export class CacheHelperService {
 
       if (this.redis) {
         try {
-          await Promise.allSettled(keyList.map((k) => this.redis!.del(k)));
+          await this.redis.del(...keyList);
         } catch (e: any) {
-          this.logger.error(`Redis tag DEL error for tag ${tag}: ${e.message}`);
+          this.warnRateLimited(`Redis tag DEL notice for tag ${tag}: ${e.message}`);
         }
       }
     }
 
     // Also invalidate the corresponding namespace version for multi-node / edge consistency
     await this.invalidateNamespace(tag);
-    this.logger.log(`Invalidated cache tag [${tag}]: purged ${purgedCount} entries`);
     return purgedCount;
   }
 
@@ -341,39 +378,37 @@ export class CacheHelperService {
 
   /**
    * Generates a dynamic, versioned cache key.
-   * Format: `namespace:v{version}:key`
+   * Format: `wbm:{env}:ns:{namespace}:v{version}:{keySuffix}`
    */
   async getVersionedKey(namespace: string, keySuffix: string): Promise<string> {
+    const env = getEnvPrefix();
+    const versionKey = `wbm:${env}:ns_version:${namespace}`;
+
     if (!this.redis) {
       const version = this.nsVersions.get(namespace) || 1;
-      return `${namespace}:v${version}:${keySuffix}`;
+      return `wbm:${env}:ns:${namespace}:v${version}:${keySuffix}`;
     }
 
     const now = Date.now();
     const local = this.nsVersionCache.get(namespace);
     if (local && local.expiresAt > now) {
-      return `${namespace}:v${local.value}:${keySuffix}`;
+      return `wbm:${env}:ns:${namespace}:v${local.value}:${keySuffix}`;
     }
 
     try {
-      let version = (await this.redis.get(`ns_version:${namespace}`)) as number;
-      if (!version) {
+      const rawVersion = await this.redis.get(versionKey);
+      let version = rawVersion ? parseInt(rawVersion, 10) : 0;
+      if (!version || isNaN(version)) {
         version = 1;
-        if (this.redis) await this.redis.set(`ns_version:${namespace}`, 1);
+        await this.redis.set(versionKey, '1');
       }
 
       this.nsVersionCache.set(namespace, { value: version, expiresAt: now + 5000 });
-      return `${namespace}:v${version}:${keySuffix}`;
+      return `wbm:${env}:ns:${namespace}:v${version}:${keySuffix}`;
     } catch (e: any) {
-      if (e?.message?.includes('limit exceeded')) {
-        this.logger.warn('Upstash Redis monthly request limit reached. Gracefully degrading to in-memory local fallback.');
-        (this as any).redis = null;
-        const version = this.nsVersions.get(namespace) || 1;
-        return `${namespace}:v${version}:${keySuffix}`;
-      } else {
-        this.logger.error(`Redis version fetch error for ${namespace}: ${e.message}`);
-      }
-      return `${namespace}:v0:${keySuffix}`;
+      this.warnRateLimited(`Redis version fetch notice for ${namespace}: ${e.message}`);
+      const fallbackVer = this.nsVersions.get(namespace) || 1;
+      return `wbm:${env}:ns:${namespace}:v${fallbackVer}:${keySuffix}`;
     }
   }
 
@@ -386,30 +421,28 @@ export class CacheHelperService {
 
     if (!this.redis) return;
     try {
-      const newVersion = await this.redis.incr(`ns_version:${namespace}`);
+      const env = getEnvPrefix();
+      const versionKey = `wbm:${env}:ns_version:${namespace}`;
+      const newVersion = await this.redis.incr(versionKey);
       this.nsVersionCache.set(namespace, { value: newVersion, expiresAt: Date.now() + 5000 });
-      this.logger.log(`Invalidated namespace: ${namespace} (v${newVersion})`);
     } catch (e: any) {
-      if (e?.message?.includes('limit exceeded')) {
-        this.logger.warn('Upstash Redis monthly request limit reached. Gracefully degrading to in-memory local fallback.');
-        (this as any).redis = null;
-      } else {
-        this.logger.error(`Redis namespace invalidate error for ${namespace}: ${e.message}`);
-      }
+      this.warnRateLimited(`Redis namespace invalidate notice for ${namespace}: ${e.message}`);
     }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // SPECIFIC KEY GENERATORS
+  // SPECIFIC KEY GENERATORS (Maintained for backward compatibility)
   // ─────────────────────────────────────────────────────────────────────────────
 
-  // Guard caching
   async getGuardKey(userId: string, sessionId: string): Promise<string> {
     return this.getVersionedKey(`auth_user:${userId}`, `guard:${sessionId}`);
   }
 
-  // Role-aware endpoint caching
-  async getEndpointKey(endpoint: string, role: Role | string, params: Record<string, any> = {}): Promise<string> {
+  async getEndpointKey(
+    endpoint: string,
+    role: Role | string,
+    params: Record<string, any> = {},
+  ): Promise<string> {
     const paramsHash = Buffer.from(JSON.stringify(params)).toString('base64');
     return this.getVersionedKey(endpoint, `role:${role}:${paramsHash}`);
   }

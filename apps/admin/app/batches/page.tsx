@@ -235,7 +235,7 @@ function BatchesContent() {
         setWaitlistLearners(mapped);
       }
     } catch (err) {
-      console.error("Failed to fetch waitlist learners", err);
+      console.warn("Failed to fetch waitlist learners", err);
     } finally {
       setIsLoadingWaitlist(false);
     }
@@ -289,7 +289,7 @@ function BatchesContent() {
       });
       if (res.ok) {
         toastSuccess(`${learnerName} was removed from the waitlist.`);
-        fetchWaitlistLearners();
+        void fetchWaitlistLearners();
       } else {
         const err = await errorMessage(res, "Could not remove learner from waitlist.");
         toastError(err);
@@ -422,8 +422,8 @@ function BatchesContent() {
         toastSuccess(`Batch "${batchToDelete.name}" deleted successfully.`);
         setBatches((prev) => prev.filter((b) => b.id !== batchToDelete.id));
         setBatchToDelete(null);
-        fetchBatches();
-        fetchWaitlistLearners();
+        void fetchBatches();
+        void fetchWaitlistLearners();
       } else {
         const err = await errorMessage(res, "Could not delete batch.");
         setDeleteError(err);
@@ -528,8 +528,8 @@ function BatchesContent() {
           }).catch(() => null);
         }
         closeModal();
-        fetchBatches();
-        fetchWaitlistLearners();
+        void fetchBatches();
+        void fetchWaitlistLearners();
       } else {
         const data = await res.json().catch(() => null);
         const raw = data?.error?.message ?? data?.message;

@@ -812,6 +812,7 @@ model ExamAttempt {
   @@unique([enrolmentId, examId, attemptNumber])
   @@index([enrolmentId, examId])
   @@index([examId, status])
+  @@index([status, expiresAt])
 }
 
 model OralAssessment {
@@ -1192,6 +1193,7 @@ model Session {
   // Attendance & Booking Relations (Historical records protected via Restrict)
   minAttendanceMinutes Int?                  // Configurable minimum minutes threshold for attendance
   attendancePulled     Boolean               @default(false)
+  scheduleVersion      Int                   @default(1) // Durable scheduling version for delayed job invalidation
   attendances          Attendance[]
   unmatchedAttendances UnmatchedAttendance[]
   bookings             SessionBooking[]
@@ -1204,6 +1206,8 @@ model Session {
   @@index([batchId, startTime])
   @@index([startTime])
   @@index([status])
+  @@index([status, startTime])
+  @@index([status, endTime])
   @@index([hostTrainerId])
   @@index([learnerId])
   @@index([userId])
@@ -1764,18 +1768,24 @@ model EmailDeliveryLog {
 // -----------------------------------------------------------------------------
 
 model OutboxEvent {
-  id         String       @id @default(uuid())
-  type       String // e.g., "sync-meeting"
-  action     String // e.g., "CREATE", "UPDATE", "CANCEL"
-  payload    Json? // Job payload
-  status     OutboxStatus @default(PENDING)
-  providerId String? // Used for idempotency (e.g., storing Zoom Meeting ID temporarily)
-  error      String?
-  attempts   Int          @default(0)
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
+  id            String       @id @default(uuid())
+  type          String // e.g., "sync-meeting"
+  action        String // e.g., "CREATE", "UPDATE", "CANCEL"
+  payload       Json? // Job payload
+  status        OutboxStatus @default(PENDING)
+  providerId    String? // Used for idempotency (e.g., storing Zoom Meeting ID temporarily)
+  error         String?
+  lastError     String? // Durable failure message for dead-letter review
+  attempts      Int          @default(0)
+  nextAttemptAt DateTime?    @default(now()) // Backoff / retry scheduling
+  leasedUntil   DateTime? // Atomic lease lock for multi-worker concurrency
+  enqueuedAt    DateTime? // Timestamp when queued to BullMQ
+  completedAt   DateTime? // Timestamp when execution finished
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   @@index([status, createdAt])
+  @@index([status, nextAttemptAt])
 }
 
 enum OutboxStatus {

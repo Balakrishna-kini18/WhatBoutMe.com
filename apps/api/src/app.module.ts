@@ -47,7 +47,7 @@ import { JwtAuthGuard } from './modules/auth/jwt-auth.guard.js';
 import { RolesGuard } from './common/guards/roles.guard.js';
 import { PermissionsGuard } from './common/guards/permissions.guard.js';
 
-import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
+import { RedisThrottlerStorage } from './common/throttler/redis-throttler.storage.js';
 
 @Module({
   imports: [
@@ -72,9 +72,9 @@ import { UpstashThrottlerStorage } from './common/throttler/upstash.storage.js';
           }
         ],
         // Shared Redis counter when configured; otherwise the built-in in-memory
-        // counter, so the API still runs locally without Upstash credentials.
-        storage: process.env.UPSTASH_REDIS_REST_URL
-          ? (new UpstashThrottlerStorage() as any)
+        // counter, so the API still runs locally without external Redis credentials.
+        storage: process.env.REDIS_URL || process.env.REDIS_HOST
+          ? (new RedisThrottlerStorage() as any)
           : undefined,
       }),
     }),

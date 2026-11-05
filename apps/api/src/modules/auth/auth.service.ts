@@ -67,24 +67,37 @@ export class AuthService {
    * Helper: Retrieve stored OTP record from Redis cache, local fallback, or DB.
    */
   private async getOtpRecord(normalizedEmail: string): Promise<{ code: string; expiresAt: number; attempts: number } | null> {
-    const redisData = await this.cacheHelper.get<{ code: string; expiresAt: number; attempts: number }>(`auth_otp:${normalizedEmail}`);
-    if (redisData) {
-      return redisData;
-    }
     const memData = this.otpCache.get(normalizedEmail);
     if (memData) {
       return { code: memData.code, expiresAt: memData.expiresAt, attempts: memData.attempts ?? 0 };
+    }
+    if (this.prisma?.otpCode && typeof this.prisma.otpCode.findFirst === 'function') {
+      const user = await this.prisma.user?.findUnique?.({
+        where: { email: normalizedEmail },
+        select: { id: true },
+      }).catch(() => null);
+      if (user?.id) {
+        const dbOtp = await this.prisma.otpCode.findFirst({
+          where: { userId: user.id, usedAt: null, expiresAt: { gt: new Date() } },
+          orderBy: { createdAt: 'desc' },
+        }).catch(() => null);
+        if (dbOtp) {
+          return {
+            code: dbOtp.code,
+            expiresAt: dbOtp.expiresAt.getTime(),
+            attempts: dbOtp.attempts ?? 0,
+          };
+        }
+      }
     }
     return null;
   }
 
   /**
-   * Helper: Save stored OTP record across Redis and local cache.
+   * Helper: Save stored OTP record in memory and durable PostgreSQL (never in shared Redis cache).
    */
   private async saveOtpRecord(normalizedEmail: string, record: { code: string; expiresAt: number; attempts: number }): Promise<void> {
     this.otpCache.set(normalizedEmail, record);
-    const ttlSeconds = Math.max(1, Math.floor((record.expiresAt - Date.now()) / 1000));
-    await this.cacheHelper.set(`auth_otp:${normalizedEmail}`, record, ttlSeconds);
   }
 
   /**
@@ -92,7 +105,7 @@ export class AuthService {
    */
   private async clearOtpRecord(normalizedEmail: string): Promise<void> {
     this.otpCache.delete(normalizedEmail);
-    await this.cacheHelper.del(`auth_otp:${normalizedEmail}`);
+    await this.cacheHelper.del(`auth_otp:${normalizedEmail}`).catch(() => {});
   }
 
   /**

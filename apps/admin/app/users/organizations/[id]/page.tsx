@@ -13,8 +13,26 @@ import {
   TableSkeleton,
   EmptyState,
 } from "../../../components";
-import { apiGet, apiPatch, apiPost, apiDelete, API_URL } from "../../../lib/api";
+import { apiGet, apiPatch, apiPost, apiDelete, API_URL, getLmsUrl } from "../../../lib/api";
 import VolumePricingModal, { VolumePricingConfig } from "../components/VolumePricingModal";
+
+/**
+ * Normalizes LMS URLs (setup, login, dashboard) dynamically matching the active
+ * hosted domain (production, staging, Vercel, or localhost) based on the browser's active host.
+ */
+function normalizeLmsLink(rawUrl: string | null | undefined): string {
+  if (!rawUrl) return "";
+  try {
+    const target = new URL(rawUrl);
+    const activeLms = getLmsUrl();
+    const lmsOrigin = new URL(activeLms);
+    target.protocol = lmsOrigin.protocol;
+    target.host = lmsOrigin.host;
+    return target.toString();
+  } catch {
+    return rawUrl;
+  }
+}
 
 function CrownIcon({ size = 16, style }: { size?: number; style?: React.CSSProperties }) {
   return (
@@ -2581,9 +2599,11 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
       >
         {assignedResult ? (
           <div style={{ textAlign: "center", padding: "12px 0" }}>
-            <div style={{ fontSize: "2.8rem", marginBottom: "8px" }}>🎉</div>
+            <div style={{ fontSize: "2.8rem", marginBottom: "8px" }}>
+              {assignedResult.isNewUser ? "🎉" : "✅"}
+            </div>
             <h3 style={{ fontSize: "1.15rem", fontWeight: 700, color: "#0f172a", marginBottom: "6px" }}>
-              Student Enrolled &amp; Slot Allocated!
+              {assignedResult.isNewUser ? "Student Enrolled & Account Setup Required!" : "Student Enrolled into Cohort!"}
             </h3>
             <p style={{ fontSize: "0.88rem", color: "#64748b", marginBottom: "1.2rem", lineHeight: 1.5 }}>
               {assignedResult.isNewUser
@@ -2591,8 +2611,8 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                 : `Student account resolved and course enrolled. A notification email has been dispatched to ${assignedResult.user?.email || assignForm.email}.`}
             </p>
 
-            {/* Direct Setup Link Card */}
-            {assignedResult.setupUrl && (
+            {/* Direct Setup or Login Link Card */}
+            {(assignedResult.setupUrl || assignedResult.loginUrl) && (
               <div
                 style={{
                   background: "#f8fafc",
@@ -2603,9 +2623,32 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                   textAlign: "left",
                 }}
               >
-                <div style={{ fontSize: "0.75rem", color: "#64748b", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>
-                  Direct Student Setup &amp; Activation Link
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                  <div style={{ fontSize: "0.75rem", color: "#64748b", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    {assignedResult.isNewUser
+                      ? "Direct Student Setup & Activation Link"
+                      : "Direct Student Login & Course Access Link"}
+                  </div>
+                  <span
+                    style={{
+                      fontSize: "0.7rem",
+                      fontWeight: 700,
+                      padding: "2px 6px",
+                      borderRadius: "4px",
+                      background: assignedResult.isNewUser ? "#fef3c7" : "#dcfce7",
+                      color: assignedResult.isNewUser ? "#b45309" : "#15803d",
+                    }}
+                  >
+                    {assignedResult.isNewUser ? "New Account" : "Existing Account"}
+                  </span>
                 </div>
+
+                <p style={{ fontSize: "0.78rem", color: "#64748b", margin: "0 0 8px 0" }}>
+                  {assignedResult.isNewUser
+                    ? "This one-time link allows the student to set their password and activate their LMS portal."
+                    : "The student already has an active account. Opening this link opens sign-in with prefilled email and redirects directly to their course dashboard."}
+                </p>
+
                 <div
                   style={{
                     fontSize: "0.82rem",
@@ -2619,14 +2662,27 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                     lineHeight: 1.4,
                   }}
                 >
-                  {assignedResult.setupUrl}
+                  {normalizeLmsLink(
+                    assignedResult.isNewUser
+                      ? assignedResult.setupUrl
+                      : assignedResult.loginUrl || assignedResult.setupUrl
+                  )}
                 </div>
-                <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+
+                <div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}>
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText(assignedResult.setupUrl);
-                      toast.success("Account setup link copied to clipboard!", "Link Copied");
+                      const link = normalizeLmsLink(
+                        assignedResult.isNewUser
+                          ? assignedResult.setupUrl
+                          : assignedResult.loginUrl || assignedResult.setupUrl
+                      );
+                      navigator.clipboard.writeText(link);
+                      toast.success(
+                        assignedResult.isNewUser ? "Account setup link copied to clipboard!" : "Student login link copied to clipboard!",
+                        "Link Copied"
+                      );
                     }}
                     style={{
                       padding: "7px 16px",
@@ -2642,10 +2698,14 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                       gap: "6px",
                     }}
                   >
-                    📋 Copy Setup Link
+                    📋 {assignedResult.isNewUser ? "Copy Setup Link" : "Copy Login Link"}
                   </button>
                   <a
-                    href={assignedResult.setupUrl}
+                    href={normalizeLmsLink(
+                      assignedResult.isNewUser
+                        ? assignedResult.setupUrl
+                        : assignedResult.loginUrl || assignedResult.setupUrl
+                    )}
                     target="_blank"
                     rel="noreferrer"
                     style={{
@@ -2665,6 +2725,45 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                     Open in LMS &rarr;
                   </a>
                 </div>
+
+                {/* Password reset helper for existing accounts */}
+                {!assignedResult.isNewUser && assignedResult.passwordResetUrl && (
+                  <div
+                    style={{
+                      marginTop: "12px",
+                      paddingTop: "10px",
+                      borderTop: "1px dashed #e2e8f0",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: "8px",
+                    }}
+                  >
+                    <span style={{ fontSize: "0.78rem", color: "#64748b" }}>
+                      Student forgot their existing password?
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(normalizeLmsLink(assignedResult.passwordResetUrl));
+                        toast.success("1-Click password reset/setup link copied to clipboard!", "Reset Link Copied");
+                      }}
+                      style={{
+                        padding: "5px 12px",
+                        background: "#f1f5f9",
+                        color: "#334155",
+                        borderRadius: "5px",
+                        border: "1px solid #cbd5e1",
+                        fontSize: "0.76rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                      }}
+                    >
+                      🔑 Copy 1-Click Password Reset Link
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -2899,8 +2998,8 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                 : `Student details for ${editForm.email} were updated in the academic registry.`}
             </p>
 
-            {/* Direct Setup Link Card for new users */}
-            {editResult.setupUrl && (
+            {/* Direct Setup or Login Link Card for Reassigned / Updated Slot */}
+            {(editResult.setupUrl || editResult.loginUrl) && (
               <div
                 style={{
                   background: "#f8fafc",
@@ -2911,9 +3010,32 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                   textAlign: "left",
                 }}
               >
-                <div style={{ fontSize: "0.75rem", color: "#64748b", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>
-                  Direct Student Setup &amp; Activation Link
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                  <div style={{ fontSize: "0.75rem", color: "#64748b", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    {editResult.isNewUser
+                      ? "Direct Student Setup & Activation Link"
+                      : "Direct Student Login & Course Access Link"}
+                  </div>
+                  <span
+                    style={{
+                      fontSize: "0.7rem",
+                      fontWeight: 700,
+                      padding: "2px 6px",
+                      borderRadius: "4px",
+                      background: editResult.isNewUser ? "#fef3c7" : "#dcfce7",
+                      color: editResult.isNewUser ? "#b45309" : "#15803d",
+                    }}
+                  >
+                    {editResult.isNewUser ? "New Account" : "Existing Account"}
+                  </span>
                 </div>
+
+                <p style={{ fontSize: "0.78rem", color: "#64748b", margin: "0 0 8px 0" }}>
+                  {editResult.isNewUser
+                    ? "This one-time link allows the new student to set their password and activate their LMS portal."
+                    : "The student already has an active account. Opening this link opens sign-in with prefilled email and redirects directly to their course dashboard."}
+                </p>
+
                 <div
                   style={{
                     fontSize: "0.82rem",
@@ -2927,14 +3049,27 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                     lineHeight: 1.4,
                   }}
                 >
-                  {editResult.setupUrl}
+                  {normalizeLmsLink(
+                    editResult.isNewUser
+                      ? editResult.setupUrl
+                      : editResult.loginUrl || editResult.setupUrl
+                  )}
                 </div>
-                <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+
+                <div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}>
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText(editResult.setupUrl);
-                      toast.success("Account setup link copied to clipboard!", "Link Copied");
+                      const link = normalizeLmsLink(
+                        editResult.isNewUser
+                          ? editResult.setupUrl
+                          : editResult.loginUrl || editResult.setupUrl
+                      );
+                      navigator.clipboard.writeText(link);
+                      toast.success(
+                        editResult.isNewUser ? "Account setup link copied to clipboard!" : "Student login link copied to clipboard!",
+                        "Link Copied"
+                      );
                     }}
                     style={{
                       padding: "7px 16px",
@@ -2950,10 +3085,14 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                       gap: "6px",
                     }}
                   >
-                    📋 Copy Setup Link
+                    📋 {editResult.isNewUser ? "Copy Setup Link" : "Copy Login Link"}
                   </button>
                   <a
-                    href={editResult.setupUrl}
+                    href={normalizeLmsLink(
+                      editResult.isNewUser
+                        ? editResult.setupUrl
+                        : editResult.loginUrl || editResult.setupUrl
+                    )}
                     target="_blank"
                     rel="noreferrer"
                     style={{
@@ -2973,6 +3112,45 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                     Open in LMS &rarr;
                   </a>
                 </div>
+
+                {/* Password reset helper for existing accounts */}
+                {!editResult.isNewUser && editResult.passwordResetUrl && (
+                  <div
+                    style={{
+                      marginTop: "12px",
+                      paddingTop: "10px",
+                      borderTop: "1px dashed #e2e8f0",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: "8px",
+                    }}
+                  >
+                    <span style={{ fontSize: "0.78rem", color: "#64748b" }}>
+                      Student forgot their existing password?
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(normalizeLmsLink(editResult.passwordResetUrl));
+                        toast.success("1-Click password reset/setup link copied to clipboard!", "Reset Link Copied");
+                      }}
+                      style={{
+                        padding: "5px 12px",
+                        background: "#f1f5f9",
+                        color: "#334155",
+                        borderRadius: "5px",
+                        border: "1px solid #cbd5e1",
+                        fontSize: "0.76rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                      }}
+                    >
+                      🔑 Copy 1-Click Password Reset Link
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 

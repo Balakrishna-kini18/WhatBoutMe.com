@@ -198,7 +198,7 @@ export class AdminOrganizationsController {
     @Body() dto: AssignSeatDto,
     @Request() req: any,
   ) {
-    return this.seatsService.assignSeat(orgId, { ...dto, seatId }, req.user);
+    return this.seatsService.assignSeat(orgId, { ...dto, seatId }, req.user, req);
   }
 
   @Patch(':id/seats/:seatId/reassign')
@@ -209,7 +209,7 @@ export class AdminOrganizationsController {
     @Body() dto: ReassignSeatDto,
     @Request() req: any,
   ) {
-    return this.seatsService.reassignSeat(orgId, seatId, dto, req.user);
+    return this.seatsService.reassignSeat(orgId, seatId, dto, req.user, req);
   }
 
   @Patch('enrolments/:enrolmentId/one-on-one')

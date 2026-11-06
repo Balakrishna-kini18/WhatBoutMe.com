@@ -139,7 +139,7 @@ export class OrgPortalController {
     @Body() dto: AssignSeatDto,
     @Request() req: any,
   ) {
-    return this.seatsService.assignSeat(orgId, { ...dto, seatId }, req.user);
+    return this.seatsService.assignSeat(orgId, { ...dto, seatId }, req.user, req);
   }
 
   /**
@@ -154,7 +154,7 @@ export class OrgPortalController {
     @Body() dto: ReassignSeatDto,
     @Request() req: any,
   ) {
-    return this.seatsService.reassignSeat(orgId, seatId, dto, req.user);
+    return this.seatsService.reassignSeat(orgId, seatId, dto, req.user, req);
   }
 
   /**

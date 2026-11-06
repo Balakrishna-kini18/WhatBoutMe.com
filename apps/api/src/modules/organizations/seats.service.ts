@@ -57,7 +57,7 @@ export class SeatsService {
    * Assigns a specific AVAILABLE numbered seat slot to a student, provisions/links their account and enrolment,
    * and dispatches an account setup / course notification email to their Gmail.
    */
-  async assignSeat(orgId: string, dto: AssignSeatDto, actor?: any) {
+  async assignSeat(orgId: string, dto: AssignSeatDto, actor?: any, req?: any) {
     const seat = await this.prisma.seat.findUnique({
       where: { id: dto.seatId },
       include: {
@@ -134,17 +134,16 @@ export class SeatsService {
       where: { email: { equals: email, mode: 'insensitive' } },
     });
 
-    let passwordSetupToken: string | null = null;
-    let precomputedPasswordHash: string | null = null;
-    let setupTokenHash: string | null = null;
-    let setupExpiresAt: Date | null = null;
+    // Generate a 14-day password setup/reset token for both new and existing users
+    // This allows new users to set their password, and existing users to easily reset if forgotten
+    const passwordSetupToken = crypto.randomBytes(32).toString('hex');
+    const setupTokenHash = crypto.createHash('sha256').update(passwordSetupToken).digest('hex');
+    const setupExpiresAt = new Date(Date.now() + 14 * 86400 * 1000);
 
+    let precomputedPasswordHash: string | null = null;
     if (!existingUser) {
       const tempPassword = crypto.randomBytes(16).toString('hex');
       precomputedPasswordHash = await bcrypt.hash(tempPassword, 10);
-      passwordSetupToken = crypto.randomBytes(32).toString('hex');
-      setupTokenHash = crypto.createHash('sha256').update(passwordSetupToken).digest('hex');
-      setupExpiresAt = new Date(Date.now() + 14 * 86400 * 1000);
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -160,20 +159,21 @@ export class SeatsService {
             role: Role.USER,
           },
         });
-
-        await tx.passwordResetToken.create({
-          data: {
-            userId: targetUser.id,
-            token: setupTokenHash!,
-            expiresAt: setupExpiresAt!,
-          },
-        });
       } else if (dto.fullName && (!targetUser.name || targetUser.name === email.split('@')[0])) {
         targetUser = await tx.user.update({
           where: { id: targetUser.id },
           data: { name: dto.fullName.trim() },
         });
       }
+
+      // Record setup / reset token in DB for the target user
+      await tx.passwordResetToken.create({
+        data: {
+          userId: targetUser.id,
+          token: setupTokenHash,
+          expiresAt: setupExpiresAt,
+        },
+      });
 
       // 2. Provision sponsored enrolment immediately in PENDING_AGREEMENT status
       let enrolment = await tx.enrolment.findFirst({
@@ -281,18 +281,19 @@ export class SeatsService {
     }, { maxWait: 15000, timeout: 30000 });
 
     // 7. Dispatch Welcome / Account Setup Email to student's Gmail
-    const { lmsUrl, marketingUrl } = getAppUrls();
+    const { lmsUrl, marketingUrl } = getAppUrls(req);
     const orgName = seat.seatPool.organization.name;
     const programTitle = seat.seatPool.program.title;
     const batchName = seat.seatPool.batch.name;
     const studentName = result.user.name || 'Learner';
 
-    let setupUrl: string | null = null;
+    const loginUrl = `${lmsUrl}/login?email=${encodeURIComponent(result.user.email)}&redirect=/dashboard`;
+    const passwordResetUrl = `${lmsUrl}/setup-account?token=${result.passwordSetupToken}&email=${encodeURIComponent(result.user.email)}`;
+
+    const setupUrl = result.isNewUser ? passwordResetUrl : loginUrl;
     const inviteUrl = `/org-invite/${result.inviteToken}`;
 
     if (result.isNewUser && result.passwordSetupToken) {
-      setupUrl = `${lmsUrl}/setup-account?token=${result.passwordSetupToken}&email=${encodeURIComponent(result.user.email)}`;
-
       if (this.emailService) {
         try {
           await this.emailService.sendTemplateEmail({
@@ -306,7 +307,7 @@ export class SeatsService {
               programTitle,
               batchName,
               isNewUser: true,
-              setupUrl,
+              setupUrl: passwordResetUrl,
             },
           });
         } catch (e: any) {
@@ -314,7 +315,6 @@ export class SeatsService {
         }
       }
     } else {
-      setupUrl = `${lmsUrl}/dashboard`;
       if (this.emailService) {
         try {
           await this.emailService.sendTemplateEmail({
@@ -328,6 +328,7 @@ export class SeatsService {
               programTitle,
               batchName,
               isNewUser: false,
+              setupUrl: loginUrl,
               dashboardUrl: `${lmsUrl}/dashboard`,
             },
           });
@@ -345,6 +346,8 @@ export class SeatsService {
       inviteId: result.inviteId,
       isNewUser: result.isNewUser,
       setupUrl,
+      loginUrl,
+      passwordResetUrl,
       inviteUrl: isVoucher ? null : inviteUrl,
       voucherCode: result.voucherCode,
     };
@@ -360,7 +363,7 @@ export class SeatsService {
    *  - dispatches account setup/invitation email to new Gmail
    *  - creates immutable AuditLog record
    */
-  async reassignSeat(orgId: string, seatId: string, dto: ReassignSeatDto, actor?: any) {
+  async reassignSeat(orgId: string, seatId: string, dto: ReassignSeatDto, actor?: any, req?: any) {
     const seat = await this.prisma.seat.findFirst({
       where: { id: seatId, organizationId: orgId },
       include: {
@@ -506,17 +509,14 @@ export class SeatsService {
       where: { email: { equals: newEmail, mode: 'insensitive' } },
     });
 
-    let passwordSetupToken: string | null = null;
-    let precomputedPasswordHash: string | null = null;
-    let setupTokenHash: string | null = null;
-    let setupExpiresAt: Date | null = null;
+    const passwordSetupToken = crypto.randomBytes(32).toString('hex');
+    const setupTokenHash = crypto.createHash('sha256').update(passwordSetupToken).digest('hex');
+    const setupExpiresAt = new Date(Date.now() + 14 * 86400 * 1000);
 
+    let precomputedPasswordHash: string | null = null;
     if (!existingTargetUser) {
       const tempPassword = crypto.randomBytes(16).toString('hex');
       precomputedPasswordHash = await bcrypt.hash(tempPassword, 10);
-      passwordSetupToken = crypto.randomBytes(32).toString('hex');
-      setupTokenHash = crypto.createHash('sha256').update(passwordSetupToken).digest('hex');
-      setupExpiresAt = new Date(Date.now() + 14 * 86400 * 1000);
     }
 
     const rawToken = crypto.randomBytes(24).toString('hex');
@@ -535,20 +535,20 @@ export class SeatsService {
             role: Role.USER,
           },
         });
-
-        await tx.passwordResetToken.create({
-          data: {
-            userId: targetUser.id,
-            token: setupTokenHash!,
-            expiresAt: setupExpiresAt!,
-          },
-        });
       } else if (dto.fullName && (!targetUser.name || targetUser.name === newEmail.split('@')[0])) {
         targetUser = await tx.user.update({
           where: { id: targetUser.id },
           data: { name: dto.fullName.trim() },
         });
       }
+
+      await tx.passwordResetToken.create({
+        data: {
+          userId: targetUser.id,
+          token: setupTokenHash,
+          expiresAt: setupExpiresAt,
+        },
+      });
 
       // 2. Revoke previous enrolment if exists
       if (oldEnrolmentId) {
@@ -652,18 +652,15 @@ export class SeatsService {
     }, { maxWait: 15000, timeout: 30000 });
 
     // 7. Dispatch Welcome / Account Setup Email to new student
-    const { lmsUrl } = getAppUrls();
+    const { lmsUrl } = getAppUrls(req);
     const orgName = seat.seatPool.organization.name;
     const programTitle = seat.seatPool.program.title;
     const batchName = seat.seatPool.batch.name;
     const studentName = result.user.name || 'Learner';
 
-    let setupUrl: string;
-    if (result.isNewUser && result.passwordSetupToken) {
-      setupUrl = `${lmsUrl}/setup-account?token=${result.passwordSetupToken}&email=${encodeURIComponent(result.user.email)}`;
-    } else {
-      setupUrl = `${lmsUrl}/login?email=${encodeURIComponent(result.user.email)}`;
-    }
+    const loginUrl = `${lmsUrl}/login?email=${encodeURIComponent(result.user.email)}&redirect=/dashboard`;
+    const passwordResetUrl = `${lmsUrl}/setup-account?token=${result.passwordSetupToken}&email=${encodeURIComponent(result.user.email)}`;
+    const setupUrl = result.isNewUser ? passwordResetUrl : loginUrl;
 
     if (this.emailService) {
       try {
@@ -680,7 +677,7 @@ export class SeatsService {
             programTitle,
             batchName,
             isNewUser: result.isNewUser,
-            setupUrl,
+            setupUrl: result.isNewUser ? passwordResetUrl : loginUrl,
             dashboardUrl: `${lmsUrl}/dashboard`,
           },
         });
@@ -697,6 +694,8 @@ export class SeatsService {
       enrolmentId: result.enrolmentId,
       isNewUser: result.isNewUser,
       setupUrl,
+      loginUrl,
+      passwordResetUrl,
       message: `Slot #${seat.slotNumber} (${seat.slotLabel}) successfully reassigned to ${result.user.email}.`,
     };
   }

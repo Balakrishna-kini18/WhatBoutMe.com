@@ -30,6 +30,7 @@ enum EnrolmentStatus {
   WAITLIST
   COMPLETED
   REVOKED
+  PAYMENT_HELD
 }
 
 enum LearnerStage {
@@ -1386,6 +1387,15 @@ model Payment {
   discountAmount  Float?
   redemptions     CouponRedemption[]
 
+  expectedAmountMinor Int?
+  expectedCurrency    String?   @default("USD")
+  chargedCurrency     String?
+  chargedAmountMinor  Int?
+  fxRate              String?
+  priceSnapshot       Json?
+  checkoutUrl         String?
+  expiresAt           DateTime?
+
   createdAt DateTime @default(now())
 
   @@index([enrolmentId])
@@ -1828,6 +1838,7 @@ enum EventPaymentStatus {
   PAID
   FAILED
   REFUNDED
+  PAYMENT_HELD
 }
 
 model Event {
@@ -2054,11 +2065,13 @@ enum SeatPoolStatus {
   DRAFT
   PENDING_APPROVAL
   PENDING_PAYMENT
+  INVOICE_ISSUED
   ACTIVE
   ACTIVE_UNPAID
   EXPIRED
   CANCELLED
   REFUNDED
+  PAYMENT_HELD
 }
 
 enum SeatPaymentMethod {
@@ -2280,3 +2293,29 @@ model OrganizationInvite {
   @@index([seatPoolId])
   @@index([tokenHash])
 }
+
+model LeadCheckoutLink {
+  id          String    @id @default(uuid())
+  tokenHash   String    @unique
+  leadId      String
+  userId      String
+  enrolmentId String
+  programId   String
+  batchId     String?
+  expiresAt   DateTime
+  usedAt      DateTime?
+  revokedAt   DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+
+  @@index([leadId])
+  @@index([userId])
+  @@index([enrolmentId])
+}
+
+model InvoiceCounter {
+  year      Int      @id
+  lastSeq   Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+

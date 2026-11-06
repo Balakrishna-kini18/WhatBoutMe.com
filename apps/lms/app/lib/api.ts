@@ -564,6 +564,36 @@ export async function cachedFetch(
       }
       clearTimeout(timeoutTimer);
 
+      // Automatic transparent retry on cold-start serverless execution timeouts for idempotent GETs
+      if (
+        isGet &&
+        typeof window !== "undefined" &&
+        !abortController.signal.aborted &&
+        (res.status === 500 || res.status === 502 || res.status === 503 || res.status === 504)
+      ) {
+        try {
+          const peekClone = res.clone();
+          const peekText = await peekClone.text();
+          if (
+            peekText.includes("safety limit") ||
+            peekText.includes("Serverless") ||
+            peekText.includes("Gateway Timeout") ||
+            peekText.includes("FUNCTION_INVOCATION") ||
+            res.status === 504
+          ) {
+            await new Promise((r) => setTimeout(r, 600));
+            if (!abortController.signal.aborted) {
+              const retryRes = await rawFetch(url, { ...effectiveInit, signal: abortController.signal });
+              if (retryRes && (retryRes.ok || retryRes.status < 500)) {
+                res = retryRes;
+              }
+            }
+          }
+        } catch {
+          // Fall through with initial res on peek/retry error
+        }
+      }
+
       // Handle transparent 401 token refresh for authenticated requests
       const isAuthRoute = /\/auth\/(login|signup|admin-login|refresh)/.test(url);
       if (res.status === 401 && !isAuthRoute && typeof window !== "undefined") {

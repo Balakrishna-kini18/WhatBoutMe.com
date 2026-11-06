@@ -24,7 +24,13 @@ export class RedisService implements OnModuleDestroy {
     const isWorkerMode = process.env.WORKER_MODE === 'true';
     const isServerlessRuntime =
       !isWorkerMode &&
-      (process.env.VERCEL === '1' || Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME));
+      Boolean(
+        process.env.VERCEL ||
+        process.env.AWS_LAMBDA_FUNCTION_NAME ||
+        process.env.LAMBDA_TASK_ROOT ||
+        process.env.GOOGLE_CLOUD_RUN ||
+        process.env.K_SERVICE
+      );
 
     const connectionOpts: Partial<RedisOptions> = isWorkerMode
       ? {

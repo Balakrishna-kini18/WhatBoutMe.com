@@ -23,7 +23,13 @@ const logger = new Logger('RedisGlobalModule');
         const isWorkerMode = process.env.WORKER_MODE === 'true';
         const isServerlessRuntime =
           !isWorkerMode &&
-          (process.env.VERCEL === '1' || Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME));
+          Boolean(
+            process.env.VERCEL ||
+            process.env.AWS_LAMBDA_FUNCTION_NAME ||
+            process.env.LAMBDA_TASK_ROOT ||
+            process.env.GOOGLE_CLOUD_RUN ||
+            process.env.K_SERVICE
+          );
 
         const connectTimeout = isServerlessRuntime ? 1500 : 5000;
         const reconnectStrategy = (retries: number) =>

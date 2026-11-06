@@ -1,5 +1,6 @@
 import { isAllowedCorsOrigin } from './common/config/cors.config.js';
-let cachedServer: any;
+let cachedServer: any = null;
+let bootstrapPromise: Promise<any> | null = null;
 
 // Helper: write a JSON response using raw Node http primitives.
 // Vercel's Lambda handler calls api.ts with bare http.IncomingMessage/
@@ -61,121 +62,133 @@ async function bootstrapServer() {
     throw new Error('FATAL: PAYMENT_MODE=mock refuses to start in production. Set real Stripe env vars or PAYMENT_MODE=live.');
   }
 
-  if (!cachedServer) {
-    // Vercel Hobby 10s budget.  NestFactory.create + Nest app.init() + all
-    // module onModuleInit hooks + 12 Redis clients + helmet/cors MUST finish
-    // within this TOTAL wallclock, or we force-fail bootstrap so the handler
-    // safety net can write a JSON 500 response.
-    //
-    // NOTE: Raised from 5000ms → 9000ms on 2026-10-09 after cold-start
-    // evidence on Vercel Hobby Basic builder: first Prisma pooled connect to
-    // Neon + TLS handshake to Redis clients + helmet CSP policy
-    // compilation regularly takes 5.2–6.1s on a cold sandbox, well above
-    // the original 5s gate.  We keep 9000ms < 10000ms (Vercel Hobby hard
-    // execution limit at 10s) so the safety-net writeJson always has time
-    // to deliver a readable response before the Vercel watchdog SIGKILLs us.
-    const BOOTSTRAP_HARD_LIMIT_MS = 9000;
-    let bootstrapReject: ((err: Error) => void) | undefined;
-    const bootstrapLimitTimer = setTimeout(() => {
-      if (bootstrapReject) {
-        try {
-          bootstrapReject(new Error(`Nest bootstrap exceeded ${BOOTSTRAP_HARD_LIMIT_MS}ms hard limit — aborting to preserve Vercel response budget`));
-        } catch { /* noop */ }
-      }
-    }, BOOTSTRAP_HARD_LIMIT_MS);
-    try { bootstrapLimitTimer.unref(); } catch { /* noop */ }
+  if (cachedServer) {
+    return cachedServer;
+  }
 
-    const doBootstrap = async () => {
-      // Dynamically import everything so top-level module load errors are caught
-      await import('./instrument.js');
+  // Deduplicate concurrent incoming requests during cold-start.
+  // When multiple requests arrive at once (e.g. admin dashboard firing 7 requests in parallel),
+  // they all await the single in-flight bootstrapPromise instead of spawning 7 concurrent
+  // NestFactory.create() graphs in the same Node.js process.
+  if (bootstrapPromise) {
+    return bootstrapPromise;
+  }
 
-      const { NestFactory } = await import('@nestjs/core');
-      const { ExpressAdapter } = await import('@nestjs/platform-express');
-      const express = (await import('express')).default;
-      const { ValidationPipe } = await import('@nestjs/common');
-      const helmet = (await import('helmet')).default;
-      const { HttpExceptionFilter } = await import('./common/filters/http-exception.filter.js');
-      const { AppModule } = await import('./app.module.js');
+  const configuredBootstrapLimit = Number(process.env.BOOTSTRAP_HARD_LIMIT_MS);
+  const BOOTSTRAP_HARD_LIMIT_MS =
+    Number.isFinite(configuredBootstrapLimit) && configuredBootstrapLimit > 0
+      ? configuredBootstrapLimit
+      : 30000;
 
-      const expressApp = express();
-      const nestApp = await NestFactory.create(
-        AppModule,
-        new ExpressAdapter(expressApp),
-      );
+  let bootstrapReject: ((err: Error) => void) | undefined;
+  const bootstrapLimitTimer = setTimeout(() => {
+    if (bootstrapReject) {
+      try {
+        bootstrapReject(new Error(`Nest bootstrap exceeded ${BOOTSTRAP_HARD_LIMIT_MS}ms hard limit — aborting to preserve Vercel response budget`));
+      } catch { /* noop */ }
+    }
+  }, BOOTSTRAP_HARD_LIMIT_MS);
+  try { bootstrapLimitTimer.unref(); } catch { /* noop */ }
 
-      nestApp.use(helmet ? (typeof helmet === 'function' ? helmet() : (helmet as any).default()) : (helmet as any)());
-      const allowedOrigins = process.env.CORS_ORIGIN
-        ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
-        : []; // Don't rely exclusively on localhost, though we keep the regex below for local dev
-
-      nestApp.enableCors({
-        origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-          if (isAllowedCorsOrigin(origin, allowedOrigins)) {
-            return callback(null, true);
-          }
-          return callback(new Error('Not allowed by CORS'));
-        },
-        credentials: true,
-        methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-        exposedHeaders: ['Server-Timing', 'X-Prisma-Queries', 'Cache-Control'],
-        optionsSuccessStatus: 204,
-        maxAge: 86400,
-      });
-
-      // Raw body parser for file uploads (PDF, DOCX, images, videos, audios)
-      const rawUploadParser = express.raw({ type: () => true, limit: '250mb' });
-      const corpHeader = (_req: any, res: any, next: any) => {
-        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-        next();
-      };
-      nestApp.use('/uploads', corpHeader, rawUploadParser);
-      nestApp.use('/api/uploads', corpHeader, rawUploadParser);
-
-      nestApp.use(
-        express.json({
-          limit: '50mb',
-          verify: (req: any, _res: any, buf: Buffer) => {
-            req.rawBody = buf;
-          },
-        }),
-      );
-      nestApp.use(express.urlencoded({ limit: '50mb', extended: true }));
-
-      nestApp.useGlobalPipes(
-        new ValidationPipe({
-          whitelist: true,
-          forbidNonWhitelisted: true,
-          transform: true,
-        }),
-      );
-
-      nestApp.useGlobalFilters(new HttpExceptionFilter());
-
-      await nestApp.init();
-      cachedServer = expressApp;
-    };
-
+  bootstrapPromise = (async () => {
     try {
-      await Promise.race([
+      const doBootstrap = async () => {
+        // Dynamically import everything so top-level module load errors are caught
+        await import('./instrument.js');
+
+        const { NestFactory } = await import('@nestjs/core');
+        const { ExpressAdapter } = await import('@nestjs/platform-express');
+        const express = (await import('express')).default;
+        const { ValidationPipe } = await import('@nestjs/common');
+        const helmet = (await import('helmet')).default;
+        const { HttpExceptionFilter } = await import('./common/filters/http-exception.filter.js');
+        const { AppModule } = await import('./app.module.js');
+
+        const expressApp = express();
+        const nestApp = await NestFactory.create(
+          AppModule,
+          new ExpressAdapter(expressApp),
+        );
+
+        nestApp.use(helmet ? (typeof helmet === 'function' ? helmet() : (helmet as any).default()) : (helmet as any)());
+        const allowedOrigins = process.env.CORS_ORIGIN
+          ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
+          : []; // Don't rely exclusively on localhost, though we keep the regex below for local dev
+
+        nestApp.enableCors({
+          origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+            if (isAllowedCorsOrigin(origin, allowedOrigins)) {
+              return callback(null, true);
+            }
+            return callback(new Error('Not allowed by CORS'));
+          },
+          credentials: true,
+          methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+          exposedHeaders: ['Server-Timing', 'X-Prisma-Queries', 'Cache-Control'],
+          optionsSuccessStatus: 204,
+          maxAge: 86400,
+        });
+
+        // Raw body parser for file uploads (PDF, DOCX, images, videos, audios)
+        const rawUploadParser = express.raw({ type: () => true, limit: '250mb' });
+        const corpHeader = (_req: any, res: any, next: any) => {
+          res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+          next();
+        };
+        nestApp.use('/uploads', corpHeader, rawUploadParser);
+        nestApp.use('/api/uploads', corpHeader, rawUploadParser);
+
+        nestApp.use(
+          express.json({
+            limit: '50mb',
+            verify: (req: any, _res: any, buf: Buffer) => {
+              req.rawBody = buf;
+            },
+          }),
+        );
+        nestApp.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+        nestApp.useGlobalPipes(
+          new ValidationPipe({
+            whitelist: true,
+            forbidNonWhitelisted: true,
+            transform: true,
+          }),
+        );
+
+        nestApp.useGlobalFilters(new HttpExceptionFilter());
+
+        await nestApp.init();
+        cachedServer = expressApp;
+        return expressApp;
+      };
+
+      const server = await Promise.race([
         doBootstrap(),
         new Promise<never>((_, reject) => { bootstrapReject = reject; }),
       ]);
+      return server;
+    } catch (err) {
+      bootstrapPromise = null; // Reset so subsequent requests can re-attempt cleanly
+      throw err;
     } finally {
       try { clearTimeout(bootstrapLimitTimer); } catch { /* noop */ }
       bootstrapReject = undefined;
     }
-  }
-  return cachedServer;
+  })();
+
+  return bootstrapPromise;
 }
 
 export default async (req: any, res: any) => {
-  // Vercel Hobby serverless max execution is 10s.  Guarantee the handler
-  // always resolves and writes a response within 9.5s, even if Nest bootstrap,
-  // Redis, Prisma, or middleware stall indefinitely.  This prevents Vercel's
-  // generic "FUNCTION_INVOCATION_FAILED" and instead returns a descriptive JSON
-  // error — the critical difference between an infra-crash page and a real API
-  // error response that clients can programmatically handle.
-  const SAFETY_LIMIT_MS = 9500;
+  // Configurable safety limit (defaults to 55s matching Vercel maxDuration: 60s).
+  // Guarantee the handler always resolves and writes a response before Vercel's watchdog,
+  // returning a clean JSON error response instead of generic FUNCTION_INVOCATION_FAILED.
+  const configuredSafetyLimit = Number(process.env.SERVERLESS_SAFETY_LIMIT_MS);
+  const SAFETY_LIMIT_MS =
+    Number.isFinite(configuredSafetyLimit) && configuredSafetyLimit > 0
+      ? configuredSafetyLimit
+      : 55000;
   let safetyFired = false;
   let safetyClearResolved: (() => void) | undefined;
 

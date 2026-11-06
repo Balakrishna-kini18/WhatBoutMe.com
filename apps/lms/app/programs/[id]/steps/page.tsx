@@ -2342,7 +2342,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                 <a
                                   href={
                                     sanitizeExternalUrl(
-                                      latestMission.fileUrl && latestMission.fileUrl.startsWith("http")
+                                      latestMission.fileUrl?.startsWith("data:")
                                         ? latestMission.fileUrl
                                         : `${API_URL}/mission-statements/${encodeURIComponent(latestMission.id)}/file`
                                     ) || "#"

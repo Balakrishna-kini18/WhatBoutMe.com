@@ -542,7 +542,7 @@ export default function MissionStatementPage() {
               <h3 className={styles.cardTitle}>Submission History</h3>
               <div className={styles.historyList}>
                 {submissions.map((sub) => {
-                  const rawFileUrl = sub.fileUrl && sub.fileUrl.startsWith("http")
+                  const rawFileUrl = sub.fileUrl?.startsWith("data:")
                     ? sub.fileUrl
                     : `${API_URL}/mission-statements/${encodeURIComponent(sub.id)}/file`;
                   const fileUrl = sanitizeExternalUrl(rawFileUrl) || "#";

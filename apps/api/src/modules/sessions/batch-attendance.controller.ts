@@ -25,6 +25,7 @@ import { Permission } from '../../config/permissions.config.js';
 import { ManualAttendanceOverrideDto } from './dto/manual-attendance-override.dto.js';
 import { LinkUnmatchedDto } from './dto/link-unmatched.dto.js';
 import { CertificatesService } from '../certificates/certificates.service.js';
+import { ProgressionService } from '../progression/progression.service.js';
 import { MEETING_PROVIDER } from '../../common/interfaces/meeting-provider.interface.js';
 import { AttendanceStatus, AttendanceSource } from '@prisma/client';
 
@@ -38,6 +39,9 @@ export class BatchAttendanceController {
     @Optional()
     @Inject(forwardRef(() => CertificatesService))
     private readonly certificatesService?: CertificatesService,
+    @Optional()
+    @Inject(forwardRef(() => ProgressionService))
+    private readonly progressionService?: ProgressionService,
     @Optional()
     @Inject(MEETING_PROVIDER)
     private readonly meetingProvider?: any,
@@ -92,9 +96,10 @@ export class BatchAttendanceController {
         : 60);
 
     const minAttendancePercentage =
-      session.batch?.program?.minAttendancePercentage ??
       (session.batch as any)?.attendanceThreshold ??
-      75;
+      (session.batch?.program as any)?.attendanceThreshold ??
+      session.batch?.program?.minAttendancePercentage ??
+      80;
 
     const attendanceMap = new Map<string, any>();
     for (const record of (attendanceRecords || [])) {
@@ -211,6 +216,11 @@ export class BatchAttendanceController {
       body,
       actor,
     );
+
+    // Invalidate progression cache so LMS immediately reflects updated live-session attendance
+    if (this.progressionService && updated.enrolmentId) {
+      this.progressionService.invalidateCache?.(updated.enrolmentId);
+    }
 
     // Re-evaluate certificate eligibility for the learner in the background
     if (this.certificatesService && updated.enrolmentId) {

@@ -2786,15 +2786,16 @@ function ApprovalsContent() {
           MISSION STATEMENT DOCUMENT PREVIEW MODAL
          ───────────────────────────────────────────────────────────────────────────── */}
       {previewMissionDoc && (() => {
-        const isDataUri = previewMissionDoc.fileUrl.startsWith("data:");
-        const docFileUrl =
-          previewMissionDoc.fileUrl.startsWith("http") || isDataUri
-            ? previewMissionDoc.fileUrl
-            : `${API_URL}/mission-statements/${previewMissionDoc.id}/file`;
+        const isDataUri = previewMissionDoc.fileUrl?.startsWith("data:");
+        const docFileUrl = isDataUri
+          ? previewMissionDoc.fileUrl
+          : `${API_URL}/mission-statements/${previewMissionDoc.id}/file`;
         const isImage =
-          (previewMissionDoc.mimeType || "").includes("image") ||
-          (isDataUri && previewMissionDoc.fileUrl.startsWith("data:image/")) ||
-          docFileUrl.match(/\.(jpg|jpeg|png|webp|svg)(\?.*)?$/i) !== null;
+          Boolean(
+            (previewMissionDoc.mimeType || "").toLowerCase().includes("image") ||
+            (previewMissionDoc.fileName || "").match(/\.(jpg|jpeg|png|webp|svg|gif)$/i) ||
+            previewMissionDoc.fileUrl?.match(/\.(jpg|jpeg|png|webp|svg|gif)(\?.*)?$/i)
+          );
 
         return (
           <Modal

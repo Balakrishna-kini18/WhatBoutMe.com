@@ -34,6 +34,7 @@ export class AttendanceComplianceService {
     }
 
     const programThreshold = (enrolment.batch?.program as any)?.attendanceThreshold;
+    const programMinAttendance = (enrolment.batch?.program as any)?.minAttendancePercentage;
     const batchThreshold = (enrolment.batch as any)?.attendanceThreshold;
 
     const threshold =
@@ -41,7 +42,9 @@ export class AttendanceComplianceService {
         ? batchThreshold
         : typeof programThreshold === 'number' && !isNaN(programThreshold)
           ? programThreshold
-          : 75;
+          : typeof programMinAttendance === 'number' && !isNaN(programMinAttendance)
+            ? programMinAttendance
+            : 80;
 
     // Validate threshold
     if (threshold < 0 || threshold > 100) {

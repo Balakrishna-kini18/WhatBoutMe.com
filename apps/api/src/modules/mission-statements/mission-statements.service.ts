@@ -389,21 +389,22 @@ export class MissionStatementsService {
     const mimeType = submission.mimeType || 'application/pdf';
     const fileName = submission.fileName || `mission_statement_v${submission.version}.pdf`;
 
-    // 1. If stored as external HTTP/HTTPS URL (e.g. Cloudinary/S3), redirect directly
-    if (submission.fileUrl && (submission.fileUrl.startsWith('http://') || submission.fileUrl.startsWith('https://'))) {
-      return { redirectUrl: submission.fileUrl, mimeType, fileName };
-    }
-
-    // 2. If object storage is configured and can provide a signed URL
+    // 1. If object storage is configured and can provide a fresh signed URL, use it first
+    // (guarantees signed authenticated URLs never expire or use outdated signatures)
     if (this.objectStorage && submission.storageKey) {
       try {
-        const signedUrl = await this.objectStorage.getPresignedGetUrl(submission.storageKey, 300);
+        const signedUrl = await this.objectStorage.getPresignedGetUrl(submission.storageKey, 3600);
         if (signedUrl && signedUrl.startsWith('http')) {
           return { redirectUrl: signedUrl, mimeType, fileName };
         }
       } catch {
-        // Continue to buffer or local file lookup
+        // Continue to external URL or buffer lookup
       }
+    }
+
+    // 2. If stored as external HTTP/HTTPS URL (e.g. Cloudinary/S3), redirect directly
+    if (submission.fileUrl && (submission.fileUrl.startsWith('http://') || submission.fileUrl.startsWith('https://'))) {
+      return { redirectUrl: submission.fileUrl, mimeType, fileName };
     }
 
     // 3. If stored as Base64 Data URI in database, decode buffer directly!

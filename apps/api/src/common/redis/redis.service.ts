@@ -140,17 +140,20 @@ export class RedisService implements OnModuleDestroy {
   }
 
   /**
-   * Check whether the Redis connection is currently in a ready/connected state
+   * Check whether the Redis connection is currently in a ready state.
+   * Note: 'connect' only indicates TCP socket establishment before AUTH/TLS readiness;
+   * only 'ready' guarantees commands will execute immediately without offline queueing.
    */
   isReady(): boolean {
-    return this.client
-      ? this.client.status === 'ready' || this.client.status === 'connect'
-      : false;
+    if (!this.configured || !this.client) {
+      return false;
+    }
+    return this.client.status === 'ready';
   }
 
   /**
    * Active health check ping with bounded timeout.
-   * Connects lazily if needed and verifies PONG response.
+   * Connects lazily if needed and verifies PONG response within timeoutMs.
    */
   async ping(timeoutMs = 1500): Promise<boolean> {
     if (!this.configured || !this.client) {
@@ -159,15 +162,20 @@ export class RedisService implements OnModuleDestroy {
 
     let timer: NodeJS.Timeout | undefined;
     try {
-      const status = this.client.status;
-      if (status === 'wait' || status === 'close' || status === 'end') {
-        if (typeof (this.client as any).connect === 'function') {
-          await (this.client as any).connect().catch(() => undefined);
+      const pingSequence = (async () => {
+        const status = this.client.status;
+        if (status === 'wait' || status === 'close' || status === 'end') {
+          if (typeof (this.client as any).connect === 'function') {
+            await (this.client as any).connect().catch(() => undefined);
+          }
         }
-      }
+        return await this.client.ping();
+      })();
+      // Prevent unhandled promise rejection if timeout wins the race
+      pingSequence.catch(() => undefined);
 
       const pong = await Promise.race([
-        this.client.ping(),
+        pingSequence,
         new Promise<string>((_, reject) => {
           timer = setTimeout(() => reject(new Error('Redis ping timeout')), timeoutMs);
           if (typeof timer.unref === 'function') {

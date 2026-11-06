@@ -110,12 +110,12 @@ describe("Host and Domain Family Isolation Suite", () => {
       expect(getAdminUrl()).toBe("https://what-bout-me-com-admin.vercel.app");
     });
 
-    it("dynamically resolves sibling Vercel URLs for prefix-style naming (admin-whataboutme, lms-whataboutme)", () => {
+    it("dynamically resolves active WhatBoutMe Vercel deployment URLs (lms-whatboutme, admin-whataboutme, marketing-whatboutme, what-bout-me-com-backend)", () => {
       Object.defineProperty(globalThis, "window", {
         value: {
           location: {
-            hostname: "lms-whataboutme.vercel.app",
-            origin: "https://lms-whataboutme.vercel.app",
+            hostname: "lms-whatboutme.vercel.app",
+            origin: "https://lms-whatboutme.vercel.app",
           },
         },
         writable: true,
@@ -126,9 +126,9 @@ describe("Host and Domain Family Isolation Suite", () => {
       delete process.env.NEXT_PUBLIC_SITE_URL;
       delete process.env.NEXT_PUBLIC_API_URL;
 
-      expect(getLmsUrl()).toBe("https://lms-whataboutme.vercel.app");
-      expect(getMarketingUrl()).toBe("https://whataboutme.vercel.app");
-      expect(getApiBaseUrl()).toBe("https://api-whataboutme.vercel.app");
+      expect(getLmsUrl()).toBe("https://lms-whatboutme.vercel.app");
+      expect(getMarketingUrl()).toBe("https://marketing-whatboutme.vercel.app");
+      expect(getApiBaseUrl()).toBe("https://what-bout-me-com-backend.vercel.app");
       expect(getAdminUrl()).toBe("https://admin-whataboutme.vercel.app");
     });
 

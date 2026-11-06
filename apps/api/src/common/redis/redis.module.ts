@@ -19,7 +19,6 @@ const logger = new Logger('RedisGlobalModule');
         if (!url) {
           return { ttl: 60 * 1000 };
         }
-        const tlsOpts = resolveRedisTlsOptions(url);
         const isWorkerMode = process.env.WORKER_MODE === 'true';
         const isServerlessRuntime =
           !isWorkerMode &&
@@ -31,9 +30,16 @@ const logger = new Logger('RedisGlobalModule');
             process.env.K_SERVICE
           );
 
-        const connectTimeout = isServerlessRuntime ? 1500 : 5000;
-        const reconnectStrategy = (retries: number) =>
-          isServerlessRuntime ? false : Math.min(retries * 250, 5000);
+        // In serverless HTTP functions, all application caching uses CacheHelperService (backed by RedisService + LRU).
+        // Skip eager redisStore() socket handshake during NestFactory.create() to eliminate 1.5s cold-start stalls
+        // and avoid opening duplicate Redis connections per Lambda invocation.
+        if (isServerlessRuntime) {
+          return { ttl: 60 * 1000 };
+        }
+
+        const tlsOpts = resolveRedisTlsOptions(url);
+        const connectTimeout = 5000;
+        const reconnectStrategy = (retries: number) => Math.min(retries * 250, 5000);
 
         let timer: NodeJS.Timeout | undefined;
         try {

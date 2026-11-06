@@ -609,8 +609,9 @@ export class ExamsService {
         const delayMs = Math.max(0, expiresAt.getTime() - Date.now());
         const expiresAtUnix = Math.floor(expiresAt.getTime() / 1000);
         const jobId = `exam-finalize:${createdAttempt.id}:${expiresAtUnix}`;
+        let timer: NodeJS.Timeout | undefined;
         try {
-          await this.lifecycleQueue.add(
+          const enqueuePromise = this.lifecycleQueue.add(
             'finalize-exam',
             {
               attemptId: createdAttempt.id,
@@ -624,6 +625,15 @@ export class ExamsService {
               removeOnFail: { count: 200, age: 7 * 86400 },
             },
           );
+          enqueuePromise.catch(() => undefined);
+
+          await Promise.race([
+            enqueuePromise,
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new Error('BullMQ lifecycle enqueue timed out (400ms)')), 400);
+              if (typeof timer.unref === 'function') timer.unref();
+            }),
+          ]);
           this.logger.log(
             `Enqueued delayed finalize job for attempt ${createdAttempt.id} in ${Math.round(delayMs / 1000)}s (jobId: ${jobId})`,
           );
@@ -632,6 +642,8 @@ export class ExamsService {
           this.logger.warn(
             `Failed to enqueue delayed finalize job for attempt ${createdAttempt.id} (recoverable via sweep): ${queueErr?.message}`,
           );
+        } finally {
+          if (timer) clearTimeout(timer);
         }
       }
 

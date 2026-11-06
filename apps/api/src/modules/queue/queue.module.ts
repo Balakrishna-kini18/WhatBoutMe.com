@@ -92,9 +92,15 @@ export function buildBullRedisOptions(
     noDelay: true,
   };
 
+  let sharedProducerClient: IORedis | null = null;
+
   return {
     ...producerOpts,
-    createClient: (_type: string, clientOpts: RedisOptions) => {
+    createClient: (type: string, clientOpts: RedisOptions) => {
+      if (type === 'client' && sharedProducerClient) {
+        return sharedProducerClient;
+      }
+
       let client: IORedis;
       try {
         const mergedOpts = { ...producerOpts, ...clientOpts };
@@ -125,6 +131,10 @@ export function buildBullRedisOptions(
         client.on('error', (err: any) => {
           logger.warn(`BullMQ Redis client notice: ${err?.message || err}`);
         });
+      }
+
+      if (type === 'client') {
+        sharedProducerClient = client;
       }
       return client;
     },

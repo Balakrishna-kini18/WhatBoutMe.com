@@ -169,4 +169,165 @@ describe('CacheHelperService (LRU + TTL + Tag-Based Invalidation)', () => {
     const result = await redisCache.getOrSet('fail-open-key', fetcher, 60);
     expect(result).toEqual({ status: 'success-from-db' });
   });
+
+  it('9. uses Redis cache when Redis is healthy and ready', async () => {
+    const mockRedis: any = {
+      status: 'ready',
+      get: vi.fn().mockResolvedValue(JSON.stringify({ id: 'from-redis-cache' })),
+      set: vi.fn().mockResolvedValue('OK'),
+    };
+    const mockRedisService: any = {
+      isConfigured: () => true,
+      isReady: () => true,
+      getClient: () => mockRedis,
+    };
+
+    const redisCache = new CacheHelperService(mockRedisService);
+    const fetcher = vi.fn().mockResolvedValue({ id: 'from-db' });
+
+    const result = await redisCache.getOrSet('healthy-key', fetcher, 60);
+    expect(result).toEqual({ id: 'from-redis-cache' });
+    expect(mockRedis.get).toHaveBeenCalledWith('healthy-key');
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('10. does not await Redis commands when RedisService reports not ready (reconnecting/connecting)', async () => {
+    const mockRedis: any = {
+      status: 'reconnecting',
+      get: vi.fn().mockImplementation(() => new Promise(() => {})), // hangs forever if called
+      set: vi.fn().mockImplementation(() => new Promise(() => {})),
+    };
+    const mockRedisService: any = {
+      isConfigured: () => true,
+      isReady: () => false,
+      getClient: () => mockRedis,
+    };
+
+    const redisCache = new CacheHelperService(mockRedisService);
+    const start = Date.now();
+    const result = await redisCache.getOrSet('unready-key', async () => ({ id: 'fast-db-fallback' }), 60);
+    const elapsed = Date.now() - start;
+
+    expect(result).toEqual({ id: 'fast-db-fallback' });
+    expect(elapsed).toBeLessThan(50);
+    expect(mockRedis.get).not.toHaveBeenCalled();
+  });
+
+  it('11. bounds Redis GET timeout within REDIS_OP_TIMEOUT_MS and falls back to DB without throwing', async () => {
+    const mockRedis: any = {
+      status: 'ready',
+      get: vi.fn().mockImplementation(
+        () => new Promise((_, reject) => setTimeout(() => reject(new Error('Late rejection')), 5000)),
+      ),
+      set: vi.fn().mockResolvedValue('OK'),
+    };
+    const mockRedisService: any = {
+      isConfigured: () => true,
+      isReady: () => true,
+      getClient: () => mockRedis,
+    };
+
+    const redisCache = new CacheHelperService(mockRedisService);
+    const start = Date.now();
+    const result = await redisCache.getOrSet('hanging-get-key', async () => ({ stepId: 'step-1' }), 60);
+    const elapsed = Date.now() - start;
+
+    expect(result).toEqual({ stepId: 'step-1' });
+    expect(elapsed).toBeLessThan(CacheHelperService.REDIS_OP_TIMEOUT_MS + 150);
+    expect(mockRedis.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('12. bounds namespace version lookup timeout and falls back immediately on subsequent calls via circuit breaker', async () => {
+    const mockRedis: any = {
+      status: 'ready',
+      get: vi.fn().mockImplementation(() => new Promise(() => {})), // never resolves
+      set: vi.fn().mockResolvedValue('OK'),
+    };
+    const mockRedisService: any = {
+      isConfigured: () => true,
+      isReady: () => true,
+      getClient: () => mockRedis,
+    };
+
+    const redisCache = new CacheHelperService(mockRedisService);
+
+    // 1st call trips the circuit after ~250ms timeout
+    const t0 = Date.now();
+    const key1 = await redisCache.getEndpointKey('programs', 'USER', { stepId: 's1' });
+    const d1 = Date.now() - t0;
+    expect(key1).toContain(':ns:programs:v1:');
+    expect(d1).toBeLessThan(CacheHelperService.REDIS_OP_TIMEOUT_MS + 150);
+    expect(mockRedis.get).toHaveBeenCalledTimes(1);
+
+    // 2nd call during circuit cooldown must NOT call Redis and completes in <20ms
+    const t1 = Date.now();
+    const key2 = await redisCache.getEndpointKey('DifferentNamespace', 'USER', { stepId: 's2' });
+    const d2 = Date.now() - t1;
+    expect(key2).toContain(':ns:DifferentNamespace:v1:');
+    expect(d2).toBeLessThan(30);
+    expect(mockRedis.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('13. closes the circuit breaker and restores distributed caching after cooldown recovery probe succeeds', async () => {
+    let shouldFail = true;
+    const mockRedis: any = {
+      status: 'ready',
+      get: vi.fn().mockImplementation(async () => {
+        if (shouldFail) {
+          throw new Error('ERR max number of clients reached');
+        }
+        return JSON.stringify({ recovered: true });
+      }),
+      set: vi.fn().mockResolvedValue('OK'),
+    };
+    const mockRedisService: any = {
+      isConfigured: () => true,
+      isReady: () => true,
+      getClient: () => mockRedis,
+    };
+
+    const redisCache = new CacheHelperService(mockRedisService);
+
+    // 1. First request fails open and trips the circuit
+    const first = await redisCache.getOrSet('k-1', async () => ({ recovered: false }), 60);
+    expect(first).toEqual({ recovered: false });
+    expect(mockRedis.get).toHaveBeenCalledTimes(1);
+
+    // 2. While circuit is open, Redis is bypassed
+    const second = await redisCache.getOrSet('k-2', async () => ({ bypassed: true }), 60);
+    expect(second).toEqual({ bypassed: true });
+    expect(mockRedis.get).toHaveBeenCalledTimes(1);
+
+    // 3. Fast-forward circuit expiration and make Redis healthy again
+    shouldFail = false;
+    (redisCache as any).redisCircuitOpenUntil = Date.now() - 1;
+
+    // 4. Recovery probe succeeds and closes the circuit
+    const third = await redisCache.getOrSet('k-3', async () => ({ fromDb: true }), 60);
+    expect(third).toEqual({ recovered: true });
+    expect(mockRedis.get).toHaveBeenCalledTimes(2);
+    expect((redisCache as any).redisCircuitWasOpen).toBe(false);
+  });
+
+  it('14. SET, DEL, and invalidation failures never throw or fail caller mutations', async () => {
+    const mockRedis: any = {
+      status: 'ready',
+      get: vi.fn().mockRejectedValue(new Error('Redis down')),
+      set: vi.fn().mockRejectedValue(new Error('Redis down')),
+      del: vi.fn().mockRejectedValue(new Error('Redis down')),
+      incr: vi.fn().mockRejectedValue(new Error('Redis down')),
+    };
+    const mockRedisService: any = {
+      isConfigured: () => true,
+      isReady: () => true,
+      getClient: () => mockRedis,
+    };
+
+    const redisCache = new CacheHelperService(mockRedisService);
+
+    await expect(redisCache.set('mut-key', { ok: 1 }, 60, ['programs'])).resolves.toBeUndefined();
+    await expect(redisCache.invalidate('mut-key')).resolves.toBeUndefined();
+    await expect(redisCache.invalidateTag('programs')).resolves.toBeGreaterThanOrEqual(0);
+    await expect(redisCache.invalidateNamespace('programs')).resolves.toBeUndefined();
+  });
 });

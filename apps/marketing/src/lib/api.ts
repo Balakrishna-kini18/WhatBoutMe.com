@@ -32,6 +32,21 @@ export function deriveVercelUrl(
   if (targetService === "lms" && (host.startsWith("lms-") || host.includes("-lms"))) {
     return `https://${host}`;
   }
+  if (targetService === "marketing" && (host.startsWith("marketing-") || host.includes("-marketing"))) {
+    return `https://${host}`;
+  }
+
+  // Known active WhatBoutMe Vercel deployment family (heterogeneous project names across the 4 services)
+  if (
+    host === "what-bout-me-com-backend.vercel.app" ||
+    /^(admin|lms|marketing|api)-(whatboutme|whataboutme)\.vercel\.app$/i.test(host) ||
+    /^(whatboutme|whataboutme)\.vercel\.app$/i.test(host)
+  ) {
+    if (targetService === "api") return "https://what-bout-me-com-backend.vercel.app";
+    if (targetService === "admin") return "https://admin-whataboutme.vercel.app";
+    if (targetService === "lms") return "https://lms-whatboutme.vercel.app";
+    if (targetService === "marketing") return "https://marketing-whatboutme.vercel.app";
+  }
 
   // 1. Prefix pattern: <service>-<project>.vercel.app (e.g. admin-whataboutme.vercel.app)
   const prefixMatch = host.match(/^(admin|lms|marketing|api)-(.*)\.vercel\.app$/i);

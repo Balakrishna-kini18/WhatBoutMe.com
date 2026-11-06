@@ -17,7 +17,7 @@ import { EventsService } from './events.service.js';
 
 @Controller('events')
 export class EventsController {
-  constructor(private readonly eventsService: EventsService) {}
+  constructor(private readonly eventsService: EventsService) { }
 
   @Public()
   @Get()

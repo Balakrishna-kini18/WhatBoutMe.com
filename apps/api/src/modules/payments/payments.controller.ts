@@ -21,7 +21,7 @@ const STATUS_RATE_LIMIT = { default: { limit: 40, ttl: 60000 } };
 
 @Controller(['payments', 'api/payments'])
 export class PaymentsController {
-  constructor(private readonly paymentsService: PaymentsService) {}
+  constructor(private readonly paymentsService: PaymentsService) { }
 
   @Public()
   @Get('active-provider')

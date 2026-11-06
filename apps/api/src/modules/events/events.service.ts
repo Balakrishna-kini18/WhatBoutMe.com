@@ -65,117 +65,76 @@ export class EventsService {
   }
 
   async uploadCoverImage(file: { buffer?: Buffer; mimetype?: string; size?: number;[key: string]: any }) {
-      if (!file || !file.buffer) {
-        throw new BadRequestException('Image file is required');
-      }
-
-      const size = file.size ?? file.buffer.length;
-      const MAX_SIZE = 5 * 1024 * 1024; // 5MB limit
-      if (size > MAX_SIZE) {
-        throw new BadRequestException('Image file size must not exceed 5MB');
-      }
-
-      const mime = (file.mimetype || '').toLowerCase();
-      const ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/avif']);
-      if (mime && !ALLOWED_MIME.has(mime)) {
-        throw new BadRequestException(
-          'Invalid image format. Only PNG, JPEG, WEBP, and AVIF image files are supported',
-        );
-      }
-
-      return new Promise<{ coverImageUrl: string; bannerUrl: string; publicId: string }>((resolve, reject) => {
-        const uploadStream = cloudinary.uploader.upload_stream(
-          {
-            folder: 'whatboutme_events',
-            resource_type: 'image',
-          },
-          (error, result) => {
-            if (error || !result) {
-              return reject(new BadRequestException(error?.message || 'Cloudinary upload failed'));
-            }
-            resolve({
-              coverImageUrl: result.secure_url,
-              bannerUrl: result.secure_url,
-              publicId: result.public_id,
-            });
-          },
-        );
-        uploadStream.end(file.buffer);
-      });
+    if (!file || !file.buffer) {
+      throw new BadRequestException('Image file is required');
     }
+
+    const size = file.size ?? file.buffer.length;
+    const MAX_SIZE = 5 * 1024 * 1024; // 5MB limit
+    if (size > MAX_SIZE) {
+      throw new BadRequestException('Image file size must not exceed 5MB');
+    }
+
+    const mime = (file.mimetype || '').toLowerCase();
+    const ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/avif']);
+    if (mime && !ALLOWED_MIME.has(mime)) {
+      throw new BadRequestException(
+        'Invalid image format. Only PNG, JPEG, WEBP, and AVIF image files are supported',
+      );
+    }
+
+    return new Promise<{ coverImageUrl: string; bannerUrl: string; publicId: string }>((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'whatboutme_events',
+          resource_type: 'image',
+        },
+        (error, result) => {
+          if (error || !result) {
+            return reject(new BadRequestException(error?.message || 'Cloudinary upload failed'));
+          }
+          resolve({
+            coverImageUrl: result.secure_url,
+            bannerUrl: result.secure_url,
+            publicId: result.public_id,
+          });
+        },
+      );
+      uploadStream.end(file.buffer);
+    });
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // PUBLIC QUERIES & REGISTRATIONS
   // ─────────────────────────────────────────────────────────────────────────────
 
-  async listForPublic(query: ListEventsQueryDto, userId ?: string) {
-      const where: Prisma.EventWhereInput = {
-        isPublished: true,
-        ...(query.locationType ? { locationType: query.locationType } : {}),
-        ...(query.upcoming
-          ? { startDateTime: { gte: new Date() } }
-          : {}),
-        ...(query.search
-          ? {
-            OR: [
-              { title: { contains: query.search, mode: 'insensitive' } },
-              { description: { contains: query.search, mode: 'insensitive' } },
-              { venueName: { contains: query.search, mode: 'insensitive' } },
-            ],
-          }
-          : {}),
-      };
+  async listForPublic(query: ListEventsQueryDto, userId?: string) {
+    const where: Prisma.EventWhereInput = {
+      isPublished: true,
+      ...(query.locationType ? { locationType: query.locationType } : {}),
+      ...(query.upcoming
+        ? { startDateTime: { gte: new Date() } }
+        : {}),
+      ...(query.search
+        ? {
+          OR: [
+            { title: { contains: query.search, mode: 'insensitive' } },
+            { description: { contains: query.search, mode: 'insensitive' } },
+            { venueName: { contains: query.search, mode: 'insensitive' } },
+          ],
+        }
+        : {}),
+    };
 
-      const take = query.limit || 20;
-      const skip = ((query.page || 1) - 1) * take;
+    const take = query.limit || 20;
+    const skip = ((query.page || 1) - 1) * take;
 
-      const [events, total] = await Promise.all([
-        this.prisma.event.findMany({
-          where,
-          orderBy: { startDateTime: 'asc' },
-          skip,
-          take,
-          include: {
-            _count: {
-              select: {
-                registrations: { where: { paymentStatus: EventPaymentStatus.PAID } },
-              },
-            },
-          },
-        }),
-        this.prisma.event.count({ where }),
-      ]);
-
-      // Check user registrations if logged in
-      let myRegisteredEventIds = new Set<string>();
-      if (userId) {
-        const myRegs = await this.prisma.eventRegistration.findMany({
-          where: { userId, paymentStatus: EventPaymentStatus.PAID },
-          select: { eventId: true },
-        });
-        myRegisteredEventIds = new Set(myRegs.map((r) => r.eventId));
-      }
-
-      return {
-        items: events.map((evt) =>
-          mapEvent(evt, {
-            isStaff: false,
-            registeredByMe: myRegisteredEventIds.has(evt.id),
-          }),
-        ),
-        total,
-        page: query.page || 1,
-        limit: take,
-        totalPages: Math.ceil(total / take) || 1,
-      };
-    }
-
-  async getForPublic(idOrSlug: string, userId ?: string) {
-      const event = await this.prisma.event.findFirst({
-        where: {
-          OR: [{ id: idOrSlug }, { slug: idOrSlug }],
-          isPublished: true,
-        },
+    const [events, total] = await Promise.all([
+      this.prisma.event.findMany({
+        where,
+        orderBy: { startDateTime: 'asc' },
+        skip,
+        take,
         include: {
           _count: {
             select: {
@@ -183,33 +142,74 @@ export class EventsService {
             },
           },
         },
+      }),
+      this.prisma.event.count({ where }),
+    ]);
+
+    // Check user registrations if logged in
+    let myRegisteredEventIds = new Set<string>();
+    if (userId) {
+      const myRegs = await this.prisma.eventRegistration.findMany({
+        where: { userId, paymentStatus: EventPaymentStatus.PAID },
+        select: { eventId: true },
       });
-
-      if (!event) {
-        throw new NotFoundException('Event not found or not published');
-      }
-
-      let registeredByMe = false;
-      let showSecretLink = false;
-
-      if (userId) {
-        const reg = await this.prisma.eventRegistration.findFirst({
-          where: {
-            eventId: event.id,
-            userId,
-            paymentStatus: EventPaymentStatus.PAID,
-          },
-        });
-        if (reg) {
-          registeredByMe = true;
-          showSecretLink = true;
-        }
-      }
-
-      return mapEvent(event, { isStaff: false, registeredByMe, showSecretLink });
+      myRegisteredEventIds = new Set(myRegs.map((r) => r.eventId));
     }
 
-  async checkout(idOrSlug: string, dto: CheckoutEventDto, userId?: string, req?: any) {
+    return {
+      items: events.map((evt) =>
+        mapEvent(evt, {
+          isStaff: false,
+          registeredByMe: myRegisteredEventIds.has(evt.id),
+        }),
+      ),
+      total,
+      page: query.page || 1,
+      limit: take,
+      totalPages: Math.ceil(total / take) || 1,
+    };
+  }
+
+  async getForPublic(idOrSlug: string, userId?: string) {
+    const event = await this.prisma.event.findFirst({
+      where: {
+        OR: [{ id: idOrSlug }, { slug: idOrSlug }],
+        isPublished: true,
+      },
+      include: {
+        _count: {
+          select: {
+            registrations: { where: { paymentStatus: EventPaymentStatus.PAID } },
+          },
+        },
+      },
+    });
+
+    if (!event) {
+      throw new NotFoundException('Event not found or not published');
+    }
+
+    let registeredByMe = false;
+    let showSecretLink = false;
+
+    if (userId) {
+      const reg = await this.prisma.eventRegistration.findFirst({
+        where: {
+          eventId: event.id,
+          userId,
+          paymentStatus: EventPaymentStatus.PAID,
+        },
+      });
+      if (reg) {
+        registeredByMe = true;
+        showSecretLink = true;
+      }
+    }
+
+    return mapEvent(event, { isStaff: false, registeredByMe, showSecretLink });
+  }
+
+  async checkout(idOrSlug: string, dto: CheckoutEventDto, userId ?: string, req ?: any) {
       const event = await this.prisma.event.findFirst({
         where: {
           OR: [{ id: idOrSlug }, { slug: idOrSlug }],
@@ -1010,40 +1010,40 @@ export class EventsService {
    * Public Ticket Details Lookup for QR Code scanning at event doors.
    */
   async getTicketDetails(regId: string) {
-    const reg = await this.prisma.eventRegistration.findUnique({
-      where: { id: regId },
-      include: {
-        event: {
-          select: {
-            id: true,
-            title: true,
-            slug: true,
-            startDateTime: true,
-            endDateTime: true,
-            locationType: true,
-            venueName: true,
-            venueAddress: true,
-            meetingLink: true,
-            timezone: true,
+      const reg = await this.prisma.eventRegistration.findUnique({
+        where: { id: regId },
+        include: {
+          event: {
+            select: {
+              id: true,
+              title: true,
+              slug: true,
+              startDateTime: true,
+              endDateTime: true,
+              locationType: true,
+              venueName: true,
+              venueAddress: true,
+              meetingLink: true,
+              timezone: true,
+            },
           },
         },
-      },
-    });
+      });
 
-    if (!reg) {
-      throw new NotFoundException('Ticket or registration not found');
+      if (!reg) {
+        throw new NotFoundException('Ticket or registration not found');
+      }
+
+      return {
+        id: reg.id,
+        attendeeName: reg.attendeeName,
+        status: reg.paymentStatus,
+        amount: reg.amount,
+        currency: reg.currency,
+        createdAt: reg.createdAt,
+        event: reg.event,
+      };
     }
-
-    return {
-      id: reg.id,
-      attendeeName: reg.attendeeName,
-      status: reg.paymentStatus,
-      amount: reg.amount,
-      currency: reg.currency,
-      createdAt: reg.createdAt,
-      event: reg.event,
-    };
-  }
 
   private async sendEventConfirmationEmail(event: Event, reg: EventRegistration) {
     try {

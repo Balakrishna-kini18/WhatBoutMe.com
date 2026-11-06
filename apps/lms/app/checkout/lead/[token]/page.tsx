@@ -86,7 +86,7 @@ export default function LeadCheckoutPage({
           setActiveProvider(info.activeProvider);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
 
     const fetchTokenDetails = async () => {
       setLoading(true);

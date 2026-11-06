@@ -66,122 +66,122 @@ export class StripePaymentProvider implements IPaymentProvider {
       let successUrl: string;
       let cancelUrl: string;
 
-      if (params.returnUrl) {
-        successUrl = params.returnUrl.includes('{CHECKOUT_SESSION_ID}')
-          ? params.returnUrl
-          : `${params.returnUrl}${params.returnUrl.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`;
-      } else if (isSeatPool) {
-        const orgId = params.metadata?.organizationId || '';
-        successUrl = `${adminUrl}/users/organizations/${orgId}?tab=pools&paid=1&session_id={CHECKOUT_SESSION_ID}&poolId=${params.targetId}`;
-      } else if (isEvent) {
-        successUrl = `${marketingUrl}/events/${params.targetId}?session_id={CHECKOUT_SESSION_ID}&registered=1`;
-      } else {
-        successUrl = `${lmsUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
-      }
+        if (params.returnUrl) {
+          successUrl = params.returnUrl.includes('{CHECKOUT_SESSION_ID}')
+            ? params.returnUrl
+            : `${params.returnUrl}${params.returnUrl.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`;
+        } else if (isSeatPool) {
+          const orgId = params.metadata?.organizationId || '';
+          successUrl = `${adminUrl}/users/organizations/${orgId}?tab=pools&paid=1&session_id={CHECKOUT_SESSION_ID}&poolId=${params.targetId}`;
+        } else if (isEvent) {
+          successUrl = `${marketingUrl}/events/${params.targetId}?session_id={CHECKOUT_SESSION_ID}&registered=1`;
+        } else {
+          successUrl = `${lmsUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
+        }
 
-      if (params.cancelUrl) {
-        cancelUrl = params.cancelUrl;
-      } else if (isSeatPool) {
-        const orgId = params.metadata?.organizationId || '';
-        cancelUrl = `${adminUrl}/users/organizations/${orgId}?tab=pools&cancelled=1&poolId=${params.targetId}`;
-      } else if (isEvent) {
-        cancelUrl = `${marketingUrl}/events/${params.targetId}?cancelled=1`;
-      } else {
-        cancelUrl = `${lmsUrl}/checkout?programId=${params.targetId}&cancelled=1`;
-      }
+        if (params.cancelUrl) {
+          cancelUrl = params.cancelUrl;
+        } else if (isSeatPool) {
+          const orgId = params.metadata?.organizationId || '';
+          cancelUrl = `${adminUrl}/users/organizations/${orgId}?tab=pools&cancelled=1&poolId=${params.targetId}`;
+        } else if (isEvent) {
+          cancelUrl = `${marketingUrl}/events/${params.targetId}?cancelled=1`;
+        } else {
+          cancelUrl = `${lmsUrl}/checkout?programId=${params.targetId}&cancelled=1`;
+        }
 
-      const checkoutCurrency = (params.currency || 'USD').toLowerCase();
-      const isUSD = checkoutCurrency === 'usd';
-      // Stripe expects amount in minor units (cents, fils, paise)
-      const unitAmountMinor = Math.round(Number(params.amount) * 100);
+        const checkoutCurrency = (params.currency || 'USD').toLowerCase();
+        const isUSD = checkoutCurrency === 'usd';
+        // Stripe expects amount in minor units (cents, fils, paise)
+        const unitAmountMinor = Math.round(Number(params.amount) * 100);
 
-      // Clean metadata strings (Stripe metadata values must be strings <= 500 chars)
-      const sanitizedMetadata: Record<string, string> = {
-        targetType: String(params.targetType),
-        targetId: String(params.targetId),
-        enrolmentId: String(params.metadata?.enrolmentId || ''),
-        organizationId: String(params.metadata?.organizationId || ''),
-        poolId: String(params.metadata?.poolId || (isSeatPool ? params.targetId : '')),
-        poolCode: String(params.metadata?.poolCode || ''),
-        totalSeats: String(params.metadata?.totalSeats || ''),
-        userId: String(params.userId || ''),
-        baseAmountUSD: String(params.metadata?.baseAmountUSD || params.amount),
-        requestedCurrency: String(params.currency || 'USD'),
-        couponCode: String(params.metadata?.couponCode || ''),
-        couponId: String(params.metadata?.couponId || ''),
-        idempotencyKey: String(params.idempotencyKey || ''),
-      };
+        // Clean metadata strings (Stripe metadata values must be strings <= 500 chars)
+        const sanitizedMetadata: Record<string, string> = {
+          targetType: String(params.targetType),
+          targetId: String(params.targetId),
+          enrolmentId: String(params.metadata?.enrolmentId || ''),
+          organizationId: String(params.metadata?.organizationId || ''),
+          poolId: String(params.metadata?.poolId || (isSeatPool ? params.targetId : '')),
+          poolCode: String(params.metadata?.poolCode || ''),
+          totalSeats: String(params.metadata?.totalSeats || ''),
+          userId: String(params.userId || ''),
+          baseAmountUSD: String(params.metadata?.baseAmountUSD || params.amount),
+          requestedCurrency: String(params.currency || 'USD'),
+          couponCode: String(params.metadata?.couponCode || ''),
+          couponId: String(params.metadata?.couponId || ''),
+          idempotencyKey: String(params.idempotencyKey || ''),
+        };
 
-      const requestOptions: Stripe.RequestOptions | undefined = params.idempotencyKey
-        ? { idempotencyKey: String(params.idempotencyKey) }
-        : undefined;
+        const requestOptions: Stripe.RequestOptions | undefined = params.idempotencyKey
+          ? { idempotencyKey: String(params.idempotencyKey) }
+          : undefined;
 
-      const productName = isSeatPool
-        ? `WhatBoutMe - ${params.metadata?.title || 'Corporate Seats'}`
-        : params.metadata?.title || (isEvent ? 'WhatBoutMe Masterclass / Workshop Entry Ticket' : 'WhatBoutMe Learning Program');
+        const productName = isSeatPool
+          ? `WhatBoutMe - ${params.metadata?.title || 'Corporate Seats'}`
+          : params.metadata?.title || (isEvent ? 'WhatBoutMe Masterclass / Workshop Entry Ticket' : 'WhatBoutMe Learning Program');
 
-      const productDescription = isSeatPool
-        ? `Organization Seat Booking (${params.metadata?.totalSeats || ''} seats) for Cohort: ${params.metadata?.batchName || 'Cohort Batch'}`
-        : isEvent
-          ? 'WhatBoutMe Masterclass / Workshop Entry Ticket'
-          : 'WhatBoutMe FZE Online Professional Program Enrolment';
+        const productDescription = isSeatPool
+          ? `Organization Seat Booking (${params.metadata?.totalSeats || ''} seats) for Cohort: ${params.metadata?.batchName || 'Cohort Batch'}`
+          : isEvent
+            ? 'WhatBoutMe Masterclass / Workshop Entry Ticket'
+            : 'WhatBoutMe FZE Online Professional Program Enrolment';
 
-      const session = await stripe.checkout.sessions.create(
-        {
-          mode: 'payment',
-          customer_email: params.customerEmail ? String(params.customerEmail).trim().toLowerCase() : undefined,
-          line_items: [
-            {
-              price_data: {
-                currency: checkoutCurrency,
-                unit_amount: unitAmountMinor,
-                product_data: {
-                  name: productName,
-                  description: productDescription,
+        const session = await stripe.checkout.sessions.create(
+          {
+            mode: 'payment',
+            customer_email: params.customerEmail ? String(params.customerEmail).trim().toLowerCase() : undefined,
+            line_items: [
+              {
+                price_data: {
+                  currency: checkoutCurrency,
+                  unit_amount: unitAmountMinor,
+                  product_data: {
+                    name: productName,
+                    description: productDescription,
+                  },
                 },
+                quantity: 1,
               },
-              quantity: 1,
-            },
-          ],
-          ...(isUSD ? { adaptive_pricing: { enabled: true } } : {}),
-          metadata: sanitizedMetadata,
-          client_reference_id: params.metadata?.poolId || params.metadata?.enrolmentId || params.targetId,
-          expires_at: Math.floor(Date.now() / 1000) + 1800, // 30 minutes
-          success_url: successUrl,
-          cancel_url: cancelUrl,
-        },
-        requestOptions,
-      );
+            ],
+            ...(isUSD ? { adaptive_pricing: { enabled: true } } : {}),
+            metadata: sanitizedMetadata,
+            client_reference_id: params.metadata?.poolId || params.metadata?.enrolmentId || params.targetId,
+            expires_at: Math.floor(Date.now() / 1000) + 1800, // 30 minutes
+            success_url: successUrl,
+            cancel_url: cancelUrl,
+          },
+          requestOptions,
+        );
 
-      this.logger.log(
-        `[StripeProvider] Created Stripe Checkout Session ${session.id} for ${params.targetType}:${params.targetId} (${params.amount} ${params.currency})`
-      );
+        this.logger.log(
+          `[StripeProvider] Created Stripe Checkout Session ${session.id} for ${params.targetType}:${params.targetId} (${params.amount} ${params.currency})`
+        );
 
-      return {
-        provider: this.providerType,
-        orderId: session.id,
-        amount: params.amount,
-        currency: params.currency,
-        status: 'PENDING',
-        checkoutUrl: session.url || undefined,
-        simulationBypass: false,
-        metadata: {
-          ...params.metadata,
-          stripeSessionUrl: session.url,
-          paymentIntentId: session.payment_intent,
-        },
-      };
-    } catch (err: any) {
-      this.logger.error(`[StripeProvider] Failed to create checkout session: ${err?.message}`, err?.stack);
-      throw err;
+        return {
+          provider: this.providerType,
+          orderId: session.id,
+          amount: params.amount,
+          currency: params.currency,
+          status: 'PENDING',
+          checkoutUrl: session.url || undefined,
+          simulationBypass: false,
+          metadata: {
+            ...params.metadata,
+            stripeSessionUrl: session.url,
+            paymentIntentId: session.payment_intent,
+          },
+        };
+      } catch (err: any) {
+        this.logger.error(`[StripeProvider] Failed to create checkout session: ${err?.message}`, err?.stack);
+        throw err;
+      }
     }
-  }
 
-  async verifyWebhook(params: VerifyWebhookParams): Promise<WebhookVerificationResult> {
-    const stripe = this.getStripe();
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  async verifyWebhook(params: VerifyWebhookParams): Promise < WebhookVerificationResult > {
+      const stripe = this.getStripe();
+      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
-    if (!stripe || !webhookSecret) {
+      if(!stripe || !webhookSecret) {
       this.logger.error(
         '[StripeProvider] Stripe SDK or STRIPE_WEBHOOK_SECRET missing; refusing unverified webhook processing.'
       );

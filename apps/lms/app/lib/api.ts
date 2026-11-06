@@ -544,7 +544,7 @@ export async function cachedFetch(
         if (typeof window !== "undefined" && isApiCall && !abortController.signal.aborted) {
           let succeeded = false;
           let retryRes!: Response;
-          for (const delay of [400, 1000]) {
+          for (const delay of [500, 1500, 3000]) {
             await new Promise((r) => setTimeout(r, delay));
             if (abortController.signal.aborted) break;
             try {

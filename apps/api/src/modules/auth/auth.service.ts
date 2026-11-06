@@ -264,17 +264,21 @@ export class AuthService {
           id: true,
           status: true,
           batchId: true,
+          programId: true,
+          program: {
+            select: { id: true, title: true, slug: true, status: true, description: true },
+          },
           batch: {
             select: {
               name: true,
               status: true,
               programId: true,
               program: {
-                select: { title: true, status: true, description: true }
-              }
-            }
-          }
-        }
+                select: { id: true, title: true, slug: true, status: true, description: true },
+              },
+            },
+          },
+        },
       },
     };
 
@@ -411,13 +415,14 @@ export class AuthService {
     });
 
     // Return user data with enrolled programs for tenant separation
-    const enrolledPrograms = user.enrolments?.filter((e) => e.batch?.status !== 'ARCHIVED').map((e) => ({
+    const enrolledPrograms = user.enrolments?.filter((e) => e.batch?.status !== 'ARCHIVED').map((e: any) => ({
       enrolmentId: e.id,
       batchId: e.batchId,
       batchName: e.batch?.name,
-      programId: e.batch?.programId,
-      programTitle: e.batch?.program?.title,
-      coverImage: extractProgramCoverImage(e.batch?.program?.description),
+      programId: e.programId || e.batch?.programId,
+      programTitle: e.program?.title || e.batch?.program?.title,
+      slug: e.program?.slug || e.batch?.program?.slug || '',
+      coverImage: extractProgramCoverImage(e.program?.description || e.batch?.program?.description),
       status: e.status,
     })) || [];
 
@@ -583,7 +588,7 @@ export class AuthService {
               select: {
                 name: true, status: true, programId: true,
                 program: {
-                  select: { title: true, status: true, description: true }
+                  select: { id: true, title: true, slug: true, status: true, description: true }
                 }
               }
             }
@@ -597,6 +602,7 @@ export class AuthService {
           batchName: batch.name,
           programId: pId,
           programTitle: enrolment.batch?.program?.title || program.title,
+          slug: program.slug || enrolment.batch?.program?.slug || '',
           coverImage: extractProgramCoverImage(enrolment.batch?.program?.description || program.description),
           status: enrolment.status,
           progress: 0,
@@ -1072,15 +1078,19 @@ export class AuthService {
                   id: true,
                   status: true,
                   batchId: true,
+                  programId: true,
                   curriculumCompletedAt: true,
                   currentStage: true,
                   missionStatementApprovedAt: true,
                   examPassedAt: true,
                   oneOnOneCompletedAt: true,
+                  program: {
+                    select: { id: true, title: true, slug: true, status: true, description: true }
+                  },
                   batch: {
                     select: {
                       name: true, status: true, programId: true,
-                      program: { select: { title: true, status: true, description: true } }
+                      program: { select: { id: true, title: true, slug: true, status: true, description: true } }
                     }
                   }
                 }
@@ -1250,9 +1260,10 @@ export class AuthService {
         enrolmentId: e.id,
         batchId: e.batchId,
         batchName: e.batch?.name,
-        programId: e.batch?.programId,
-        programTitle: e.batch?.program?.title || 'Unknown',
-        coverImage: extractProgramCoverImage(e.batch?.program?.description),
+        programId: e.programId || e.batch?.programId,
+        programTitle: e.program?.title || e.batch?.program?.title || 'Unknown',
+        slug: e.program?.slug || e.batch?.program?.slug || '',
+        coverImage: extractProgramCoverImage(e.program?.description || e.batch?.program?.description),
         status: e.status,
         progress,
         totalItems,

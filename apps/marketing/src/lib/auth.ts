@@ -73,9 +73,21 @@ export async function refreshUserMe(): Promise<SessionUser | null> {
   const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
   if (!token) return null;
   try {
-    const res = await fetch(`${API_BASE_URL}/auth/me`, {
+    let res = await fetch(`${API_BASE_URL}/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+    // If access token expired (401), automatically renew once with refresh_token
+    if (res.status === 401) {
+      const renewed = await renewSession(true);
+      if (renewed) {
+        const freshToken = localStorage.getItem(TOKEN_KEY);
+        if (freshToken) {
+          res = await fetch(`${API_BASE_URL}/auth/me`, {
+            headers: { Authorization: `Bearer ${freshToken}` },
+          });
+        }
+      }
+    }
     if (res.ok) {
       const me = await res.json();
       const currentRaw = localStorage.getItem(USER_KEY);

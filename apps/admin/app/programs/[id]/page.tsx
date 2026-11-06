@@ -71,11 +71,97 @@ export default function CurriculumWizardPage({ params }: { params: Promise<{ id:
   const [isSaving, setIsSaving] = useState(false);
 
   // Program Studio Navigation Tabs (Overview, Modules & Lessons, Enrolments, Analytics, Settings)
-  const [activeProgramTab, setActiveProgramTab] = useState<ProgramTab>("DETAILS");
+  const storageKey = `program-studio-nav:${programId}`;
+  const validProgramTabs: ProgramTab[] = ["DETAILS", "STEPS", "FINAL_EXAM", "CERTIFICATE", "PUBLISH"];
+  const validWizardSteps: WizardStep[] = [
+    "COURSE_SETUP",
+    "MODULE_LIST",
+    "MODULE_DETAILS",
+    "ADD_LESSON_CHOOSER",
+    "ADD_VIDEO_LESSON",
+    "ADD_PDF_LESSON",
+    "QUIZ_BUILDER",
+    "MODULE_PREVIEW",
+    "PRICING_ACCESS",
+    "REVIEW_PUBLISH",
+  ];
+
+  const [activeProgramTab, setActiveProgramTab] = useState<ProgramTab>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const urlTab = params.get("tab") as ProgramTab | null;
+      if (urlTab && validProgramTabs.includes(urlTab)) return urlTab;
+      try {
+        const saved = sessionStorage.getItem(storageKey);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed?.tab && validProgramTabs.includes(parsed.tab)) return parsed.tab;
+        }
+      } catch {}
+    }
+    return "DETAILS";
+  });
 
   // Active Wizard Progression State
-  const [wizardStep, setWizardStep] = useState<WizardStep>("MODULE_LIST");
-  const [activeModuleId, setActiveModuleId] = useState<string | null>(null);
+  const [wizardStep, setWizardStep] = useState<WizardStep>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const urlStep = params.get("view") as WizardStep | null;
+      if (urlStep && validWizardSteps.includes(urlStep)) return urlStep;
+      try {
+        const saved = sessionStorage.getItem(storageKey);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed?.view && validWizardSteps.includes(parsed.view)) return parsed.view;
+        }
+      } catch {}
+    }
+    return "MODULE_LIST";
+  });
+
+  const [activeModuleId, setActiveModuleId] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const urlMod = params.get("moduleId");
+      if (urlMod) return urlMod;
+      try {
+        const saved = sessionStorage.getItem(storageKey);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed?.moduleId) return parsed.moduleId;
+        }
+      } catch {}
+    }
+    return null;
+  });
+
+  // Persist tab & sub-wizard state across page refreshes via URL query params & sessionStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      sessionStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          tab: activeProgramTab,
+          view: wizardStep,
+          moduleId: activeModuleId,
+        }),
+      );
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", activeProgramTab);
+      if (activeProgramTab === "STEPS" && wizardStep !== "MODULE_LIST") {
+        url.searchParams.set("view", wizardStep);
+      } else {
+        url.searchParams.delete("view");
+      }
+      if (activeProgramTab === "STEPS" && activeModuleId) {
+        url.searchParams.set("moduleId", activeModuleId);
+      } else {
+        url.searchParams.delete("moduleId");
+      }
+      window.history.replaceState(window.history.state, "", url.toString());
+    } catch {}
+  }, [activeProgramTab, wizardStep, activeModuleId, storageKey]);
   const [isCreateModuleModalOpen, setIsCreateModuleModalOpen] = useState(false);
   const [isCreatingModule, setIsCreatingModule] = useState(false);
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundUploadTask[]>([]);

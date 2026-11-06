@@ -858,8 +858,14 @@ export class AgreementsService {
         });
       }
 
-      // Find first batch that still has capacity
-      const openBatch = candidateBatches.find(b => b._count.enrolments < b.capacity && (b.status === BatchStatus.ACTIVE || !isRegistrationDeadlinePassed(b.registrationDeadline, now)));
+      // Find first real batch that still has capacity (never match internal waitlist holding records)
+      const openBatch = candidateBatches.find(
+        (b) =>
+          !b.name?.includes('(Waitlist Pool)') &&
+          !b.name?.includes('- Waitlist Batch') &&
+          b._count.enrolments < b.capacity &&
+          (b.status === BatchStatus.ACTIVE || !isRegistrationDeadlinePassed(b.registrationDeadline, now)),
+      );
 
       let batch: any = openBatch;
       let initialStatus: EnrolmentStatus = EnrolmentStatus.PENDING_PAYMENT;
@@ -875,11 +881,11 @@ export class AgreementsService {
         if (!batch) {
           batch = await tx.batch.create({
             data: {
-              name: `${program.title} - Waitlist Batch`,
+              name: `${program.title} (Waitlist Pool)`,
               programId,
-              startDate: new Date(),
-              capacity: 50,
-              status: BatchStatus.UPCOMING,
+              startDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+              capacity: 500,
+              status: BatchStatus.ARCHIVED,
             },
           });
         }
@@ -1282,10 +1288,14 @@ export class AgreementsService {
           const capacity = batch?.capacity ?? 50;
           const isFull = occupied >= capacity;
           const isDeadlinePassed = isRegistrationDeadlinePassed(batch?.registrationDeadline);
+          const isWaitlistPlaceholder =
+            batch?.status === BatchStatus.ARCHIVED ||
+            Boolean(
+              batch?.name?.includes('(Waitlist Pool)') ||
+              batch?.name?.includes('- Waitlist Batch'),
+            );
 
-
-
-          nextStatus = (isFull || isDeadlinePassed) ? EnrolmentStatus.WAITLIST : EnrolmentStatus.ACTIVE;
+          nextStatus = (isFull || isDeadlinePassed || isWaitlistPlaceholder) ? EnrolmentStatus.WAITLIST : EnrolmentStatus.ACTIVE;
         }
 
         await tx.enrolment.update({

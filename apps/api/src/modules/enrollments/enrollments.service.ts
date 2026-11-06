@@ -852,7 +852,7 @@ export class EnrollmentsService {
 
   async findAll(user: any, query?: QueryEnrolmentsDto) {
     await this.reconcileExpiredPendingPayments();
-    await this.absorbWaitlistLearners().catch(() => {});
+    await this.reconcileWaitlistPlaceholderBatches().catch(() => {});
 
     const isManager = user?.role === Role.MANAGER || user?.role === 'MANAGER' || user?.role === 'TEACHER';
     const userId = user?.sub ?? user?.id;
@@ -1233,6 +1233,45 @@ export class EnrollmentsService {
     }
   }
 
+  async reconcileWaitlistPlaceholderBatches(): Promise<void> {
+    if (
+      typeof (this.prisma.batch as any)?.updateMany !== 'function' ||
+      typeof (this.prisma.enrolment as any)?.updateMany !== 'function'
+    ) {
+      return;
+    }
+
+    await this.prisma.enrolment.updateMany({
+      where: {
+        status: {
+          in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT],
+        },
+        batch: {
+          OR: [
+            { name: { contains: '(Waitlist Pool)' } },
+            { name: { contains: '- Waitlist Batch' } },
+          ],
+        },
+      },
+      data: {
+        status: EnrolmentStatus.WAITLIST,
+      },
+    }).catch(() => {});
+
+    await this.prisma.batch.updateMany({
+      where: {
+        status: { not: BatchStatus.ARCHIVED },
+        OR: [
+          { name: { contains: '(Waitlist Pool)' } },
+          { name: { contains: '- Waitlist Batch' } },
+        ],
+      },
+      data: {
+        status: BatchStatus.ARCHIVED,
+      },
+    }).catch(() => {});
+  }
+
   async absorbWaitlistLearners(): Promise<number> {
     if (
       typeof (this.prisma.enrolment as any)?.findMany !== 'function' ||
@@ -1271,6 +1310,12 @@ export class EnrollmentsService {
         where: {
           programId,
           status: { in: [BatchStatus.ACTIVE, BatchStatus.UPCOMING] },
+          NOT: {
+            OR: [
+              { name: { contains: '(Waitlist Pool)' } },
+              { name: { contains: '- Waitlist Batch' } },
+            ],
+          },
           OR: [
             { status: BatchStatus.ACTIVE },
             { registrationDeadline: null },
@@ -1298,6 +1343,12 @@ export class EnrollmentsService {
       });
 
       for (const batch of openBatches) {
+        if (
+          batch.name?.includes('(Waitlist Pool)') ||
+          batch.name?.includes('- Waitlist Batch')
+        ) {
+          continue;
+        }
         if (batch.status !== BatchStatus.ACTIVE && isRegistrationDeadlinePassed(batch.registrationDeadline, now)) continue;
         let currentCount = batch._count.enrolments;
         const availableSeats = batch.capacity - currentCount;

@@ -116,7 +116,7 @@ export function getApiBaseUrl(): string {
 }
 
 export function getMarketingUrl(): string {
-  const envUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_MARKETING_URL;
+  const envUrl = process.env.NEXT_PUBLIC_MARKETING_URL || process.env.NEXT_PUBLIC_SITE_URL;
   if (envUrl && typeof envUrl === "string" && envUrl.trim().length > 0) {
     const trimmed = envUrl.trim().replace(/\/+$/, "");
     if (typeof window !== "undefined" && window.location?.hostname) {
@@ -155,7 +155,7 @@ export function getMarketingUrl(): string {
 }
 
 export function getAdminUrl(): string {
-  const envUrl = process.env.NEXT_PUBLIC_ADMIN_URL;
+  const envUrl = process.env.NEXT_PUBLIC_ADMIN_URL || process.env.NEXT_PUBLIC_ADMIN_URl;
   if (envUrl && typeof envUrl === "string" && envUrl.trim().length > 0) {
     const trimmed = envUrl.trim().replace(/\/+$/, "");
     if (typeof window !== "undefined" && window.location?.hostname) {

@@ -1027,10 +1027,8 @@ export default function AttendancePage() {
 
                             {/* Join Button */}
                             {isUpcoming && sanitizeExternalUrl(s.joinUrl) ? (
-                              <a
-                                href={sanitizeExternalUrl(s.joinUrl)!}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                              <Link
+                                href={`/live?autoJoin=${s.id}`}
                                 onClick={() => {
                                   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
                                   fetch(`${API_URL}/sessions/${s.id}/attend`, {
@@ -1043,7 +1041,7 @@ export default function AttendancePage() {
                               >
                                 {Icons.video}
                                 <span>Join Now</span>
-                              </a>
+                              </Link>
                             ) : isUpcoming ? (
                               <button
                                 type="button"

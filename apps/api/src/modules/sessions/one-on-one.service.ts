@@ -27,6 +27,29 @@ import {
   ApproveOneOnOneRequestDto,
   RejectOneOnOneRequestDto,
 } from './dto/one-on-one.dto.js';
+import { getAppUrls } from '../../common/config/app-urls.js';
+import { resolveTimezone } from '../../common/timezone/timezone.util.js';
+
+function buildGoogleCalendarUrl(
+  title: string,
+  start: Date,
+  end: Date,
+  details: string,
+  location: string,
+): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const toUtc = (d: Date) =>
+    `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+  const dates = `${toUtc(start)}/${toUtc(end)}`;
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: title,
+    dates,
+    details,
+    location,
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
 
 @Injectable()
 export class OneOnOneService {
@@ -570,20 +593,54 @@ export class OneOnOneService {
       { timeout: 30000, maxWait: 15000 },
     );
 
-    // 3. Send confirmation email asynchronously after transaction commits
+    // 3. Send confirmation email asynchronously after transaction commits (Email #6: Live Session Confirmation)
     if (this.emailService && request.user?.email) {
       try {
+        const { lmsUrl } = getAppUrls();
+        const tz = resolveTimezone(request.learnerTimezone || 'Asia/Dubai');
+        const formattedDate = startTime.toLocaleDateString('en-US', {
+          weekday: 'long',
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+          timeZone: tz,
+        });
+        const formattedTime = `${startTime.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          timeZone: tz,
+        })} (${tz})`;
+
+        const hostUser = this.prisma.user?.findUnique
+          ? await this.prisma.user.findUnique({
+              where: { id: hostTrainerId },
+              select: { name: true },
+            }).catch(() => null)
+          : null;
+        const instructorName = hostUser?.name || 'Your Trainer';
+        const lmsJoinLink = `${lmsUrl}/live?autoJoin=${updatedRequest.sessionId}`;
+
+        const calendarUrl = buildGoogleCalendarUrl(
+          sessionTitle,
+          startTime,
+          endTime,
+          `1-on-1 coaching session with ${instructorName}. Join: ${lmsJoinLink}`,
+          joinUrl || lmsJoinLink,
+        );
+
         await this.emailService.sendTemplateEmail({
           to: request.user.email,
-          subject: `Confirmed: 1-on-1 Coaching Session Scheduled`,
-          template: 'SessionReminderEmail',
+          subject: `Session Booking Confirmed: ${sessionTitle}`,
+          template: 'SessionBookingConfirmationEmail',
           props: {
             firstName: request.user.name?.split(' ')[0] || 'Learner',
             sessionTitle,
-            timeframe: 'Scheduled',
-            date: startTime.toDateString(),
-            time: `${startTime.toTimeString().slice(0, 5)} (${request.learnerTimezone || 'UTC'})`,
-            joinUrl,
+            instructorName,
+            date: formattedDate,
+            time: formattedTime,
+            joinUrl: lmsJoinLink,
+            directZoomUrl: joinUrl || undefined,
+            calendarUrl,
           },
         });
       } catch (emailErr: any) {
@@ -685,26 +742,7 @@ export class OneOnOneService {
       // non-blocking
     }
 
-    // Send notification email to the learner
-    if (this.emailService && request.user?.email) {
-      try {
-        await this.emailService.sendTemplateEmail({
-          to: request.user.email,
-          subject: 'Update on your 1-on-1 Coaching Request',
-          template: 'SessionReminderEmail',
-          props: {
-            firstName: request.user.name?.split(' ')[0] || 'Learner',
-            sessionTitle: '1-on-1 Coaching Session Slot Rescheduling',
-            timeframe: 'Action Required: Choose Alternative Slot',
-            date: new Date().toDateString(),
-            time: `Feedback: ${dto.reason}`,
-            joinUrl: '',
-          },
-        });
-      } catch (err: any) {
-        this.logger.warn(`Could not send decline email: ${err?.message}`);
-      }
-    }
+    // Notification is recorded in-app (dashboard notification bell) to avoid out-of-spec email dispatch.
 
     await this.prisma.auditLog.create({
       data: {

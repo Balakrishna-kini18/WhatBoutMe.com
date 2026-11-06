@@ -525,26 +525,12 @@ export class AuthService {
     });
 
     if (this.emailService) {
-      const { lmsUrl } = getAppUrls();
+      const { marketingUrl } = getAppUrls();
       const firstName = user.name ? (user.name.split(' ')[0] || user.name) : 'Student';
-      // 1. Send Welcome Email
-      try {
-        await this.emailService.sendTemplateEmail({
-          to: user.email,
-          subject: 'Welcome to WhatBoutMe!',
-          template: 'SignupWelcomeEmail',
-          props: {
-            firstName,
-            loginUrl: `${lmsUrl}/login`,
-          },
-        });
-      } catch (e: any) {
-        console.warn('[AuthService] Welcome email error:', e?.message);
-      }
 
-      // 2. Only send link verification email if not already verified via OTP
+      // Send link verification email only if not already verified via OTP
       if (!user.emailVerifiedAt) {
-        const verificationUrl = `${lmsUrl}/verify-email?token=${verificationToken}`;
+        const verificationUrl = `${marketingUrl}/verify-email?token=${verificationToken}`;
         try {
           await this.emailService.sendTemplateEmail({
             to: user.email,
@@ -1614,7 +1600,7 @@ export class AuthService {
    * Password Reset Request (D1-021): Generates secure token, stores token hash with 1h expiry.
    * Generic response prevents account enumeration.
    */
-  async requestPasswordReset(email: string) {
+  async requestPasswordReset(email: string, clientOrigin?: string) {
     const genericResponse = {
       message: 'If an account with that email exists, a password reset link has been sent.',
     };
@@ -1660,7 +1646,26 @@ export class AuthService {
       user.role === Role.TEACHER,
     );
     const { adminUrl, lmsUrl } = getAppUrls();
-    const baseUrl = isStaffOrOrg ? adminUrl : lmsUrl;
+    let baseUrl = isStaffOrOrg ? adminUrl : lmsUrl;
+
+    if (clientOrigin) {
+      try {
+        const parsed = new URL(clientOrigin);
+        const originClean = `${parsed.protocol}//${parsed.host}`;
+        const isTrusted =
+          parsed.hostname === 'localhost' ||
+          parsed.hostname === 'testfox.in' ||
+          parsed.hostname.endsWith('.testfox.in') ||
+          parsed.hostname.endsWith('.vercel.app') ||
+          parsed.hostname.endsWith('whatboutme.com');
+        if (isTrusted) {
+          baseUrl = originClean;
+        }
+      } catch {
+        // Fallback to default baseUrl from getAppUrls()
+      }
+    }
+
     const resetUrl = `${baseUrl}/reset-password?token=${rawToken}&email=${encodeURIComponent(user.email)}`;
 
     if (this.emailService) {

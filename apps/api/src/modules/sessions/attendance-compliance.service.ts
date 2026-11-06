@@ -133,7 +133,9 @@ export class AttendanceComplianceService {
         record.status === (AttendanceStatus as any).PRESENT_LIVE ||
         record.status === (AttendanceStatus as any).PRESENT_RECORDED;
 
-      const totalMins = (record.liveMinutes ?? 0) + (record.recordedMinutes ?? 0);
+      const recordMins = record.minutesPresent ?? record.durationMin ?? 0;
+      const liveRecordedMins = (record.liveMinutes ?? 0) + (record.recordedMinutes ?? 0);
+      const totalMins = Math.max(recordMins, liveRecordedMins);
       const creditedMins = isPresentStatus
         ? Math.max(totalMins, dur)
         : Math.min(dur, totalMins);

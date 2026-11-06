@@ -19,6 +19,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { EmailService } from '../email/email.service.js';
+import { renderEmailTemplate } from '../email/template-renderer.js';
 import { getAppUrls } from '../../common/config/app-urls.js';
 import { AssignSeatDto, BulkInviteDto } from './dto/index.js';
 
@@ -272,83 +273,42 @@ export class SeatsService {
       setupUrl = `${lmsUrl}/setup-account?token=${result.passwordSetupToken}&email=${encodeURIComponent(result.user.email)}`;
 
       if (this.emailService) {
-        const html = `
-          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; color: #1e293b; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px;">
-            <div style="text-align: center; margin-bottom: 24px;">
-              <span style="font-size: 22px; font-weight: 800; color: #c97a1e; letter-spacing: -0.5px;">whatboutme<span style="color: #e11d48;">&#9829;</span></span>
-            </div>
-            <h2 style="font-size: 20px; font-weight: 700; color: #0f172a; margin-bottom: 14px; text-align: center;">Welcome to WhatBoutMe!</h2>
-            <p style="font-size: 15px; line-height: 1.6; color: #334155;">Hello <strong>${studentName}</strong>,</p>
-            <p style="font-size: 15px; line-height: 1.6; color: #334155;">
-              <strong>${orgName}</strong> has sponsored your enrollment in the certified cognitive coaching program:
-            </p>
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px; margin: 20px 0;">
-              <div style="font-size: 16px; font-weight: 700; color: #0f172a;">${programTitle}</div>
-              <div style="font-size: 14px; color: #64748b; margin-top: 4px;">Cohort Batch: <strong>${batchName}</strong></div>
-              <div style="font-size: 12px; color: #16a34a; font-weight: 600; margin-top: 6px;">&#10003; 100% Sponsored Seat Allocated</div>
-            </div>
-            <p style="font-size: 15px; line-height: 1.6; color: #334155;">
-              To activate your account and view your course, set up your password by clicking the button below:
-            </p>
-            <div style="text-align: center; margin: 28px 0;">
-              <a href="${setupUrl}" style="background: #c97a1e; color: #ffffff; text-decoration: none; padding: 13px 36px; font-size: 15px; font-weight: 700; border-radius: 8px; display: inline-block; box-shadow: 0 2px 6px rgba(201, 122, 30, 0.3);">
-                Set Up Account &amp; Access Courses &rarr;
-              </a>
-            </div>
-            <p style="font-size: 13px; line-height: 1.5; color: #64748b; text-align: center;">
-              This setup link will expire in 14 days. After creating your password, you will review and complete your Digital Workshop Agreement to begin Step 1.
-            </p>
-            <div style="margin-top: 28px; padding-top: 18px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8; text-align: center; line-height: 1.6;">
-              WhatBoutMe FZE &bull; Cognitive Health &amp; Resilience<br />
-              Need help? Sign in anytime at <a href="${lmsUrl}/login" style="color: #c97a1e; text-decoration: none;">${lmsUrl}/login</a>
-            </div>
-          </div>
-        `;
-
         try {
-          await this.emailService.sendEmail({
+          await this.emailService.sendTemplateEmail({
             to: result.user.email,
             subject: `Set up your WhatBoutMe account — Sponsored by ${orgName}`,
-            html,
-            text: `Hello ${studentName},\n\n${orgName} has sponsored your seat in ${programTitle} (${batchName}).\n\nSet up your password and start learning:\n${setupUrl}\n\nWhatBoutMe Team`,
+            template: 'CorporateSeatInviteEmail',
+            props: {
+              learnerName: studentName,
+              orgName,
+              courseTitle: programTitle,
+              programTitle,
+              batchName,
+              isNewUser: true,
+              setupUrl,
+            },
           });
         } catch (e: any) {
           console.warn('[SeatsService] Email dispatch failed:', e?.message);
         }
       }
     } else {
-      setupUrl = `${lmsUrl}/courses`;
+      setupUrl = `${lmsUrl}/dashboard`;
       if (this.emailService) {
-        const html = `
-          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; color: #1e293b; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px;">
-            <div style="text-align: center; margin-bottom: 24px;">
-              <span style="font-size: 22px; font-weight: 800; color: #c97a1e; letter-spacing: -0.5px;">whatboutme<span style="color: #e11d48;">&#9829;</span></span>
-            </div>
-            <h2 style="font-size: 20px; font-weight: 700; color: #0f172a; margin-bottom: 14px; text-align: center;">New Course Enrollment Confirmed!</h2>
-            <p style="font-size: 15px; line-height: 1.6; color: #334155;">Hello <strong>${studentName}</strong>,</p>
-            <p style="font-size: 15px; line-height: 1.6; color: #334155;">
-              <strong>${orgName}</strong> has enrolled you into <strong>${programTitle}</strong> (${batchName}).
-            </p>
-            <div style="text-align: center; margin: 28px 0;">
-              <a href="${lmsUrl}/courses" style="background: #c97a1e; color: #ffffff; text-decoration: none; padding: 13px 36px; font-size: 15px; font-weight: 700; border-radius: 8px; display: inline-block;">
-                Go to My Courses &rarr;
-              </a>
-            </div>
-            <p style="font-size: 13px; line-height: 1.5; color: #64748b; text-align: center;">
-              Log in to your LMS portal to sign your Digital Workshop Agreement and start your curriculum.
-            </p>
-            <div style="margin-top: 28px; padding-top: 18px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8; text-align: center;">
-              WhatBoutMe &bull; Cognitive Education &amp; Resilience
-            </div>
-          </div>
-        `;
-
         try {
-          await this.emailService.sendEmail({
+          await this.emailService.sendTemplateEmail({
             to: result.user.email,
             subject: `New Course Enrollment: ${programTitle} — Sponsored by ${orgName}`,
-            html,
-            text: `Hello ${studentName},\n\nYou have been enrolled in ${programTitle} by ${orgName}.\n\nAccess your course:\n${lmsUrl}/courses\n\nWhatBoutMe Team`,
+            template: 'CorporateSeatInviteEmail',
+            props: {
+              learnerName: studentName,
+              orgName,
+              courseTitle: programTitle,
+              programTitle,
+              batchName,
+              isNewUser: false,
+              dashboardUrl: `${lmsUrl}/dashboard`,
+            },
           });
         } catch (e: any) {
           console.warn('[SeatsService] Email dispatch failed:', e?.message);
@@ -593,33 +553,26 @@ export class SeatsService {
             ? `Set up your WhatBoutMe account — Sponsored by ${pool.organization.name}`
             : `New Course Enrollment: ${pool.program.title} — Sponsored by ${pool.organization.name}`;
 
-          const html = `
-            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; color: #1e293b; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px;">
-              <div style="text-align: center; margin-bottom: 24px;">
-                <span style="font-size: 22px; font-weight: 800; color: #c97a1e; letter-spacing: -0.5px;">whatboutme<span style="color: #e11d48;">&#9829;</span></span>
-              </div>
-              <h2 style="font-size: 20px; font-weight: 700; color: #0f172a; margin-bottom: 14px; text-align: center;">Welcome to WhatBoutMe!</h2>
-              <p style="font-size: 15px; line-height: 1.6; color: #334155;">Hello <strong>${studentName}</strong>,</p>
-              <p style="font-size: 15px; line-height: 1.6; color: #334155;">
-                <strong>${pool.organization.name}</strong> has enrolled you in <strong>${pool.program.title}</strong> (${pool.batch.name}).
-              </p>
-              <div style="text-align: center; margin: 28px 0;">
-                <a href="${setupUrl}" style="background: #c97a1e; color: #ffffff; text-decoration: none; padding: 13px 36px; font-size: 15px; font-weight: 700; border-radius: 8px; display: inline-block;">
-                  ${passwordSetupToken ? 'Set Up Account & Access Courses \u2192' : 'Go to My Courses \u2192'}
-                </a>
-              </div>
-              <p style="font-size: 13px; line-height: 1.5; color: #64748b; text-align: center;">
-                After signing in, please complete your Digital Workshop Agreement to unlock Step 1.
-              </p>
-            </div>
-          `;
-
-          emailsToSend.push({
-            to: email,
-            subject: emailSubject,
-            html,
-            text: `Hello ${studentName},\n\n${pool.organization.name} has enrolled you in ${pool.program.title}.\n\nAccess your course:\n${setupUrl}\n\nWhatBoutMe Team`,
-          });
+          try {
+            const html = await renderEmailTemplate('CorporateSeatInviteEmail', {
+              learnerName: studentName,
+              orgName: pool.organization.name,
+              courseTitle: pool.program.title,
+              programTitle: pool.program.title,
+              batchName: pool.batch.name,
+              isNewUser: Boolean(passwordSetupToken),
+              setupUrl,
+              dashboardUrl: `${lmsUrl}/dashboard`,
+            });
+            emailsToSend.push({
+              to: email,
+              subject: emailSubject,
+              html,
+              text: `Hello ${studentName},\n\n${pool.organization.name} has enrolled you in ${pool.program.title}.\n\nAccess your course:\n${setupUrl || `${lmsUrl}/dashboard`}\n\nWhatBoutMe Team`,
+            });
+          } catch (e: any) {
+            console.warn('[SeatsService] Error rendering bulk email template:', e?.message);
+          }
         }
       }
 

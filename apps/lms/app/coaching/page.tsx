@@ -89,8 +89,9 @@ export default function CoachingPage() {
           const s4 = progData.stages?.STAGE_4_ONE_ON_ONE;
           setIsStage4Unlocked(Boolean(s4?.isUnlocked));
           setIsStage4Completed(Boolean(s4?.isCompleted));
-          if (s4?.unmetRequirements) {
-            setUnmetPrereqs(s4.unmetRequirements);
+          const prereqs = (s4 as any)?.unmetPrerequisites ?? s4?.unmetRequirements;
+          if (Array.isArray(prereqs) && prereqs.length > 0) {
+            setUnmetPrereqs(prereqs);
           }
         } else {
           // Fallback if progression tree fails: if oneOnOneCompletedAt is set

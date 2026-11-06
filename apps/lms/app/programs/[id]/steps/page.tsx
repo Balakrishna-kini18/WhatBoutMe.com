@@ -848,9 +848,20 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
       stage3State?.isOverridden === true ||
       isExamPassed ||
       examAttempt?.status === "IN_PROGRESS" ||
+      stage3Details?.attendanceMetForExam === true ||
       (requiredLiveSessions > 0 &&
         (stage3Details?.complianceStatus === "COMPLIANT" ||
           liveAttendancePercent >= attendanceThreshold))
+  );
+
+  const isAttendanceSatisfied = Boolean(
+    !isAttendanceRequired ||
+      stage3State?.isOverridden === true ||
+      isAttendanceMetForExam ||
+      (isExamPassed &&
+        (stage3State?.isCompleted ||
+          stage3Details?.complianceStatus === "COMPLIANT" ||
+          stage3Details?.complianceStatus === "NOT_APPLICABLE"))
   );
 
   const isExamUnlocked = Boolean(
@@ -863,7 +874,9 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const stage4Details = stage4State?.details as any;
   const isCoachingRequired = stage4Details?.isRequired !== false;
   const isCoachingUnlocked = Boolean(
-    (isExamUnlocked && isExamPassed) || stage4State?.isOverridden === true
+    stage4State?.isUnlocked ||
+    stage4State?.isOverridden === true ||
+    (isExamUnlocked && isExamPassed && isAttendanceSatisfied)
   );
   const coachingRequestsSorted = [...coachingRequests].sort(
     (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
@@ -891,7 +904,9 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const stage5Details = stage5State?.details as any;
   const isMissionRequired = stage5Details?.isRequired !== false;
   const isMissionUnlocked = Boolean(
-    (isCoachingUnlocked && isCoachingRequirementMet) || stage5State?.isOverridden === true
+    stage5State?.isUnlocked ||
+    stage5State?.isOverridden === true ||
+    (isCoachingUnlocked && isCoachingRequirementMet)
   );
   const latestMission = missionSubmissions[0] || null;
 
@@ -917,6 +932,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
     isCertificateClaimed ||
     (allStepsCompleted &&
       isExamPassed &&
+      isAttendanceSatisfied &&
       isCoachingRequirementMet &&
       isMissionRequirementMet)
   );
@@ -1454,7 +1470,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                       {!isCoachingUnlocked && (
                         <div className={styles.lockMessage}>
                           {InfoCircle}
-                          <span>Requires passing the Final Examination</span>
+                          <span>
+                            {stage4State?.unmetPrerequisites?.[0] ||
+                              stage4State?.unmetRequirements?.[0] ||
+                              "Requires completing previous milestones (Curriculum, Exam & Live Attendance)"}
+                          </span>
                         </div>
                       )}
 
@@ -2272,22 +2292,46 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                   )}
                                 </div>
 
-                                <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+                                <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.65rem", flexWrap: "wrap" }}>
                                   <button
                                     type="button"
                                     onClick={() => setShowCoachingPanel(false)}
-                                    className={styles.reviewBtn}
-                                    style={{ cursor: "pointer" }}
+                                    style={{
+                                      padding: "0.55rem 1.25rem",
+                                      borderRadius: 8,
+                                      border: "1px solid #dcd5cb",
+                                      background: "#ffffff",
+                                      color: "#4a443d",
+                                      fontWeight: 600,
+                                      fontSize: "0.85rem",
+                                      cursor: "pointer",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      transition: "all 0.15s ease",
+                                    }}
                                   >
                                     Close
                                   </button>
                                   <button
                                     type="submit"
                                     disabled={submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime}
-                                    className={styles.startBtn}
                                     style={{
+                                      padding: "0.55rem 1.4rem",
+                                      borderRadius: 8,
+                                      border: "none",
+                                      background: "linear-gradient(135deg, #d97706, #c26904)",
+                                      color: "#ffffff",
+                                      fontWeight: 700,
+                                      fontSize: "0.85rem",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      whiteSpace: "nowrap",
+                                      boxShadow: "0 2px 8px rgba(217, 119, 6, 0.25)",
                                       cursor: submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime ? "not-allowed" : "pointer",
-                                      opacity: submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime ? 0.7 : 1,
+                                      opacity: submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime ? 0.65 : 1,
+                                      transition: "all 0.15s ease",
                                     }}
                                   >
                                     {submittingCoaching

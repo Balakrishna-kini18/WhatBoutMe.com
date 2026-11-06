@@ -1,14 +1,25 @@
 "use client";
 
 import { useEffect } from "react";
-import { SITE_URL } from "../lib/site";
+import { getMarketingUrl } from "../lib/host";
 
 export default function ResetPasswordRedirect() {
   useEffect(() => {
-    const token = new URLSearchParams(window.location.search).get("token");
+    const searchParams = new URLSearchParams(window.location.search);
+    const token = searchParams.get("token");
+    const email = searchParams.get("email");
+    const lmsOrigin = typeof window !== "undefined" && window.location?.origin ? window.location.origin : "";
+
+    const params = new URLSearchParams();
+    if (token) params.set("token", token);
+    if (email) params.set("email", email);
+    if (lmsOrigin) params.set("lms_origin", lmsOrigin);
+
+    const queryStr = params.toString() ? `?${params.toString()}` : "";
+    const marketingUrl = getMarketingUrl();
     const target = token
-      ? `${SITE_URL}/reset-password?token=${encodeURIComponent(token)}`
-      : `${SITE_URL}/forgot-password`;
+      ? `${marketingUrl}/reset-password${queryStr}`
+      : `${marketingUrl}/forgot-password${queryStr}`;
     window.location.replace(target);
   }, []);
 

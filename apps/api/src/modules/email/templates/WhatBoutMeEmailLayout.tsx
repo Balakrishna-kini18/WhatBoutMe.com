@@ -2,9 +2,8 @@ import {
   Body,
   Container,
   Head,
-  Heading,
-  Hr,
   Html,
+  Img,
   Preview,
   Section,
   Tailwind,
@@ -23,41 +22,102 @@ export const WhatBoutMeEmailLayout = ({
   heading,
   children,
 }: WhatBoutMeEmailLayoutProps) => {
+  // Email images MUST be served over public HTTPS so Gmail and other webmail proxies can fetch them.
+  // If running in local development (localhost) or unset, fallback to the verified public production asset.
+  const marketingBase =
+    process.env.NEXT_PUBLIC_MARKETING_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.MARKETING_URL ||
+    process.env.SITE_URL;
+
+  const isPublicHttps =
+    marketingBase &&
+    marketingBase.startsWith('https://') &&
+    !marketingBase.includes('localhost') &&
+    !marketingBase.includes('127.0.0.1');
+
+  const logoUrl = isPublicHttps
+    ? `${marketingBase.replace(/\/+$/, '')}/brand/logo-dark.png`
+    : 'https://what-bout-me-com-atyb.vercel.app/brand/logo-dark.png';
+
   return (
-    <Html>
-      <Head />
+    <Html lang="en">
+      <Head>
+        <meta name="color-scheme" content="light dark" />
+        <meta name="supported-color-schemes" content="light dark" />
+      </Head>
       <Preview>{previewText}</Preview>
       <Tailwind>
-        <Body className="bg-gray-50 my-auto mx-auto font-sans">
-          <Container className="mx-auto my-[40px] max-w-[600px] bg-white border border-solid border-[#eaeaea] rounded-lg shadow-sm p-[20px]">
-            {/* Header / Logo Area */}
-            <Section className="mt-[16px] mb-[32px] text-center">
-              {/* Replace with actual logo URL in production */}
-              <Text className="text-3xl font-bold text-black m-0 tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
-                WhatBoutMe
-              </Text>
+        <Body
+          style={{
+            backgroundColor: '#f9fafb',
+            fontFamily:
+              "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+            margin: 0,
+            padding: '40px 16px',
+          }}
+        >
+          <Container
+            style={{
+              maxWidth: '480px',
+              margin: '0 auto',
+              backgroundColor: '#ffffff',
+              borderRadius: '12px',
+              border: '1px solid #e5e7eb',
+              padding: '32px 28px',
+            }}
+          >
+            {/* Official WhatBoutMe Brand Logo */}
+            <Section style={{ textAlign: 'center', marginBottom: '24px' }}>
+              <Img
+                src={logoUrl}
+                alt="whatboutme"
+                width="160"
+                height="22"
+                style={{
+                  display: 'inline-block',
+                  margin: '0 auto',
+                  maxWidth: '160px',
+                  height: 'auto',
+                }}
+              />
             </Section>
-            
-            {/* Main Content Area */}
+
+            {/* Optional Heading */}
             {heading && (
-              <Heading className="text-black text-[24px] font-bold text-center p-0 my-[16px] mx-0">
+              <Text
+                style={{
+                  fontSize: '18px',
+                  fontWeight: 700,
+                  color: '#111827',
+                  margin: '0 0 16px 0',
+                  textAlign: 'center',
+                }}
+              >
                 {heading}
-              </Heading>
+              </Text>
             )}
 
-            <Section className="px-[16px]">
-              {children}
-            </Section>
+            {/* Content */}
+            {children}
 
-            {/* Footer Area */}
-            <Hr className="border border-solid border-[#eaeaea] my-[26px] mx-0 w-full" />
-            
-            <Section className="text-center px-[20px]">
-              <Text className="text-[#666666] text-[12px] leading-[24px]">
-                This email was sent by WhatBoutMe. You are receiving this because you are enrolled in our programs or registered on our platform.
-              </Text>
-              <Text className="text-[#666666] text-[12px] leading-[24px] mt-0">
-                © {new Date().getFullYear()} WhatBoutMe, Inc. All Rights Reserved.
+            {/* Simple Minimal Footer */}
+            <Section
+              style={{
+                marginTop: '28px',
+                borderTop: '1px solid #f3f4f6',
+                paddingTop: '16px',
+                textAlign: 'center',
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: '12px',
+                  color: '#9ca3af',
+                  margin: 0,
+                }}
+              >
+                &copy; {new Date().getFullYear()} WhatBoutMe. All rights reserved.
               </Text>
             </Section>
           </Container>

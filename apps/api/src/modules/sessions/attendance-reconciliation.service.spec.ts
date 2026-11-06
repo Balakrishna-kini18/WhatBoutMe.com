@@ -473,5 +473,57 @@ describe('Phase 4: AttendanceReconciliationService - Multi-Join & 75% Rule', () 
         data: { attendancePulled: true },
       });
     });
+
+    it('matches learners across devices when Mobile/Desktop Zoom App uses a personal email but matching display name, and merges multi-device intervals', async () => {
+      const crossDeviceSession = {
+        id: 'sess-cross-device',
+        durationMinutes: 30,
+        startTime: new Date('2026-11-05T11:30:00Z'),
+        endTime: new Date('2026-11-05T12:00:00Z'),
+        batch: {
+          program: { minAttendancePercentage: 75 },
+          enrolments: [
+            {
+              id: 'enr-bk',
+              userId: 'user-bk',
+              status: 'ACTIVE',
+              user: { name: 'BK', email: 'balakrishna@foxwel.ai' },
+            },
+          ],
+        },
+      };
+      prismaMock.session.findUnique.mockResolvedValueOnce(crossDeviceSession);
+
+      // Joined first 10 mins from Laptop Browser (guest, no email, name 'BK (Guest)')
+      // Then switched to Mobile Zoom App logged into personal Gmail ('bk.personal@gmail.com', name 'BK') for 15 mins
+      await service.reconcileSession('sess-cross-device', [
+        {
+          provider: 'ZOOM',
+          participantEmail: undefined,
+          participantName: 'BK (Guest)',
+          joinTime: new Date('2026-11-05T11:30:00Z'),
+          leaveTime: new Date('2026-11-05T11:40:00Z'), // 10 mins
+        },
+        {
+          provider: 'ZOOM',
+          participantEmail: 'bk.personal@gmail.com',
+          participantName: 'BK',
+          joinTime: new Date('2026-11-05T11:42:00Z'),
+          leaveTime: new Date('2026-11-05T11:57:00Z'), // 15 mins
+        },
+      ]);
+
+      // 10 + 15 = 25 mins / 30 mins = 83.33% (>= 75% -> PRESENT)
+      expect(attendanceServiceMock.recordPresentAuto).toHaveBeenCalledTimes(1);
+      expect(attendanceServiceMock.recordPresentAuto).toHaveBeenCalledWith(
+        'sess-cross-device',
+        'user-bk',
+        expect.objectContaining({
+          durationMin: 25,
+          status: AttendanceStatus.PRESENT,
+          authoritative: true,
+        }),
+      );
+    });
   });
 });

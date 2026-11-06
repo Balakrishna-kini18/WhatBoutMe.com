@@ -79,7 +79,7 @@ export class MeAttendanceController {
       new Set(enrolments.map((e) => e.batchId).filter(Boolean) as string[]),
     );
 
-    // Find all non-cancelled sessions for their batches or dedicated to this user
+    // Find all active/conducted sessions for their batches or dedicated to this user (excluding cancelled)
     const sessions = await this.prisma.session.findMany({
       where: {
         status: { not: SessionStatus.CANCELLED },
@@ -279,8 +279,13 @@ export class MeAttendanceController {
       }),
     );
 
+    const now = new Date();
     // Aggregate cohort live-session totals across enrolled batches
     const requiredCohortHistory = history.filter((h) => h.isCohortSession && h.isRequired);
+    const conductedCohortSessions = requiredCohortHistory.filter(
+      (h) => h.sessionStatus === SessionStatus.COMPLETED || new Date(h.endTimeUtc) <= now,
+    );
+    const conductedCount = conductedCohortSessions.length;
     const totalScheduled = requiredCohortHistory.length;
     const attendedCount = requiredCohortHistory.filter((h) => h.attended).length;
     const overallPercentage =
@@ -288,6 +293,7 @@ export class MeAttendanceController {
 
     return {
       totalScheduledSessions: totalScheduled,
+      conductedSessionsCount: conductedCount,
       totalAttendedSessions: attendedCount,
       overallAttendancePercentage: overallPercentage,
       batches,

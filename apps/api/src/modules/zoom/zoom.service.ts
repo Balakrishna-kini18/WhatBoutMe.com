@@ -265,45 +265,86 @@ export class ZoomMeetingProvider implements IMeetingProvider {
     }
   }
 
-  // D2-032: Implement getParticipantReport querying Zoom Reports API with /past_meetings fallback
+  // D2-032: Implement getParticipantReport querying Zoom Reports API with /past_meetings & live /metrics fallback + pagination
   async getParticipantReport(meetingId: string): Promise<any[]> {
     const mapParticipants = (list: any[]) =>
       list.map((p: any) => {
         const joinDate = p.join_time ? new Date(p.join_time) : new Date();
-        const leaveDate = p.leave_time ? new Date(p.leave_time) : joinDate;
+        const leaveDate = p.leave_time
+          ? new Date(p.leave_time)
+          : typeof p.duration === 'number' && p.duration > 0
+            ? new Date(joinDate.getTime() + p.duration * 1000)
+            : new Date();
         const email = p.user_email?.includes('@') ? p.user_email.trim().toLowerCase() : undefined;
         const name = p.name || p.user_name || undefined;
+        const durationMinutes =
+          typeof p.duration === 'number' && p.duration > 0
+            ? Math.max(1, Math.round(p.duration / 60))
+            : Math.max(0, Math.round((leaveDate.getTime() - joinDate.getTime()) / 60000));
         return {
-          userEmail: p.user_email || p.name,
+          userEmail: p.user_email || p.name || p.user_name,
           participantEmail: email,
           participantName: name,
           joinTime: joinDate,
           leaveTime: leaveDate,
           joinTimeUtc: joinDate,
           leaveTimeUtc: leaveDate,
-          durationMinutes: typeof p.duration === 'number' ? Math.max(1, Math.round(p.duration / 60)) : 0,
+          durationMinutes,
           rawPayload: p,
         };
       });
 
+    const fetchPaginatedParticipants = async (basePath: string): Promise<any[]> => {
+      const collected: any[] = [];
+      let nextPageToken = '';
+      let pages = 0;
+      do {
+        const sep = basePath.includes('?') ? '&' : '?';
+        const url = `${basePath}${sep}page_size=300${nextPageToken ? `&next_page_token=${encodeURIComponent(nextPageToken)}` : ''}`;
+        const data = await this.zoomApiRequest(url, 'GET');
+        if (Array.isArray(data?.participants) && data.participants.length > 0) {
+          collected.push(...data.participants);
+        }
+        nextPageToken = data?.next_page_token || '';
+        pages++;
+      } while (nextPageToken && pages < 10);
+      return collected;
+    };
+
     try {
-      const data = await this.zoomApiRequest(`/report/meetings/${encodeURIComponent(meetingId)}/participants?page_size=300`, 'GET');
-      if (Array.isArray(data?.participants) && data.participants.length > 0) {
-        return mapParticipants(data.participants);
+      const reportParticipants = await fetchPaginatedParticipants(
+        `/report/meetings/${encodeURIComponent(meetingId)}/participants`,
+      );
+      if (reportParticipants.length > 0) {
+        return mapParticipants(reportParticipants);
       }
     } catch (error: any) {
       this.logger.warn(`Zoom /report/meetings/${meetingId}/participants unavailable (${error.message}), trying /past_meetings fallback...`);
     }
 
     try {
-      const fallbackData = await this.zoomApiRequest(`/past_meetings/${encodeURIComponent(meetingId)}/participants?page_size=300`, 'GET');
-      if (Array.isArray(fallbackData?.participants)) {
-        return mapParticipants(fallbackData.participants);
+      const fallbackParticipants = await fetchPaginatedParticipants(
+        `/past_meetings/${encodeURIComponent(meetingId)}/participants`,
+      );
+      if (fallbackParticipants.length > 0) {
+        return mapParticipants(fallbackParticipants);
       }
-      return [];
     } catch (fallbackErr: any) {
-      this.logger.warn(`Could not fetch participants for meeting ${meetingId}. Error: ${fallbackErr.message}`);
-      return [];
+      this.logger.warn(`Could not fetch /past_meetings participants for meeting ${meetingId}: ${fallbackErr.message}`);
     }
+
+    // Fallback 3: If meeting is still live, try live dashboard metrics endpoint if available
+    try {
+      const liveParticipants = await fetchPaginatedParticipants(
+        `/metrics/meetings/${encodeURIComponent(meetingId)}/participants?type=live`,
+      );
+      if (liveParticipants.length > 0) {
+        return mapParticipants(liveParticipants);
+      }
+    } catch {
+      // Silently ignore if metrics scope is not enabled or meeting is not live
+    }
+
+    return [];
   }
 }

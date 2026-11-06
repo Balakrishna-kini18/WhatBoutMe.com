@@ -51,7 +51,7 @@ export default function ForgotPasswordPage() {
     setError("");
     setBusy(true);
     try {
-      await requestPasswordResetUser(email);
+      await requestPasswordResetUser(email, activeLmsOrigin || undefined);
       setSubmitted(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not request password reset.");

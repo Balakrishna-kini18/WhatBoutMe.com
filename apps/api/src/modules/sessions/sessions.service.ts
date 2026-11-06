@@ -44,6 +44,59 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { EmailService } from '../email/email.service.js';
 
+function buildGoogleCalendarUrl(
+  title: string,
+  start: Date,
+  end: Date,
+  details: string,
+  location: string,
+): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const toUtc = (d: Date) =>
+    `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+  const dates = `${toUtc(start)}/${toUtc(end)}`;
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: title,
+    dates,
+    details,
+    location,
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+function formatSessionDateAndTime(
+  startDate: Date,
+  endDate: Date,
+  timeZone?: string | null,
+): { formattedDate: string; formattedTime: string } {
+  const tz = resolveTimezone(timeZone || 'Asia/Dubai');
+
+  const formattedDate = startDate.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: tz,
+  });
+  const formattedStartTime = startDate.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+    timeZone: tz,
+  });
+  const formattedEndTime = endDate.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+    timeZone: tz,
+  });
+  const formattedTime = `${formattedStartTime} – ${formattedEndTime}`;
+
+  return { formattedDate, formattedTime };
+}
+
+
 @Injectable()
 export class SessionsService {
   private readonly logger = new Logger(SessionsService.name);
@@ -701,8 +754,12 @@ export class SessionsService {
 
       // When a session is marked COMPLETED, update bookings and learner progression
       if (data.status === SessionStatus.COMPLETED || data.status === ('COMPLETED' as any)) {
+        // Only transition active confirmed/booked seats to ATTENDED; preserve CANCELLED bookings!
         await tx.sessionBooking.updateMany({
-          where: { sessionId },
+          where: {
+            sessionId,
+            status: { in: [BookingStatus.BOOKED, BookingStatus.CONFIRMED] },
+          },
           data: { status: BookingStatus.ATTENDED },
         });
 
@@ -1124,13 +1181,14 @@ export class SessionsService {
 
   // Learner: their own sessions with attendance (preserved)
   async getMySessions(userId: string, viewerTimezone?: string | null) {
-    // Auto-transition past sessions to COMPLETED
+    // Auto-transition past sessions to COMPLETED with an overtime grace window (30 mins)
     const now = new Date();
+    const overtimeCutoff = new Date(now.getTime() - 30 * 60000);
     if (typeof (this.prisma.session as any)?.updateMany === 'function') {
       await this.prisma.session.updateMany({
         where: {
           status: { in: [SessionStatus.SCHEDULED, SessionStatus.ACTIVE] },
-          endTime: { lte: now },
+          endTime: { lte: overtimeCutoff },
         },
         data: {
           status: SessionStatus.COMPLETED,
@@ -1150,7 +1208,10 @@ export class SessionsService {
       }),
       this.prisma.session.findMany({
         where: { learnerId: userId },
-        include: { hostTrainer: { select: { id: true, name: true, email: true } } },
+        include: {
+          hostTrainer: { select: { id: true, name: true, email: true } },
+          attendances: { where: { userId } },
+        },
         orderBy: { startTime: 'desc' },
       }),
     ]);
@@ -1167,7 +1228,7 @@ export class SessionsService {
           orderBy: { startTime: 'desc' },
           include: {
             hostTrainer: { select: { id: true, name: true, email: true } },
-            attendances: { where: { enrolmentId: { in: enrolments.map((e) => e.id) } } },
+            attendances: { where: { userId } },
           },
         })
       : [];
@@ -1178,7 +1239,18 @@ export class SessionsService {
 
     const mappedCohorts = cohortSessions.map((session) => {
       const enrolment = enrolments.find((e) => e.batchId === session.batchId);
-      const attendance = session.attendances[0];
+      const attendance = session.attendances.find((a) => a.userId === userId) || session.attendances[0];
+      const isPresent =
+        attendance &&
+        ([
+          AttendanceStatus.PRESENT,
+          AttendanceStatus.PRESENT_AUTO,
+          AttendanceStatus.PRESENT_MANUAL,
+          AttendanceStatus.CORRECTED,
+          'PRESENT_LIVE',
+          'PRESENT_RECORDED',
+        ] as string[]).includes(attendance.status);
+
       const base = {
         id: session.id,
         title: session.title,
@@ -1194,14 +1266,26 @@ export class SessionsService {
         joinUrl: session.joinUrl,
         programTitle: enrolment?.batch.program.title ?? '',
         batchName: enrolment?.batch.name ?? '',
-        attended: Boolean(attendance),
+        attended: Boolean(isPresent),
         joinTime: attendance?.joinTime ?? null,
-        durationMin: attendance?.durationMin ?? null,
+        durationMin: attendance?.durationMin ?? attendance?.minutesPresent ?? null,
       };
       return enrichSessionWithTimezone(base, displayTz);
     });
 
     const mappedOneOnOnes = oneOnOnes.map((s) => {
+      const attendance = (s as any).attendances?.find((a: any) => a.userId === userId) || (s as any).attendances?.[0];
+      const isPresent =
+        attendance &&
+        ([
+          AttendanceStatus.PRESENT,
+          AttendanceStatus.PRESENT_AUTO,
+          AttendanceStatus.PRESENT_MANUAL,
+          AttendanceStatus.CORRECTED,
+          'PRESENT_LIVE',
+          'PRESENT_RECORDED',
+        ] as string[]).includes(attendance.status);
+
       const base = {
         id: s.id,
         title: s.title,
@@ -1217,9 +1301,9 @@ export class SessionsService {
         joinUrl: s.joinUrl,
         programTitle: '1:1 Coaching',
         batchName: 'Individual',
-        attended: false,
-        joinTime: null,
-        durationMin: null,
+        attended: Boolean(isPresent),
+        joinTime: attendance?.joinTime ?? null,
+        durationMin: attendance?.durationMin ?? attendance?.minutesPresent ?? null,
       };
       return enrichSessionWithTimezone(base, displayTz);
     });
@@ -1270,20 +1354,25 @@ export class SessionsService {
       }
     }
 
-    if (!session.batchId) {
-      throw new BadRequestException('Session is not associated with a batch.');
-    }
-
-    const enrolment = await this.prisma.enrolment.findUnique({
-      where: { userId_batchId: { userId, batchId: session.batchId } },
-    });
-
-    if (!enrolment) {
-      throw new BadRequestException('User is not enrolled in this batch.');
+    let enrolmentId: string | null = null;
+    if (session.batchId) {
+      const enrolment = await this.prisma.enrolment.findUnique({
+        where: { userId_batchId: { userId, batchId: session.batchId } },
+      });
+      if (!enrolment) {
+        throw new BadRequestException('User is not enrolled in this batch.');
+      }
+      enrolmentId = enrolment.id;
+    } else {
+      const enrolment = await this.prisma.enrolment.findFirst({
+        where: { userId, status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.COMPLETED] } },
+        orderBy: { createdAt: 'desc' },
+      });
+      enrolmentId = enrolment?.id ?? null;
     }
 
     if (isAdminOverride) {
-      return this.attendanceService.recordPresentManual(sessionId, enrolment.id, 'SYSTEM_ADMIN_OVERRIDE');
+      return this.attendanceService.recordPresentManual(sessionId, enrolmentId || userId, 'SYSTEM_ADMIN_OVERRIDE');
     } else {
       const existing = await this.prisma.attendance.findUnique({
         where: { sessionId_userId: { sessionId, userId } },
@@ -1292,8 +1381,9 @@ export class SessionsService {
       const now = new Date();
       if (!existing) {
         // Initial check-in on join: start with 0 min, record joinTime & leaveTime, status ABSENT pending progression
-        return this.attendanceService.recordPresentAuto(sessionId, enrolment.id, {
+        return this.attendanceService.recordPresentAuto(sessionId, userId, {
           isUserId: true,
+          enrolmentId: enrolmentId || undefined,
           joinTime: now,
           leaveTime: now,
           durationMin: 0,
@@ -1303,8 +1393,9 @@ export class SessionsService {
       } else {
         // Reconnection or page reload: preserve earliest joinTime, update leaveTime, retain current liveMinutes
         const currentLiveMin = existing.liveMinutes ?? (existing.minutesPresent ?? 0);
-        return this.attendanceService.recordPresentAuto(sessionId, enrolment.id, {
+        return this.attendanceService.recordPresentAuto(sessionId, userId, {
           isUserId: true,
+          enrolmentId: enrolmentId || existing.enrolmentId || undefined,
           joinTime: existing.joinTime || now,
           leaveTime: now,
           durationMin: Math.round(currentLiveMin),
@@ -1315,12 +1406,14 @@ export class SessionsService {
     }
   }
 
+  private readonly liveMeetingStatusCache = new Map<string, { status: string | null; expiresAt: number }>();
+
   /**
    * Records presence heartbeat for live sessions.
    * Increments actual elapsed minutes, protects against disconnection gaps,
    * updates leaveTime, and calculates live progression against the required threshold.
    */
-  async recordLiveHeartbeat(sessionId: string, userId: string) {
+  async recordLiveHeartbeat(sessionId: string, userId: string, action?: string) {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
       include: {
@@ -1334,6 +1427,10 @@ export class SessionsService {
 
     if (!session || session.status === SessionStatus.CANCELLED) {
       throw new NotFoundException('Active session not found');
+    }
+
+    if (session.status === SessionStatus.COMPLETED || (session as any).attendancePulled === true) {
+      return { active: false, message: 'Session has already concluded' };
     }
 
     const now = new Date();
@@ -1361,13 +1458,70 @@ export class SessionsService {
       enrolmentId = enrolment?.id ?? null;
     }
 
-    const scheduledMin =
-      session.durationMinutes ||
-      Math.max(15, Math.round((new Date(session.endTime).getTime() - new Date(session.startTime).getTime()) / 60000));
-
     const existing = await this.prisma.attendance.findUnique({
       where: { sessionId_userId: { sessionId, userId } },
     });
+
+    // If learner explicitly requested to leave or browser beforeunload beacon sent
+    if (action === 'leave') {
+      if (existing) {
+        await this.prisma.attendance.update({
+          where: { sessionId_userId: { sessionId, userId } },
+          data: {
+            leaveTime: now,
+            correctionReason: 'BROWSER_LEFT',
+          },
+        });
+      }
+      return {
+        active: false,
+        leftMeeting: true,
+        message: 'Learner departed session',
+      };
+    }
+
+    // If real-time Zoom webhook reported that this participant left the Zoom meeting,
+    // stop accruing background browser-tab heartbeats immediately!
+    if (existing?.source === AttendanceSource.AUTO && existing?.correctionReason === 'ZOOM_LEFT') {
+      return {
+        active: false,
+        leftMeeting: true,
+        message: 'Participant has left the Zoom meeting',
+      };
+    }
+
+    // Verify with Zoom API (cached for 20s) if the meeting has already finished on Zoom
+    const meetingId = (session as any).providerMeetingId || (session as any).zoomMeetingId;
+    if (
+      meetingId &&
+      now >= session.startTime &&
+      this.meetingProvider &&
+      typeof (this.meetingProvider as any).getMeetingStatus === 'function'
+    ) {
+      const cached = this.liveMeetingStatusCache.get(meetingId);
+      let liveStatus: string | null = null;
+      if (cached && cached.expiresAt > Date.now()) {
+        liveStatus = cached.status;
+      } else {
+        try {
+          liveStatus = await (this.meetingProvider as any).getMeetingStatus(meetingId);
+          this.liveMeetingStatusCache.set(meetingId, {
+            status: liveStatus,
+            expiresAt: Date.now() + 20000,
+          });
+        } catch {
+          liveStatus = null;
+        }
+      }
+
+      if (liveStatus === 'finished' || (liveStatus === 'waiting' && now > session.endTime)) {
+        return { active: false, message: 'Zoom meeting has ended' };
+      }
+    }
+
+    const scheduledMin =
+      session.durationMinutes ||
+      Math.max(15, Math.round((new Date(session.endTime).getTime() - new Date(session.startTime).getTime()) / 60000));
 
     let creditedMin = 0;
     if (!existing) {
@@ -1404,12 +1558,14 @@ export class SessionsService {
     const currentLiveMin = prevLiveMin + creditedMin;
     const totalMinutes = currentLiveMin + (existing?.recordedMinutes ?? 0);
     const elapsedSinceStart = now >= session.startTime ? Math.round((now.getTime() - session.startTime.getTime()) / 60000) : 0;
-    const effectiveTotalMin = Math.max(scheduledMin, elapsedSinceStart);
+    const effectiveTotalMin = Math.max(scheduledMin, elapsedSinceStart, Math.round(totalMinutes));
     const attendancePercentage =
       effectiveTotalMin > 0 ? Math.min(100, Math.round((totalMinutes / effectiveTotalMin) * 10000) / 100) : 0;
 
     const batchThreshold = (session.batch as any)?.attendanceThreshold;
-    const programThreshold = (session.batch?.program as any)?.attendanceThreshold;
+    const programThreshold =
+      (session.batch?.program as any)?.minAttendancePercentage ??
+      (session.batch?.program as any)?.attendanceThreshold;
     const thresholdPercent =
       typeof batchThreshold === 'number' && !isNaN(batchThreshold)
         ? batchThreshold
@@ -1462,6 +1618,55 @@ export class SessionsService {
         source: AttendanceSource.AUTO,
       },
     });
+
+    // When a session runs beyond its initial scheduled duration (overtime) or as elapsed time advances,
+    // re-evaluate any other auto-tracked learners in the same session who left earlier (e.g. left at 21m
+    // while the session continues to 32m) so their percentage & status reflect their actual share of the session!
+    if (effectiveTotalMin > scheduledMin && this.prisma.attendance?.findMany) {
+      try {
+        if (this.prisma.session?.update && effectiveTotalMin !== session.durationMinutes) {
+          await this.prisma.session.update({
+            where: { id: sessionId },
+            data: { durationMinutes: effectiveTotalMin },
+          });
+        }
+        const peerRecords = await this.prisma.attendance.findMany({
+          where: { sessionId },
+        });
+        for (const peer of peerRecords || []) {
+          if (
+            peer.userId === userId ||
+            peer.source === AttendanceSource.MANUAL ||
+            peer.status === AttendanceStatus.PRESENT_MANUAL ||
+            peer.status === AttendanceStatus.CORRECTED
+          ) {
+            continue;
+          }
+          const peerMin = peer.minutesPresent ?? peer.durationMin ?? 0;
+          const peerPct =
+            effectiveTotalMin > 0
+              ? Math.min(100, Math.round((peerMin / effectiveTotalMin) * 10000) / 100)
+              : 0;
+          const peerMeets =
+            session.minAttendanceMinutes && session.minAttendanceMinutes > 0
+              ? peerMin >= session.minAttendanceMinutes
+              : peerPct >= thresholdPercent;
+          const peerStatus = peerMeets ? AttendanceStatus.PRESENT_AUTO : AttendanceStatus.ABSENT;
+
+          if (peer.attendancePercentage !== peerPct || peer.status !== peerStatus) {
+            await this.prisma.attendance.update({
+              where: { id: peer.id },
+              data: {
+                attendancePercentage: peerPct,
+                status: peerStatus,
+              },
+            });
+          }
+        }
+      } catch (recalcErr: any) {
+        this.logger.warn(`Failed to recalculate peer attendance during overtime: ${recalcErr.message}`);
+      }
+    }
 
     if (meetsThreshold && userId) {
       await markDailyAttendance(this.prisma as any, userId, 'sessionJoined');
@@ -1636,7 +1841,7 @@ export class SessionsService {
 
       const { lmsUrl } = getAppUrls();
       const programTitle = batch?.program?.title || 'Course';
-      const batchName = batch?.name || 'Cohort';
+      const batchName = batch?.name || 'Batch';
       const hostName = session.hostTrainer?.name || 'Your Trainer';
 
       const sessionDate = new Date(session.startTime);
@@ -1645,30 +1850,17 @@ export class SessionsService {
       // Send emails concurrently in background with error isolation
       const emailPromises = learners.map(async (learner) => {
         try {
-          const tz = learner.timezone || session.timezone || 'UTC';
-          const formattedDate = sessionDate.toLocaleDateString('en-US', {
-            weekday: 'long',
-            month: 'long',
-            day: 'numeric',
-            year: 'numeric',
-            timeZone: tz,
-          });
-          const formattedStartTime = sessionDate.toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            timeZoneName: 'short',
-            timeZone: tz,
-          });
-          const formattedEndTime = sessionEndDate.toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            timeZoneName: 'short',
-            timeZone: tz,
-          });
-          const formattedTime = `${formattedStartTime} – ${formattedEndTime}`;
-          // Direct learners to the LMS live classroom with autoJoin so attendance is tracked,
-          // while providing fallback direct meeting URL
+          const tz = learner.timezone || 'Asia/Dubai';
+          const { formattedDate, formattedTime } = formatSessionDateAndTime(sessionDate, sessionEndDate, tz);
+          // Direct learners to the LMS live classroom with autoJoin so attendance is tracked
           const joinLink = `${lmsUrl}/live?autoJoin=${session.id}`;
+          const calendarLink = buildGoogleCalendarUrl(
+            session.title,
+            sessionDate,
+            sessionEndDate,
+            `Live session for ${batchName}. Join via: ${joinLink}`,
+            session.joinUrl || joinLink,
+          );
 
           await this.emailService!.sendTemplateEmail({
             to: learner.email,
@@ -1678,11 +1870,14 @@ export class SessionsService {
               firstName: learner.name?.split(' ')[0] || 'Learner',
               sessionTitle: session.title,
               batchName,
+              courseTitle: programTitle,
               programTitle,
               instructorName: hostName,
               date: formattedDate,
               time: formattedTime,
               joinUrl: joinLink,
+              directZoomUrl: session.joinUrl || undefined,
+              calendarUrl: calendarLink,
               lmsLiveUrl: `${lmsUrl}/live`,
             },
           });
@@ -2103,10 +2298,23 @@ export class SessionsService {
       try {
         const learner = await this.prisma.user.findUnique({
           where: { id: learnerId },
-          select: { name: true, email: true },
+          select: { name: true, email: true, timezone: true },
         });
         if (learner?.email) {
           const { lmsUrl } = getAppUrls();
+          const sessionDate = new Date(session.startTime);
+          const sessionEndDate = new Date(session.endTime || session.startTime);
+          const tz = learner.timezone || (session as any).timezone || 'Asia/Dubai';
+          const { formattedDate, formattedTime } = formatSessionDateAndTime(sessionDate, sessionEndDate, tz);
+          const joinLink = `${lmsUrl}/live?autoJoin=${session.id}`;
+          const calendarLink = buildGoogleCalendarUrl(
+            session.title,
+            sessionDate,
+            sessionEndDate,
+            `1-on-1 session with ${session.hostTrainer?.name || 'Your Trainer'}. Join: ${joinLink}`,
+            session.joinUrl || joinLink,
+          );
+
           try {
             await this.emailService.sendTemplateEmail({
               to: learner.email,
@@ -2116,9 +2324,11 @@ export class SessionsService {
                 firstName: learner.name?.split(' ')[0] || 'Learner',
                 sessionTitle: session.title,
                 instructorName: session.hostTrainer?.name || 'Your Trainer',
-                date: new Date(session.startTime).toLocaleDateString(),
-                time: new Date(session.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                joinUrl: session.joinUrl || `${lmsUrl}/sessions/${sessionId}`,
+                date: formattedDate,
+                time: formattedTime,
+                joinUrl: joinLink,
+                directZoomUrl: session.joinUrl || undefined,
+                calendarUrl: calendarLink,
               },
             });
           } catch (e: any) {
@@ -2476,20 +2686,11 @@ export class SessionsService {
         if (!enrolment.user?.email) continue;
 
         try {
-          if (this.emailService) {
-            await this.emailService.sendEmail({
-              to: enrolment.user.email,
-              subject: `Missed session, recording available: ${session.title}`,
-              html: `<p>Hi ${enrolment.user.name || 'Learner'},</p>
-<p>We missed you at <strong>${session.title}</strong>!</p>
-<p>The recording has been uploaded and is available now: <a href="${recordingUrl}">Watch Session Recording</a>.</p>
-<p>Please review the recording to keep up with your attendance and certification requirements.</p>`,
-            });
-          }
-
+          // Production email policy: Missed session emails are stripped out to prevent email clutter.
+          // In-app dashboard notifications and audit records remain intact.
           auditEntries.push({
             actorId: 'SYSTEM',
-            action: 'MISSED_SESSION_NOTIFICATION_SENT',
+            action: 'MISSED_SESSION_RECORDED',
             entity: 'Session',
             entityId: session.id,
             meta: {
@@ -2499,7 +2700,7 @@ export class SessionsService {
             },
           });
         } catch (err: any) {
-          this.logger.warn(`Failed to dispatch missed session alert to ${enrolment.user.email}: ${err.message}`);
+          this.logger.warn(`Failed to process missed session for ${enrolment.user.email}: ${err.message}`);
         }
       }
 
@@ -2602,7 +2803,13 @@ export class SessionsService {
     });
 
     const recordedMinutes = Math.round((validation.coveredSec / 60) * 100) / 100;
-    const liveMinutes = attendance?.liveMinutes ?? (attendance?.minutesPresent ?? 0);
+    // Live minutes are strictly tracked via liveMinutes column; if null, learner had 0 live minutes
+    // (prevents previously saved recordedMinutes from compounding as liveMinutes on future heartbeats)
+    const liveMinutes =
+      attendance?.liveMinutes ??
+      (attendance?.source === AttendanceSource.AUTO && !attendance?.recordedMinutes
+        ? (attendance?.minutesPresent ?? 0)
+        : 0);
     const totalMinutes = liveMinutes + recordedMinutes;
     const meetsThreshold = totalMinutes >= requiredMinutes || validation.earnedCompletion;
 

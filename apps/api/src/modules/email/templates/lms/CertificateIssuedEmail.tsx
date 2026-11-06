@@ -1,45 +1,199 @@
-import { Button, Text, Section } from '@react-email/components';
+import { Button, Text, Section, Link } from '@react-email/components';
 import * as React from 'react';
 import WhatBoutMeEmailLayout from '../WhatBoutMeEmailLayout.js';
 
-interface CertificateIssuedEmailProps {
-  firstName: string;
-  programName: string;
-  issueDate: string;
-  certificateUrl: string;
-  verificationUrl: string;
+export interface CertificateIssuedEmailProps {
+  firstName?: string;
+  courseTitle?: string;
+  courseName?: string;
+  programTitle?: string;
+  programName?: string;
+  certificateCode?: string;
+  issueDate?: string;
+  certificateUrl?: string;
+  verificationUrl?: string;
 }
 
 export const CertificateIssuedEmail = ({
-  firstName = 'Student',
-  programName = 'Language Mastery',
-  issueDate = 'October 15, 2026',
-  certificateUrl = 'https://whatboutme.com/certificates/download/123',
-  verificationUrl = 'https://whatboutme.com/verify/cert-123',
+  firstName = 'there',
+  courseTitle,
+  courseName,
+  programTitle,
+  programName,
+  certificateCode,
+  issueDate,
+  certificateUrl = `${(process.env.NEXT_PUBLIC_LMS_URL || 'https://learn.whatboutme.com').replace(/\/+$/, '')}/certificates`,
+  verificationUrl,
 }: CertificateIssuedEmailProps) => {
+  const cleanName =
+    firstName &&
+    firstName !== 'there' &&
+    firstName !== 'Student' &&
+    firstName !== 'User' &&
+    firstName !== 'Learner'
+      ? firstName.trim()
+      : 'there';
+
+  const course =
+    courseTitle || courseName || programTitle || programName || 'Your Course';
+  const formattedIssueDate =
+    issueDate ||
+    new Date().toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
+
   return (
-    <WhatBoutMeEmailLayout previewText={`Your certificate for ${programName} is ready`} heading="Certificate Issued!">
-      <Text className="text-black text-[14px] leading-[24px]">
-        Congratulations, {firstName}!
+    <WhatBoutMeEmailLayout previewText={`Certificate Issued: ${course}`}>
+      <Text
+        style={{
+          fontSize: '15px',
+          color: '#1f2937',
+          margin: '0 0 12px 0',
+        }}
+      >
+        Congratulations, {cleanName}!
       </Text>
-      <Text className="text-black text-[14px] leading-[24px]">
-        You have successfully completed the <strong>{programName}</strong> program. 
-        Your official digital certificate was issued on {issueDate}.
+
+      <Text
+        style={{
+          fontSize: '15px',
+          lineHeight: '22px',
+          color: '#4b5563',
+          margin: '0 0 20px 0',
+        }}
+      >
+        You have successfully completed <strong>{course}</strong>. Your official
+        certificate of completion has been issued and is ready for download.
       </Text>
-      <Section className="text-center mt-[32px] mb-[16px]">
-        <Button
-          className="bg-black rounded text-white text-[14px] font-semibold no-underline text-center px-[20px] py-[12px]"
-          href={certificateUrl}
+
+      {/* Clean Minimal Certificate Details Card */}
+      <Section
+        style={{
+          backgroundColor: '#f9fafb',
+          border: '1px solid #e5e7eb',
+          borderRadius: '10px',
+          padding: '16px 20px',
+          margin: '0 0 24px 0',
+        }}
+      >
+        <table
+          style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            fontSize: '14px',
+            lineHeight: '24px',
+            color: '#374151',
+          }}
         >
-          Download Certificate
+          <tbody>
+            <tr>
+              <td style={{ padding: '4px 0', color: '#6b7280', width: '35%' }}>
+                Course:
+              </td>
+              <td style={{ padding: '4px 0', fontWeight: 600, color: '#111827' }}>
+                {course}
+              </td>
+            </tr>
+            {certificateCode && (
+              <tr>
+                <td style={{ padding: '4px 0', color: '#6b7280' }}>
+                  Certificate ID:
+                </td>
+                <td
+                  style={{
+                    padding: '4px 0',
+                    fontFamily: 'monospace',
+                    fontWeight: 600,
+                    color: '#111827',
+                  }}
+                >
+                  {certificateCode}
+                </td>
+              </tr>
+            )}
+            <tr>
+              <td style={{ padding: '4px 0', color: '#6b7280' }}>
+                Issue Date:
+              </td>
+              <td style={{ padding: '4px 0', fontWeight: 600, color: '#111827' }}>
+                {formattedIssueDate}
+              </td>
+            </tr>
+            <tr>
+              <td style={{ padding: '4px 0', color: '#6b7280' }}>
+                Status:
+              </td>
+              <td style={{ padding: '4px 0', fontWeight: 600, color: '#16a34a' }}>
+                Verified &bull; Issued
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </Section>
+
+      {/* Primary Action Button */}
+      <Section
+        style={{
+          textAlign: 'center',
+          margin: '0 0 20px 0',
+        }}
+      >
+        <Button
+          href={certificateUrl}
+          style={{
+            backgroundColor: '#111827',
+            color: '#ffffff',
+            fontSize: '14px',
+            fontWeight: 700,
+            textDecoration: 'none',
+            textAlign: 'center',
+            borderRadius: '8px',
+            padding: '14px 28px',
+            display: 'inline-block',
+          }}
+        >
+          View & Download Certificate &rarr;
         </Button>
       </Section>
-      <Section className="text-center mb-[32px]">
-        <Text className="text-[#666666] text-[12px] leading-[24px]">
-          Employers can verify the authenticity of your certificate here:<br />
-          <a href={verificationUrl} className="text-blue-600 no-underline">{verificationUrl}</a>
+
+      {/* Public Verification Link */}
+      {verificationUrl && (
+        <Text
+          style={{
+            fontSize: '12px',
+            lineHeight: '18px',
+            color: '#6b7280',
+            textAlign: 'center',
+            margin: '0 0 8px 0',
+          }}
+        >
+          Employers and institutions can publicly verify your certificate authenticity at:{' '}
+          <Link
+            href={verificationUrl}
+            style={{
+              color: '#2563eb',
+              textDecoration: 'underline',
+              wordBreak: 'break-all',
+            }}
+          >
+            {verificationUrl}
+          </Link>
         </Text>
-      </Section>
+      )}
+
+      <Text
+        style={{
+          fontSize: '12px',
+          lineHeight: '18px',
+          color: '#9ca3af',
+          textAlign: 'center',
+          margin: 0,
+        }}
+      >
+        Your certificate is permanently archived and accessible from your learner portal.
+      </Text>
     </WhatBoutMeEmailLayout>
   );
 };

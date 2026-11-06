@@ -104,7 +104,11 @@ export class AuthController {
   @Public()
   @Throttle(CREDENTIAL_LIMIT)
   @Post('password-reset/request')
-  requestPasswordReset(@Body() body: PasswordResetRequestDto) {
+  requestPasswordReset(@Body() body: PasswordResetRequestDto, @Request() req?: any) {
+    const origin = body?.origin || req?.headers?.origin || req?.headers?.referer;
+    if (origin) {
+      return this.authService.requestPasswordReset(body.email, origin);
+    }
     return this.authService.requestPasswordReset(body.email);
   }
 

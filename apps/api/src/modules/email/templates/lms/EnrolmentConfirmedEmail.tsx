@@ -10,12 +10,16 @@ interface EnrolmentConfirmedEmailProps {
   dashboardUrl: string;
 }
 
+const defaultLmsUrl =
+  process.env.NEXT_PUBLIC_LMS_URL ||
+  'https://learn.whatboutme.com';
+
 export const EnrolmentConfirmedEmail = ({
   firstName = 'Student',
   programName = 'Language Mastery',
   batchName = 'Batch A',
   startDate = 'October 15, 2026',
-  dashboardUrl = 'https://whatboutme.com/dashboard',
+  dashboardUrl = `${defaultLmsUrl.replace(/\/+$/, '')}/dashboard`,
 }: EnrolmentConfirmedEmailProps) => {
   return (
     <WhatBoutMeEmailLayout previewText={`Your enrollment in ${programName} is confirmed`} heading="Enrollment Confirmed!">
@@ -23,7 +27,7 @@ export const EnrolmentConfirmedEmail = ({
         Congratulations, {firstName}!
       </Text>
       <Text className="text-black text-[14px] leading-[24px]">
-        You are officially enrolled in the <strong>{programName}</strong> program ({batchName}). 
+        You are officially enrolled in the <strong>{programName}</strong> course ({batchName}). 
         Your journey begins on <strong>{startDate}</strong>.
       </Text>
       <Section className="bg-gray-50 rounded border border-solid border-gray-200 p-[16px] my-[24px]">

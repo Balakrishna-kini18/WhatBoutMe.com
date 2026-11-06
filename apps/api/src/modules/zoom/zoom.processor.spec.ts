@@ -282,4 +282,65 @@ describe('ZoomProcessor - Automated Meeting & Attendance Processing', () => {
       expect(prismaMock.session.update).not.toHaveBeenCalled();
     });
   });
+
+  describe('Real-Time meeting.participant_joined & meeting.participant_left Events', () => {
+    it('immediately marks zoomCurrentlyInMeeting=false and calculates partial attendance when learner leaves mid-session', async () => {
+      const mockSession = {
+        id: 'sess-live-1',
+        providerMeetingId: '987654321',
+        durationMinutes: 30,
+        startTime: new Date('2026-11-05T11:30:00Z'),
+        endTime: new Date('2026-11-05T12:00:00Z'),
+        batch: {
+          program: { minAttendancePercentage: 75 },
+          enrolments: [
+            {
+              id: 'enr-bk',
+              userId: 'user-bk',
+              status: 'ACTIVE',
+              user: { name: 'BK', email: 'balakrishna@foxwel.ai' },
+            },
+          ],
+        },
+      };
+
+      prismaMock.session.findFirst.mockResolvedValue(mockSession);
+      prismaMock.attendance = {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'att-bk',
+          sessionId: 'sess-live-1',
+          userId: 'user-bk',
+          joinTime: new Date('2026-11-05T11:30:00Z'),
+          leaveTime: new Date('2026-11-05T11:30:00Z'),
+          status: 'PRESENT_AUTO',
+          correctionReason: 'ZOOM_JOINED',
+        }),
+        upsert: vi.fn().mockResolvedValue({}),
+      };
+
+      // Learner leaves after 15 mins of a 30-min session (50% < 75%)
+      const leaveJob = createJob('meeting.participant_left', {
+        id: 987654321,
+        participant: {
+          user_name: 'BK',
+          email: 'balakrishna@foxwel.ai',
+          leave_time: '2026-11-05T11:45:00Z',
+        },
+      });
+
+      await processor.process(leaveJob);
+
+      expect(prismaMock.attendance.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { sessionId_userId: { sessionId: 'sess-live-1', userId: 'user-bk' } },
+          update: expect.objectContaining({
+            minutesPresent: 15,
+            attendancePercentage: 50,
+            status: 'ABSENT',
+            correctionReason: 'ZOOM_LEFT',
+          }),
+        }),
+      );
+    });
+  });
 });

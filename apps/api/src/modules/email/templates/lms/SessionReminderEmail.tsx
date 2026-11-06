@@ -11,13 +11,17 @@ interface SessionReminderEmailProps {
   joinUrl: string;
 }
 
+const defaultLmsUrl =
+  process.env.NEXT_PUBLIC_LMS_URL ||
+  'https://learn.whatboutme.com';
+
 export const SessionReminderEmail = ({
   firstName = 'Student',
   sessionTitle = 'Advanced Grammar Workshop',
   timeframe = '24 hours',
   date = 'October 10, 2026',
   time = '10:00 AM EST',
-  joinUrl = 'https://whatboutme.com/sessions/123/join',
+  joinUrl = `${defaultLmsUrl.replace(/\/+$/, '')}/live`,
 }: SessionReminderEmailProps) => {
   return (
     <WhatBoutMeEmailLayout previewText={`Reminder: ${sessionTitle} starts in ${timeframe}`} heading="Upcoming Session Reminder">

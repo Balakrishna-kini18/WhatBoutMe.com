@@ -95,8 +95,9 @@ export default function MissionStatementPage() {
           const s5 = progData.stages?.STAGE_5_MISSION_STATEMENT;
           setIsStage5Unlocked(Boolean(s5?.isUnlocked));
           setIsStage5Completed(Boolean(s5?.isCompleted));
-          if (s5?.unmetRequirements) {
-            setUnmetPrereqs(s5.unmetRequirements);
+          const prereqs = (s5 as any)?.unmetPrerequisites ?? s5?.unmetRequirements;
+          if (Array.isArray(prereqs) && prereqs.length > 0) {
+            setUnmetPrereqs(prereqs);
           }
         } else {
           setIsStage5Completed(Boolean(activeEnrolment.missionStatementApprovedAt));

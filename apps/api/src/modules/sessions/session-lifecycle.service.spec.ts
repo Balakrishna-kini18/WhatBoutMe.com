@@ -212,7 +212,7 @@ describe('D2-Lifecycle: SessionLifecycleService', () => {
           timeframe: '24 hours',
           date: '2026-10-21',
           time: expect.stringContaining('Europe/London'),
-          joinUrl: 'https://zoom.us/j/999',
+          joinUrl: expect.stringContaining('/live?autoJoin=sess-24h'),
         }),
       });
 

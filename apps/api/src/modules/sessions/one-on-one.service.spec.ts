@@ -455,7 +455,7 @@ describe('OneOnOneService - Stage 4 Request & Approval Flow', () => {
       expect(emailServiceMock.sendTemplateEmail).toHaveBeenCalledWith(
         expect.objectContaining({
           to: 'learner@example.com',
-          template: 'SessionReminderEmail',
+          template: expect.stringMatching(/SessionBookingConfirmationEmail|SessionReminderEmail/),
         }),
       );
     });

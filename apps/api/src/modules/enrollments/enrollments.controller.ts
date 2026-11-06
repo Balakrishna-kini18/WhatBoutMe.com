@@ -396,9 +396,10 @@ export class CheckoutController {
 
     if (this.emailService && user && program) {
       const { lmsUrl } = getAppUrls();
-      const firstName = user.name ? (user.name.split(' ')[0] || user.name) : 'Student';
+      const currency = (program.currency || 'USD') as 'USD' | 'AED' | 'INR';
+      const currencySymbol = currency === 'INR' ? '₹' : currency === 'AED' ? 'AED ' : '$';
 
-      // 1. Payment Confirmation Email
+      // Email #3: Payment Receipt & Access Confirmation (Sent ONCE on checkout completion)
       try {
         await this.emailService.sendTemplateEmail({
           to: user.email,
@@ -407,32 +408,15 @@ export class CheckoutController {
           props: {
             learnerName: user.name,
             programTitle: program.title,
+            courseTitle: program.title,
             amount: program.price || 0,
+            currency,
+            currencySymbol,
             dashboardUrl: `${lmsUrl}/dashboard`,
           },
         });
       } catch (e: any) {
         console.warn('[CheckoutController] Payment email error:', e?.message);
-      }
-
-      // 2. Enrolment Confirmed Email
-      if (batch) {
-        try {
-          await this.emailService.sendTemplateEmail({
-            to: user.email,
-            subject: `Enrollment Confirmed: ${program.title}`,
-            template: 'EnrolmentConfirmedEmail',
-            props: {
-              firstName,
-              programName: program.title,
-              batchName: batch.name,
-              startDate: batch.startDate ? new Date(batch.startDate).toLocaleDateString() : 'Immediate',
-              dashboardUrl: `${lmsUrl}/dashboard`,
-            },
-          });
-        } catch (e: any) {
-          console.warn('[CheckoutController] Enrolment email error:', e?.message);
-        }
       }
     }
 

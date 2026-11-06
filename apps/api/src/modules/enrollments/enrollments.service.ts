@@ -796,40 +796,20 @@ export class EnrollmentsService {
 
     if (this.emailService) {
       try {
-        await this.emailService.sendEmail({
+        await this.emailService.sendTemplateEmail({
           to: enrolment.user.email,
           subject: `Complete Your Enrolment: ${enrolment.program.title} — WhatBoutMe`,
-          html: `
-            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px 24px; color: #1c1917; background-color: #faf7f2; border-radius: 16px;">
-              <div style="text-align: center; margin-bottom: 24px;">
-                <span style="display: inline-block; padding: 4px 14px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #b45309; background-color: rgba(217, 119, 6, 0.15); border-radius: 9999px;">
-                  WhatBoutMe Enrolment
-                </span>
-                <h1 style="font-size: 24px; font-weight: 800; color: #1c1917; margin: 12px 0 6px;">Complete Your Enrolment</h1>
-                <p style="font-size: 15px; color: #78716a; margin: 0;">Hi ${enrolment.user.name || 'Student'}, your seat is reserved in ${enrolment.batch?.name || 'Cohort'}.</p>
-              </div>
-
-              <div style="background: #ffffff; border: 1px solid #e7e0d6; border-radius: 12px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                <h2 style="font-size: 18px; font-weight: 700; color: #1c1917; margin: 0 0 8px;">${enrolment.program.title}</h2>
-                <p style="font-size: 13px; color: #78716a; margin: 0 0 16px;">Cohort: ${enrolment.batch?.name || 'Upcoming Cohort'}</p>
-                
-                <div style="display: flex; justify-content: space-between; align-items: baseline; border-top: 1px solid #f5ede2; padding-top: 14px;">
-                  <span style="font-size: 14px; font-weight: 600; color: #44403c;">Tuition Fee (${currency})</span>
-                  <span style="font-size: 22px; font-weight: 800; color: #b45309;">${formattedAmount}</span>
-                </div>
-              </div>
-
-              <div style="text-align: center; margin-bottom: 24px;">
-                <a href="${checkoutUrl}" style="display: inline-block; background-color: #1c1917; color: #faf7f2; padding: 14px 32px; font-size: 15px; font-weight: 700; text-decoration: none; border-radius: 9999px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
-                  Complete Payment & Join Cohort &rarr;
-                </a>
-              </div>
-
-              <p style="font-size: 12px; line-height: 1.6; color: #78716a; text-align: center; margin: 0 0 8px;">
-                Direct checkout link: <a href="${checkoutUrl}" style="color: #b45309; word-break: break-all;">${checkoutUrl}</a>
-              </p>
-            </div>
-          `,
+          template: 'LeadCheckoutLinkEmail',
+          props: {
+            learnerName: enrolment.user.name,
+            courseTitle: enrolment.program.title,
+            programTitle: enrolment.program.title,
+            batchName: enrolment.batch?.name || 'Upcoming Batch',
+            amount: enrolment.program.price,
+            currency,
+            currencySymbol,
+            checkoutUrl,
+          },
         });
       } catch (err: any) {
         console.warn(`[EnrollmentsService] Failed to send payment link email to ${enrolment.user.email}:`, err?.message);

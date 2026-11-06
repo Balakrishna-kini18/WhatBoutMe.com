@@ -1,15 +1,19 @@
 import { IsEnum, IsNotEmpty, IsOptional, IsString, IsNumber, Min } from 'class-validator';
 
 export class TestSimulateWebhookDto {
-  @IsEnum(['ENROLMENT', 'EVENT'], {
-    message: 'targetType must be either ENROLMENT or EVENT',
+  @IsEnum(['ENROLMENT', 'EVENT', 'SEAT_POOL'], {
+    message: 'targetType must be ENROLMENT, EVENT, or SEAT_POOL',
   })
   @IsNotEmpty()
-  targetType: 'ENROLMENT' | 'EVENT';
+  targetType: 'ENROLMENT' | 'EVENT' | 'SEAT_POOL';
 
   @IsString()
   @IsOptional()
   targetId?: string;
+
+  @IsString()
+  @IsOptional()
+  poolId?: string;
 
   @IsString()
   @IsOptional()

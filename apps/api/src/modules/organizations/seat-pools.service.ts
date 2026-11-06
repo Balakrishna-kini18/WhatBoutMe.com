@@ -408,6 +408,8 @@ export class SeatPoolsService {
     details?: {
       paymentMethod?: SeatPaymentMethod;
       notes?: string;
+      stripeSessionId?: string;
+      idempotencyKey?: string;
     },
   ) {
     const pool = await this.prisma.seatPool.findUnique({
@@ -452,6 +454,28 @@ export class SeatPoolsService {
         await tx.seat.createMany({ data: seatRows });
       }
 
+      // Ledger or update Payment record if Stripe/Online session is provided
+      let paymentRecord: any = null;
+      if (details?.stripeSessionId) {
+        paymentRecord = await tx.payment.upsert({
+          where: { stripeSessionId: details.stripeSessionId },
+          update: {
+            status: 'succeeded',
+            amount: pool.netAmount,
+            currency: pool.currency,
+            seatPoolId: pool.id,
+          },
+          create: {
+            seatPoolId: pool.id,
+            stripeSessionId: details.stripeSessionId,
+            amount: pool.netAmount,
+            currency: pool.currency,
+            status: 'succeeded',
+            idempotencyKey: details.idempotencyKey || null,
+          },
+        }).catch(() => null);
+      }
+
       // Generate or update WhatBoutMe FZE Tax Invoice to PAID
       const invoiceNumber = `WBM-INV-${new Date().getFullYear()}-${pool.poolCode.replace('SP-', '')}`;
       await tx.invoice.upsert({
@@ -463,6 +487,7 @@ export class SeatPoolsService {
           status: InvoiceStatus.PAID,
           seatPoolId: pool.id,
           organizationId: pool.organizationId,
+          paymentId: paymentRecord?.id || null,
           taxFields: {
             clientName: pool.organization.name,
             taxId: pool.organization.taxId,
@@ -474,6 +499,7 @@ export class SeatPoolsService {
         update: {
           amount: pool.netAmount,
           status: InvoiceStatus.PAID,
+          paymentId: paymentRecord?.id || undefined,
         },
       });
 

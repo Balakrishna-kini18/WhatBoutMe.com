@@ -1,11 +1,11 @@
 import { IsEnum, IsNotEmpty, IsOptional, IsString, IsNumber, Min } from 'class-validator';
 
 export class CreateCheckoutSessionDto {
-  @IsEnum(['ENROLMENT', 'EVENT'], {
-    message: 'targetType must be either ENROLMENT or EVENT',
+  @IsEnum(['ENROLMENT', 'EVENT', 'SEAT_POOL'], {
+    message: 'targetType must be ENROLMENT, EVENT, or SEAT_POOL',
   })
   @IsNotEmpty()
-  targetType: 'ENROLMENT' | 'EVENT';
+  targetType: 'ENROLMENT' | 'EVENT' | 'SEAT_POOL';
 
   @IsString()
   @IsNotEmpty()
@@ -14,6 +14,10 @@ export class CreateCheckoutSessionDto {
   @IsString()
   @IsOptional()
   enrolmentId?: string;
+
+  @IsString()
+  @IsOptional()
+  poolId?: string;
 
   @IsNumber()
   @Min(0)

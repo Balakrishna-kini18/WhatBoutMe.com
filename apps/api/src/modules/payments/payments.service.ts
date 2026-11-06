@@ -15,6 +15,7 @@ import { StripePaymentProvider } from './providers/stripe.provider.js';
 import {
   IPaymentProvider,
   PaymentProviderType,
+  PaymentTargetType,
   SupportedCurrency,
 } from './interfaces/payment.interfaces.js';
 import { TestSimulateWebhookDto } from './dto/test-simulate-webhook.dto.js';
@@ -22,6 +23,7 @@ import { CreateCheckoutSessionDto } from './dto/create-checkout-session.dto.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 import { EmailService } from '../email/email.service.js';
 import { CouponsService } from '../coupons/coupons.service.js';
+import { SeatPoolsService } from '../organizations/seat-pools.service.js';
 import { InvoicePdfService } from '../invoices/invoice-pdf.service.js';
 import { isRegistrationDeadlinePassed } from '../../common/utils/deadline.util.js';
 import { isUUID } from 'class-validator';
@@ -63,6 +65,7 @@ export class PaymentsService {
     @Optional() private readonly cacheHelper?: CacheHelperService,
     @Optional() private readonly emailService?: EmailService,
     @Optional() private readonly couponsService?: CouponsService,
+    @Optional() private readonly seatPoolsService?: SeatPoolsService,
   ) {
     this.providers.set('MOCK_TEST', this.mockProvider);
     this.providers.set('RAZORPAY', this.razorpayProvider);
@@ -179,15 +182,54 @@ export class PaymentsService {
   }
 
   /**
-   * Generates or validates price for course or event in the requested currency
+   * Generates or validates price for course, event, or organization seat pool in the requested currency
    */
   async resolvePricing(
-    targetType: 'ENROLMENT' | 'EVENT',
+    targetType: PaymentTargetType,
     targetId: string,
     requestedCurrency?: SupportedCurrency,
     enrolmentId?: string,
   ) {
     const currency: SupportedCurrency = requestedCurrency || 'USD';
+
+    if (targetType === 'SEAT_POOL') {
+      let pool: any = null;
+      if (isValidUuid(targetId)) {
+        pool = await this.prisma.seatPool.findUnique({
+          where: { id: targetId },
+          include: { program: true, batch: true, organization: true },
+        });
+      }
+      if (!pool) {
+        pool = await this.prisma.seatPool.findFirst({
+          where: { poolCode: targetId },
+          include: { program: true, batch: true, organization: true },
+        });
+      }
+      if (!pool) throw new NotFoundException('Seat pool not found');
+
+      if (pool.status === 'ACTIVE') {
+        throw new BadRequestException('This seat pool is already active and paid.');
+      }
+      if (pool.status === 'REJECTED' || pool.status === 'CANCELLED') {
+        throw new BadRequestException('Cannot pay for a cancelled or rejected seat pool.');
+      }
+
+      const poolCurrency = (pool.currency || 'USD') as SupportedCurrency;
+      const amount = Number(pool.netAmount);
+
+      return {
+        amount,
+        currency: poolCurrency,
+        title: `${pool.program?.title || 'Corporate Seats'} (${pool.totalSeats} seats)`,
+        batchName: pool.batch?.name || '',
+        totalSeats: pool.totalSeats,
+        organizationId: pool.organizationId,
+        billingEmail: pool.organization?.billingEmail || pool.organization?.contactEmail || '',
+        poolId: pool.id,
+        poolCode: pool.poolCode,
+      };
+    }
 
     if (targetType === 'ENROLMENT') {
       let enrolment: any = null;
@@ -349,6 +391,27 @@ export class PaymentsService {
       }
     }
 
+    // Ownership Authorization Check: Organization Seat Pool
+    if (dto.targetType === 'SEAT_POOL') {
+      const poolOrgId = (pricing as any).organizationId;
+      const isStaff = user?.role === Role.ADMIN || user?.role === Role.SUPER_ADMIN;
+      if (!isStaff && targetUserId && poolOrgId) {
+        const membership = await this.prisma.organizationMember.findFirst({
+          where: {
+            organizationId: poolOrgId,
+            userId: targetUserId,
+            status: 'ACTIVE',
+          },
+        });
+        if (!membership) {
+          this.logger.warn(
+            `[Unauthorized Checkout Blocked] User ${targetUserId} attempted to initiate checkout for organization ${poolOrgId}`
+          );
+          throw new ForbiddenException('You are not authorized to initiate checkout for this organization.');
+        }
+      }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // TIER 2: IN-FLIGHT SESSION DE-DUPLICATION (EXPIRE STALE OPEN SESSIONS)
     // ─────────────────────────────────────────────────────────────────────────
@@ -427,7 +490,7 @@ export class PaymentsService {
       targetType: dto.targetType,
       targetId: dto.targetId,
       userId: user?.sub || user?.id,
-      customerEmail: dto.attendeeEmail || user?.email || '',
+      customerEmail: dto.attendeeEmail || user?.email || (pricing as any).billingEmail || '',
       customerName: dto.attendeeName || user?.name || '',
       customerPhone: dto.attendeePhone || user?.phone || '',
       idempotencyKey: dto.idempotencyKey,
@@ -436,6 +499,11 @@ export class PaymentsService {
         originalAmount: pricing.amount,
         baseAmountUSD: pricing.currency === 'USD' ? finalAmount : undefined,
         enrolmentId: targetEnrolmentId,
+        organizationId: (pricing as any).organizationId,
+        poolId: (pricing as any).poolId,
+        poolCode: (pricing as any).poolCode,
+        totalSeats: (pricing as any).totalSeats,
+        batchName: (pricing as any).batchName,
         discountAmount,
         couponCode: cleanCouponCode,
         couponId,
@@ -454,11 +522,17 @@ export class PaymentsService {
         if (checkEnrol) validEnrolmentId = checkEnrol.id;
       }
 
+      const targetPoolId =
+        dto.targetType === 'SEAT_POOL'
+          ? ((pricing as any).poolId || (isValidUuid(dto.targetId) ? dto.targetId : null))
+          : null;
+
       if (typeof (this.prisma.payment as any)?.upsert === 'function') {
         await this.prisma.payment.upsert({
           where: { stripeSessionId: orderResult.orderId },
           update: {
             enrolmentId: validEnrolmentId,
+            seatPoolId: targetPoolId,
             amount: finalAmount,
             currency: pricing.currency,
             status: 'pending',
@@ -468,6 +542,7 @@ export class PaymentsService {
           },
           create: {
             enrolmentId: validEnrolmentId,
+            seatPoolId: targetPoolId,
             stripeSessionId: orderResult.orderId,
             amount: finalAmount,
             currency: pricing.currency,
@@ -483,6 +558,7 @@ export class PaymentsService {
         await this.prisma.payment.create({
           data: {
             enrolmentId: validEnrolmentId,
+            seatPoolId: targetPoolId,
             stripeSessionId: orderResult.orderId,
             amount: finalAmount,
             currency: pricing.currency,
@@ -1164,97 +1240,304 @@ export class PaymentsService {
   };
 }
 
-throw new BadRequestException(`Unsupported targetType: ${dto.targetType}`);
+  // ─────────────────────────────────────────────────────────────────────────
+  // C. ORGANIZATION SEAT POOL SIMULATION & LIVE STRIPE FULFILLMENT
+  // ─────────────────────────────────────────────────────────────────────────
+  if (dto.targetType === 'SEAT_POOL') {
+    const poolTargetId = dto.poolId || dto.targetId;
+    if (!poolTargetId) {
+      throw new BadRequestException('poolId or targetId is required for SEAT_POOL simulation');
+    }
+
+    const pool = await this.prisma.seatPool.findFirst({
+      where: {
+        OR: [
+          ...(isValidUuid(poolTargetId) ? [{ id: poolTargetId }] : []),
+          { poolCode: poolTargetId },
+        ],
+      },
+      include: {
+        organization: true,
+        program: true,
+        batch: true,
+        invoices: true,
+        payments: true,
+      },
+    });
+
+    if (!pool) {
+      throw new NotFoundException(`SeatPool '${poolTargetId}' not found`);
+    }
+
+    // Check Idempotency: if already ACTIVE
+    if (pool.status === 'ACTIVE') {
+      const activeInvoice = pool.invoices.find((inv) => inv.status === 'PAID') || pool.invoices[0];
+      return {
+        success: true,
+        idempotent: true,
+        status: 'PAID',
+        targetType: 'SEAT_POOL',
+        poolId: pool.id,
+        poolCode: pool.poolCode,
+        invoiceNumber: activeInvoice?.invoiceNumber || null,
+        invoiceUrl: activeInvoice ? `/api/invoices/${activeInvoice.id}/pdf` : null,
+        message: 'Seat pool is already paid and activated.',
+      };
+    }
+
+    if (dto.status === 'FAILED') {
+      const sId = dto.stripeSessionId || `fail_pool_${Date.now()}_${pool.id.slice(0, 8)}`;
+      await this.prisma.payment.upsert({
+        where: { stripeSessionId: sId },
+        update: { status: 'failed' },
+        create: {
+          seatPoolId: pool.id,
+          stripeSessionId: sId,
+          amount: dto.amount || pool.netAmount,
+          currency: pool.currency,
+          status: 'failed',
+          idempotencyKey,
+        },
+      }).catch(() => null);
+
+      return {
+        success: false,
+        status: 'FAILED',
+        targetType: 'SEAT_POOL',
+        poolId: pool.id,
+        poolCode: pool.poolCode,
+        message: dto.failureReason || 'Organization seat pool payment failed or was declined.',
+      };
+    }
+
+    // Authoritative Price Guard (Minor Units)
+    const expectedPayable = Number(pool.netAmount);
+    if (dto.amount !== undefined) {
+      const clientMinor = Math.round(Number(dto.amount) * 100);
+      const expectedMinor = Math.round(expectedPayable * 100);
+
+      if (clientMinor < expectedMinor) {
+        throw new BadRequestException(
+          `Seat pool payment underpayment rejected: expected ${expectedPayable} ${pool.currency}, received ${dto.amount} ${pool.currency}`,
+        );
+      }
+      if (Math.abs(clientMinor - expectedMinor) > 1) {
+        throw new BadRequestException(
+          `Seat pool payment amount tampering detected: expected ${expectedPayable} ${pool.currency}, received ${dto.amount} ${pool.currency}`,
+        );
+      }
+    }
+
+    // Mark paid using SeatPoolsService
+    const actor = { id: dto.userId || null };
+    if (this.seatPoolsService) {
+      await this.seatPoolsService.markPaid(pool.id, actor, {
+        paymentMethod: 'ONLINE',
+        notes: 'Paid securely via Stripe Checkout',
+        stripeSessionId: dto.stripeSessionId,
+        idempotencyKey,
+      });
+    } else {
+      await this.prisma.seatPool.update({
+        where: { id: pool.id },
+        data: { status: 'ACTIVE', paymentMethod: 'ONLINE' },
+      });
+    }
+
+    // Fetch the generated invoice
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { seatPoolId: pool.id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Clear relevant caches
+    if (this.cacheHelper) {
+      await this.cacheHelper.invalidateNamespace(`org:${pool.organizationId}`).catch(() => {});
+      await this.cacheHelper.invalidateNamespace('organizations').catch(() => {});
+      await this.cacheHelper.invalidateNamespace('invoices').catch(() => {});
+      await this.cacheHelper.invalidateNamespace('revenue').catch(() => {});
+    }
+
+    return {
+      success: true,
+      status: 'PAID',
+      targetType: 'SEAT_POOL',
+      poolId: pool.id,
+      poolCode: pool.poolCode,
+      organizationId: pool.organizationId,
+      totalSeats: pool.totalSeats,
+      amount: expectedPayable,
+      currency: pool.currency,
+      currencySymbol: getCurrencySymbol(pool.currency),
+      invoiceNumber: invoice?.invoiceNumber || null,
+      invoiceId: invoice?.id || null,
+      invoicePdfUrl: invoice ? `/api/invoices/${invoice.id}/pdf` : null,
+      message: `Payment confirmed! ${pool.totalSeats} student seats are now unlocked and active for assignment.`,
+    };
+  }
+
+  throw new BadRequestException(`Unsupported targetType: ${dto.targetType}`);
   }
 
   /**
    * Synchronous Session Status Check & Dual-Path Fallback
-   * Prevents learner lockout if Stripe redirect completes before webhook delivers.
+   * Prevents learner or organization lockout if Stripe redirect completes before webhook delivers.
    */
   async getSessionStatus(sessionId: string) {
-  if (!sessionId) {
-    throw new BadRequestException('sessionId is required');
-  }
+    if (!sessionId) {
+      throw new BadRequestException('sessionId is required');
+    }
 
-  const payment = await this.prisma.payment.findUnique({
-    where: { stripeSessionId: sessionId },
-    include: {
-      enrolment: {
-        include: { program: true, signedAgreement: true },
+    const payment = await this.prisma.payment.findUnique({
+      where: { stripeSessionId: sessionId },
+      include: {
+        enrolment: {
+          include: { program: true, signedAgreement: true },
+        },
+        seatPool: {
+          include: { organization: true, program: true, batch: true },
+        },
+        invoice: true,
       },
-      invoice: true,
-    },
-  });
+    });
 
-  if (payment && payment.status === 'succeeded') {
-    const isSigned = payment.enrolment?.signedAgreement?.status === AgreementStatus.SIGNED;
+    if (payment && payment.status === 'succeeded') {
+      if (payment.seatPool) {
+        return {
+          status: 'PAID',
+          targetType: 'SEAT_POOL',
+          poolId: payment.seatPoolId,
+          poolCode: payment.seatPool.poolCode,
+          organizationId: payment.seatPool.organizationId,
+          programTitle: payment.seatPool.program?.title,
+          totalSeats: payment.seatPool.totalSeats,
+          amount: payment.amount,
+          currency: payment.currency,
+          currencySymbol: getCurrencySymbol(payment.currency),
+          invoiceNumber: payment.invoice?.invoiceNumber || null,
+          invoiceUrl: payment.invoice ? `/api/invoices/${payment.invoice.id}/pdf` : null,
+          message: 'Seat pool payment verified! Student slots are active.',
+        };
+      }
+
+      const isSigned = payment.enrolment?.signedAgreement?.status === AgreementStatus.SIGNED;
+      return {
+        status: 'PAID',
+        targetType: 'ENROLMENT',
+        enrolmentId: payment.enrolmentId,
+        enrolmentStatus: payment.enrolment?.status,
+        programId: payment.enrolment?.programId,
+        programTitle: payment.enrolment?.program?.title,
+        isSigned,
+        invoiceNumber: payment.invoice?.invoiceNumber || null,
+        invoiceUrl: payment.invoice ? `/api/invoices/${payment.invoice.id}/pdf` : null,
+        amount: payment.amount,
+        currency: payment.currency,
+        currencySymbol: getCurrencySymbol(payment.currency),
+      };
+    }
+
+    // Dual-path fallback: If still pending and using Stripe, check live session from Stripe API
+    if (this.activeProviderType === 'STRIPE' && this.stripeProvider.retrieveSession) {
+      const stripeSession = await this.stripeProvider.retrieveSession(sessionId);
+      if (stripeSession && stripeSession.payment_status === 'paid') {
+        this.logger.log(`[Dual-Path Fallback] Reconciling paid Stripe session ${sessionId} synchronously.`);
+
+        // Determine if Adaptive Pricing was used (customer charged in local currency like INR/AED)
+        const currencyConversion = stripeSession.currency_conversion;
+        const isAdaptive = !!(
+          (currencyConversion && currencyConversion.source_currency?.toLowerCase() === 'usd') ||
+          stripeSession.metadata?.baseAmountUSD
+        );
+
+        const authoritativeAmount = isAdaptive
+          ? Number(stripeSession.metadata?.baseAmountUSD) || (currencyConversion ? (currencyConversion.amount_total / 100) : ((stripeSession.amount_total || 0) / 100))
+          : ((stripeSession.amount_total || 0) / 100);
+
+        const authoritativeCurrency: SupportedCurrency = isAdaptive ? 'USD' : ((stripeSession.currency || 'USD').toUpperCase() as SupportedCurrency);
+
+        const localPaymentInfo = isAdaptive && stripeSession.currency && stripeSession.currency.toLowerCase() !== 'usd' ? {
+          localCurrency: stripeSession.currency.toUpperCase(),
+          localAmount: (stripeSession.amount_total || 0) / 100,
+          fxRate: currencyConversion?.fx_rate || null,
+        } : null;
+
+        const targetType = (stripeSession.metadata?.targetType as PaymentTargetType) || 'ENROLMENT';
+        const poolId = stripeSession.metadata?.poolId || (targetType === 'SEAT_POOL' ? stripeSession.metadata?.targetId : undefined);
+
+        const simulated = await this.simulateTestWebhook({
+          targetType,
+          targetId: stripeSession.metadata?.targetId,
+          enrolmentId: stripeSession.metadata?.enrolmentId || payment?.enrolmentId || undefined,
+          poolId,
+          status: 'PAID',
+          amount: authoritativeAmount,
+          currency: authoritativeCurrency,
+          couponCode: stripeSession.metadata?.couponCode || undefined,
+          idempotencyKey: stripeSession.metadata?.idempotencyKey || undefined,
+          stripeSessionId: sessionId,
+        });
+
+        return {
+          ...simulated,
+          status: 'PAID',
+          targetType,
+          poolId,
+          amount: authoritativeAmount,
+          currency: authoritativeCurrency,
+          currencySymbol: getCurrencySymbol(authoritativeCurrency),
+          localPayment: localPaymentInfo,
+        };
+      }
+    }
+
     return {
-      status: 'PAID',
-      enrolmentId: payment.enrolmentId,
-      enrolmentStatus: payment.enrolment?.status,
-      programId: payment.enrolment?.programId,
-      programTitle: payment.enrolment?.program?.title,
-      isSigned,
-      invoiceNumber: payment.invoice?.invoiceNumber || null,
-      invoiceUrl: payment.invoice ? `/api/invoices/${payment.invoice.id}/pdf` : null,
-      amount: payment.amount,
-      currency: payment.currency,
-      currencySymbol: getCurrencySymbol(payment.currency),
+      status: payment?.status ? payment.status.toUpperCase() : 'PENDING',
+      orderId: sessionId,
+      enrolmentId: payment?.enrolmentId,
+      poolId: payment?.seatPoolId,
     };
   }
 
-  // Dual-path fallback: If still pending and using Stripe, check live session from Stripe API
-  if (this.activeProviderType === 'STRIPE' && this.stripeProvider.retrieveSession) {
-    const stripeSession = await this.stripeProvider.retrieveSession(sessionId);
-    if (stripeSession && stripeSession.payment_status === 'paid') {
-      this.logger.log(`[Dual-Path Fallback] Reconciling paid Stripe session ${sessionId} synchronously.`);
+  /**
+   * Authoritative Stripe Webhook Handler
+   * Validates cryptographic signature with Stripe SDK and processes payment events idempotently.
+   */
+  async handleStripeWebhook(rawPayload: any, signature?: string, headers?: any) {
+    const verification = await this.stripeProvider.verifyWebhook({
+      rawPayload,
+      signature,
+      headers,
+    });
 
-      // Determine if Adaptive Pricing was used (customer charged in local currency like INR/AED)
-      const currencyConversion = stripeSession.currency_conversion;
-      const isAdaptive = !!(
-        (currencyConversion && currencyConversion.source_currency?.toLowerCase() === 'usd') ||
-        stripeSession.metadata?.baseAmountUSD
-      );
-
-      const authoritativeAmount = isAdaptive
-        ? Number(stripeSession.metadata?.baseAmountUSD) || (currencyConversion ? (currencyConversion.amount_total / 100) : ((stripeSession.amount_total || 0) / 100))
-        : ((stripeSession.amount_total || 0) / 100);
-
-      const authoritativeCurrency: SupportedCurrency = isAdaptive ? 'USD' : ((stripeSession.currency || 'USD').toUpperCase() as SupportedCurrency);
-
-      const localPaymentInfo = isAdaptive && stripeSession.currency && stripeSession.currency.toLowerCase() !== 'usd' ? {
-        localCurrency: stripeSession.currency.toUpperCase(),
-        localAmount: (stripeSession.amount_total || 0) / 100,
-        fxRate: currencyConversion?.fx_rate || null,
-      } : null;
-
-      const simulated = await this.simulateTestWebhook({
-        targetType: (stripeSession.metadata?.targetType as any) || 'ENROLMENT',
-        targetId: stripeSession.metadata?.targetId,
-        enrolmentId: stripeSession.metadata?.enrolmentId || payment?.enrolmentId || undefined,
-        status: 'PAID',
-        amount: authoritativeAmount,
-        currency: authoritativeCurrency,
-        couponCode: stripeSession.metadata?.couponCode || undefined,
-        idempotencyKey: stripeSession.metadata?.idempotencyKey || undefined,
-        stripeSessionId: sessionId,
-      });
-
-      return {
-        ...simulated,
-        status: 'PAID',
-        amount: authoritativeAmount,
-        currency: authoritativeCurrency,
-        currencySymbol: getCurrencySymbol(authoritativeCurrency),
-        localPayment: localPaymentInfo,
-      };
+    if (!verification.isVerified) {
+      this.logger.warn('[StripeWebhook] Rejected invalid webhook signature.');
+      throw new BadRequestException('Invalid Stripe webhook signature');
     }
-  }
 
-  return {
-    status: payment?.status ? payment.status.toUpperCase() : 'PENDING',
-    orderId: sessionId,
-    enrolmentId: payment?.enrolmentId,
-  };
-}
+    this.logger.log(
+      `[StripeWebhook] Verified Stripe event: ${verification.eventType} (Status: ${verification.status})`
+    );
+
+    if (verification.status === 'PAID') {
+      const meta = verification.metadata || {};
+      const targetType = (meta.targetType as PaymentTargetType) || 'ENROLMENT';
+      const targetId = meta.targetId || meta.enrolmentId || meta.poolId;
+
+      return await this.simulateTestWebhook({
+        targetType,
+        targetId,
+        enrolmentId: meta.enrolmentId,
+        poolId: meta.poolId || (targetType === 'SEAT_POOL' ? targetId : undefined),
+        registrationId: meta.registrationId || targetId,
+        status: 'PAID',
+        amount: verification.amount,
+        currency: verification.currency,
+        idempotencyKey: meta.idempotencyKey,
+        stripeSessionId: verification.orderId || verification.transactionId,
+      });
+    }
+
+    return { received: true, eventType: verification.eventType };
+  }
 }

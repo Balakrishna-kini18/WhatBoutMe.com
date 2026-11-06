@@ -70,27 +70,40 @@ export class StripePaymentProvider implements IPaymentProvider {
     }
 
     try {
-      const { lmsUrl, marketingUrl } = getAppUrls();
+      const { lmsUrl, marketingUrl, adminUrl } = getAppUrls();
       const isEvent = params.targetType === 'EVENT';
+      const isSeatPool = params.targetType === 'SEAT_POOL';
       const baseReturnUrl = isEvent ? marketingUrl : lmsUrl;
 
-      const successUrl = isEvent
-        ? `${baseReturnUrl}/events/${params.targetId}?session_id={CHECKOUT_SESSION_ID}&registered=1`
-        : `${lmsUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
+      let successUrl: string;
+      let cancelUrl: string;
 
-      const cancelUrl = isEvent
-        ? `${baseReturnUrl}/events/${params.targetId}?cancelled=1`
-        : `${lmsUrl}/checkout?programId=${params.targetId}&cancelled=1`;
+      if (isSeatPool) {
+        const orgId = params.metadata?.organizationId || '';
+        successUrl = `${adminUrl}/users/organizations/${orgId}?tab=pools&paid=1&session_id={CHECKOUT_SESSION_ID}&poolId=${params.targetId}`;
+        cancelUrl = `${adminUrl}/users/organizations/${orgId}?tab=pools&cancelled=1&poolId=${params.targetId}`;
+      } else if (isEvent) {
+        successUrl = `${baseReturnUrl}/events/${params.targetId}?session_id={CHECKOUT_SESSION_ID}&registered=1`;
+        cancelUrl = `${baseReturnUrl}/events/${params.targetId}?cancelled=1`;
+      } else {
+        successUrl = `${lmsUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
+        cancelUrl = `${lmsUrl}/checkout?programId=${params.targetId}&cancelled=1`;
+      }
 
-      // Base currency is always USD for WhatBoutMe FZE core with Stripe Adaptive Pricing enabled
-      const unitAmountMinor = Math.round(Number(params.metadata?.baseAmountUSD || params.amount) * 100);
-      const currencyLower = 'usd';
+      const checkoutCurrency = (params.currency || 'USD').toLowerCase();
+      const isUSD = checkoutCurrency === 'usd';
+      // Stripe expects amount in minor units (cents, fils, paise)
+      const unitAmountMinor = Math.round(Number(params.amount) * 100);
 
       // Clean metadata strings (Stripe metadata values must be strings <= 500 chars)
       const sanitizedMetadata: Record<string, string> = {
         targetType: String(params.targetType),
         targetId: String(params.targetId),
         enrolmentId: String(params.metadata?.enrolmentId || ''),
+        organizationId: String(params.metadata?.organizationId || ''),
+        poolId: String(params.metadata?.poolId || (isSeatPool ? params.targetId : '')),
+        poolCode: String(params.metadata?.poolCode || ''),
+        totalSeats: String(params.metadata?.totalSeats || ''),
         userId: String(params.userId || ''),
         baseAmountUSD: String(params.metadata?.baseAmountUSD || params.amount),
         requestedCurrency: String(params.currency || 'USD'),
@@ -103,6 +116,16 @@ export class StripePaymentProvider implements IPaymentProvider {
         ? { idempotencyKey: String(params.idempotencyKey) }
         : undefined;
 
+      const productName = isSeatPool
+        ? `WhatBoutMe - ${params.metadata?.title || 'Corporate Seats'}`
+        : params.metadata?.title || (isEvent ? 'WhatBoutMe Masterclass / Workshop Entry Ticket' : 'WhatBoutMe Learning Program');
+
+      const productDescription = isSeatPool
+        ? `Organization Seat Booking (${params.metadata?.totalSeats || ''} seats) for Cohort: ${params.metadata?.batchName || 'Cohort Batch'}`
+        : isEvent
+          ? 'WhatBoutMe Masterclass / Workshop Entry Ticket'
+          : 'WhatBoutMe FZE Online Professional Program Enrolment';
+
       const session = await stripe.checkout.sessions.create(
         {
           mode: 'payment',
@@ -110,23 +133,19 @@ export class StripePaymentProvider implements IPaymentProvider {
           line_items: [
             {
               price_data: {
-                currency: currencyLower,
+                currency: checkoutCurrency,
                 unit_amount: unitAmountMinor,
                 product_data: {
-                  name: params.metadata?.title || 'WhatBoutMe Learning Program',
-                  description: isEvent
-                    ? 'WhatBoutMe Masterclass / Workshop Entry Ticket'
-                    : 'WhatBoutMe FZE Online Professional Program Enrolment',
+                  name: productName,
+                  description: productDescription,
                 },
               },
               quantity: 1,
             },
           ],
-          adaptive_pricing: {
-            enabled: true,
-          },
+          ...(isUSD ? { adaptive_pricing: { enabled: true } } : {}),
           metadata: sanitizedMetadata,
-          client_reference_id: params.metadata?.enrolmentId || params.targetId,
+          client_reference_id: params.metadata?.poolId || params.metadata?.enrolmentId || params.targetId,
           expires_at: Math.floor(Date.now() / 1000) + 1800, // 30 minutes
           success_url: successUrl,
           cancel_url: cancelUrl,

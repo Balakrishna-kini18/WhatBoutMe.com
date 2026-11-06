@@ -38,7 +38,12 @@ async function bootstrap() {
 
     // Security
     // @ts-ignore - Ignore TS2349: This expression is not callable
-    app.use(helmet());
+    app.use(
+      helmet({
+        crossOriginResourcePolicy: { policy: 'cross-origin' },
+        crossOriginEmbedderPolicy: false,
+      }),
+    );
     const allowedOrigins = process.env.CORS_ORIGIN
       ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
       : []; // Don't rely exclusively on localhost, though we keep the regex below for local dev

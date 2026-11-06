@@ -386,24 +386,52 @@ export class MissionStatementsService {
     redirectUrl?: string;
   }> {
     const submission = await this.getById(id, actorUser);
-    const mimeType = submission.mimeType || 'application/pdf';
+    let mimeType = submission.mimeType || 'application/pdf';
     const fileName = submission.fileName || `mission_statement_v${submission.version}.pdf`;
 
-    // 1. If object storage is configured and can provide a fresh signed URL, use it first
-    // (guarantees signed authenticated URLs never expire or use outdated signatures)
+    // 1. If object storage is configured and can provide a fresh signed URL, retrieve buffer or fallback to URL
+    // (guarantees signed authenticated URLs never expire, eliminates cross-origin embed blocks)
     if (this.objectStorage && submission.storageKey) {
       try {
         const signedUrl = await this.objectStorage.getPresignedGetUrl(submission.storageKey, 3600);
         if (signedUrl && signedUrl.startsWith('http')) {
+          try {
+            const docRes = await fetch(signedUrl);
+            if (docRes.ok) {
+              const buffer = Buffer.from(await docRes.arrayBuffer());
+              if (!submission.mimeType || submission.mimeType === 'application/octet-stream') {
+                if (buffer.subarray(0, 4).toString('hex') === '89504e47') mimeType = 'image/png';
+                else if (buffer.subarray(0, 3).toString('hex') === 'ffd8ff') mimeType = 'image/jpeg';
+                else if (buffer.subarray(0, 5).toString('ascii') === '%PDF-') mimeType = 'application/pdf';
+              }
+              return { buffer, mimeType, fileName };
+            }
+          } catch (fetchErr: any) {
+            this.logger.warn(`Failed to fetch buffer from signedUrl for submission ${id}: ${fetchErr?.message}`);
+          }
           return { redirectUrl: signedUrl, mimeType, fileName };
         }
-      } catch {
-        // Continue to external URL or buffer lookup
+      } catch (storageErr: any) {
+        this.logger.warn(`Failed to get presigned URL from objectStorage for submission ${id}: ${storageErr?.message}`);
       }
     }
 
-    // 2. If stored as external HTTP/HTTPS URL (e.g. Cloudinary/S3), redirect directly
+    // 2. If stored as external HTTP/HTTPS URL (e.g. Cloudinary/S3), fetch buffer or redirect directly
     if (submission.fileUrl && (submission.fileUrl.startsWith('http://') || submission.fileUrl.startsWith('https://'))) {
+      try {
+        const docRes = await fetch(submission.fileUrl);
+        if (docRes.ok) {
+          const buffer = Buffer.from(await docRes.arrayBuffer());
+          if (!submission.mimeType || submission.mimeType === 'application/octet-stream') {
+            if (buffer.subarray(0, 4).toString('hex') === '89504e47') mimeType = 'image/png';
+            else if (buffer.subarray(0, 3).toString('hex') === 'ffd8ff') mimeType = 'image/jpeg';
+            else if (buffer.subarray(0, 5).toString('ascii') === '%PDF-') mimeType = 'application/pdf';
+          }
+          return { buffer, mimeType, fileName };
+        }
+      } catch (fetchErr: any) {
+        this.logger.warn(`Failed to fetch buffer from fileUrl for submission ${id}: ${fetchErr?.message}`);
+      }
       return { redirectUrl: submission.fileUrl, mimeType, fileName };
     }
 

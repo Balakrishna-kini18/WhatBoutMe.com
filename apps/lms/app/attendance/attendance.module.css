@@ -80,6 +80,103 @@
   flex-wrap: wrap;
 }
 
+/* Top View Switcher Navigation Row */
+.topTabsRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0 0.25rem;
+  border-bottom: 1px solid #ede8e0;
+  margin-bottom: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.topTabBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.48rem 1.15rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.topTabBtn:hover {
+  color: #1e293b;
+  background: #f8fafc;
+}
+
+.topTabBtnActive {
+  background: #fff7ed;
+  color: #ea580c;
+  border-color: #fed7aa;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(234, 88, 12, 0.08);
+}
+
+.topTabBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.14);
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.topTabBtnActive .topTabBadge {
+  background: #ea580c;
+  color: #ffffff;
+}
+
+/* Batch Attendance Panel Container */
+.batchesPanel {
+  background: #ffffff;
+  border: 1px solid #ece4d7;
+  border-radius: 16px;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  box-shadow: 0 2px 10px rgba(20, 17, 15, 0.03);
+}
+
+.batchesPanelHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  border-bottom: 1px solid #f2ede6;
+  padding-bottom: 0.85rem;
+}
+
+.batchesPanelTitle {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #1c1917;
+  margin: 0;
+  line-height: 1.3;
+}
+
+.batchesPanelSubtitle {
+  font-size: 0.82rem;
+  color: #78716c;
+  margin: 0.25rem 0 0;
+  line-height: 1.45;
+}
+
 .title {
   font-size: 1.6rem;
   font-weight: 800;

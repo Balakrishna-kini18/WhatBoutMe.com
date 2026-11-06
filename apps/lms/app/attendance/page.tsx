@@ -170,7 +170,7 @@ export default function AttendancePage() {
   // Calendar State
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [selectedKey, setSelectedKey] = useState("");
-  const [viewMode, setViewMode] = useState<"calendar" | "list">("calendar");
+  const [viewMode, setViewMode] = useState<"calendar" | "batches" | "list">("calendar");
 
   useEffect(() => {
     try {
@@ -332,8 +332,8 @@ export default function AttendancePage() {
   const isActiveExamEligible = activeBatch
     ? activeBatch.isEligibleForExam
     : batches.length > 0
-    ? batches.every((b) => b.isEligibleForExam)
-    : activeRequiredCount > 0 && activeAttendancePct >= activeThresholdPct;
+      ? batches.every((b) => b.isEligibleForExam)
+      : activeRequiredCount > 0 && activeAttendancePct >= activeThresholdPct;
 
   // Map sessions by date
   const sessionsMap = new Map<string, MySession[]>();
@@ -443,219 +443,293 @@ export default function AttendancePage() {
 
       {error && <p role="alert" className={styles.notice}>{error}</p>}
 
-      {/* Enrolled Course / Batch Live-Session Compliance Overview */}
-      {batches.length > 0 && (
-        <section
-          aria-label="Enrolled Batch Attendance Compliance"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "12px",
-            marginBottom: "18px",
-          }}
+      {/* Top View Toggle: Calendar View vs Batch Attendance vs List History */}
+      <div className={styles.topTabsRow} role="tablist" aria-label="Attendance view modes">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={viewMode === "calendar"}
+          onClick={() => setViewMode("calendar")}
+          className={`${styles.topTabBtn} ${viewMode === "calendar" ? styles.topTabBtnActive : ""}`}
         >
-          {/* Multi-batch filter bar when enrolled in multiple batches */}
-          {batches.length > 1 && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                flexWrap: "wrap",
-                gap: "8px",
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => setSelectedBatchId("ALL")}
-                style={{
-                  padding: "7px 14px",
-                  borderRadius: "999px",
-                  fontSize: "0.82rem",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  border:
-                    selectedBatchId === "ALL"
-                      ? "1px solid #ea580c"
-                      : "1px solid #e7ddd1",
-                  background: selectedBatchId === "ALL" ? "#ea580c" : "#ffffff",
-                  color: selectedBatchId === "ALL" ? "#ffffff" : "#4a443d",
-                }}
-              >
-                All Enrolled Batches ({batches.length})
-              </button>
-              {batches.map((b) => {
-                const key = b.batchId || b.enrolmentId;
-                const isActive = selectedBatchId === key;
-                return (
+          {Icons.calendarSmall}
+          <span>Calendar View</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={viewMode === "batches"}
+          onClick={() => setViewMode("batches")}
+          className={`${styles.topTabBtn} ${viewMode === "batches" ? styles.topTabBtnActive : ""}`}
+        >
+          {Icons.userGroup}
+          <span>Batch Attendance</span>
+          {batches.length > 0 && (
+            <span className={styles.topTabBadge}>{batches.length}</span>
+          )}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={viewMode === "list"}
+          onClick={() => setViewMode("list")}
+          className={`${styles.topTabBtn} ${viewMode === "list" ? styles.topTabBtnActive : ""}`}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <line x1="8" y1="6" x2="21" y2="6" />
+            <line x1="8" y1="12" x2="21" y2="12" />
+            <line x1="8" y1="18" x2="21" y2="18" />
+            <line x1="3" y1="6" x2="3.01" y2="6" />
+            <line x1="3" y1="12" x2="3.01" y2="12" />
+            <line x1="3" y1="18" x2="3.01" y2="18" />
+          </svg>
+          <span>List History</span>
+        </button>
+      </div>
+
+      {/* 2-Column Dashboard Layout: Left Content, Right Stats & Today Activity */}
+      <div className={styles.mainLayout}>
+        {/* LEFT COLUMN: Calendar, Batch Attendance, or List History */}
+        <div className={styles.calendarColumn}>
+          {viewMode === "batches" ? (
+            /* Dedicated Batch Attendance Panel */
+            <section className={styles.batchesPanel} aria-label="Enrolled Batch Attendance Compliance">
+              <div className={styles.batchesPanelHead}>
+                <div>
+                  <h2 className={styles.batchesPanelTitle}>Batch Attendance &amp; Final Exam Eligibility</h2>
+                  <p className={styles.batchesPanelSubtitle}>
+                    Live session attendance is evaluated per enrolled batch. Reach the minimum attendance threshold in your batch to unlock the Final Examination.
+                  </p>
+                </div>
+                {/* Secondary In-Card View Toggle */}
+                <div className={styles.viewToggle}>
                   <button
-                    key={b.enrolmentId}
                     type="button"
-                    onClick={() => setSelectedBatchId(key)}
+                    onClick={() => setViewMode("calendar")}
+                    className={styles.toggleBtn}
+                  >
+                    {Icons.calendarSmall}
+                    <span>Calendar</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("batches")}
+                    className={`${styles.toggleBtn} ${styles.toggleBtnActive}`}
+                  >
+                    {Icons.userGroup}
+                    <span>Batches</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("list")}
+                    className={styles.toggleBtn}
+                  >
+                    <span>List</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Multi-batch filter bar when enrolled in multiple batches */}
+              {batches.length > 1 && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: "8px",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBatchId("ALL")}
                     style={{
                       padding: "7px 14px",
                       borderRadius: "999px",
                       fontSize: "0.82rem",
                       fontWeight: 700,
                       cursor: "pointer",
-                      border: isActive
-                        ? "1px solid #ea580c"
-                        : "1px solid #e7ddd1",
-                      background: isActive ? "#ea580c" : "#ffffff",
-                      color: isActive ? "#ffffff" : "#4a443d",
+                      border:
+                        selectedBatchId === "ALL"
+                          ? "1px solid #ea580c"
+                          : "1px solid #e7ddd1",
+                      background: selectedBatchId === "ALL" ? "#ea580c" : "#ffffff",
+                      color: selectedBatchId === "ALL" ? "#ffffff" : "#4a443d",
+                      transition: "all 0.15s ease",
                     }}
                   >
-                    {b.batchName} · {b.programTitle} ({Math.round(b.attendancePercentage)}%)
+                    All Enrolled Batches ({batches.length})
                   </button>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Per-Batch Compliance Cards */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(290px, 1fr))",
-              gap: "12px",
-            }}
-          >
-            {(selectedBatchId === "ALL"
-              ? batches
-              : batches.filter(
-                  (b) => (b.batchId || b.enrolmentId) === selectedBatchId
-                )
-            ).map((b) => {
-              const pct = Math.round(b.attendancePercentage);
-              const isCompliant = b.isEligibleForExam;
-              return (
-                <div
-                  key={b.enrolmentId}
-                  style={{
-                    background: "#ffffff",
-                    border: isCompliant
-                      ? "1px solid rgba(22, 163, 74, 0.3)"
-                      : "1px solid rgba(234, 88, 12, 0.35)",
-                    borderRadius: "14px",
-                    padding: "14px 16px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "10px",
-                    boxShadow: "0 2px 8px rgba(20, 17, 15, 0.04)",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "flex-start",
-                      gap: "10px",
-                    }}
-                  >
-                    <div>
-                      <span
+                  {batches.map((b) => {
+                    const key = b.batchId || b.enrolmentId;
+                    const isActive = selectedBatchId === key;
+                    return (
+                      <button
+                        key={b.enrolmentId}
+                        type="button"
+                        onClick={() => setSelectedBatchId(key)}
                         style={{
-                          fontSize: "0.73rem",
+                          padding: "7px 14px",
+                          borderRadius: "999px",
+                          fontSize: "0.82rem",
                           fontWeight: 700,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.04em",
-                          color: "#ea580c",
-                          display: "block",
+                          cursor: "pointer",
+                          border: isActive
+                            ? "1px solid #ea580c"
+                            : "1px solid #e7ddd1",
+                          background: isActive ? "#ea580c" : "#ffffff",
+                          color: isActive ? "#ffffff" : "#4a443d",
+                          transition: "all 0.15s ease",
                         }}
                       >
-                        {b.batchName}
-                      </span>
-                      <strong
-                        style={{
-                          fontSize: "0.96rem",
-                          color: "#1c1917",
-                          display: "block",
-                          marginTop: "2px",
-                        }}
-                      >
-                        {b.programTitle}
-                      </strong>
-                    </div>
-                    <span
-                      style={{
-                        padding: "4px 10px",
-                        borderRadius: "999px",
-                        fontSize: "0.75rem",
-                        fontWeight: 700,
-                        whiteSpace: "nowrap",
-                        background: isCompliant
-                          ? "rgba(22, 163, 74, 0.12)"
-                          : "rgba(217, 119, 6, 0.14)",
-                        color: isCompliant ? "#15803d" : "#b45309",
-                      }}
-                    >
-                      {!b.attendanceRequired
-                        ? "✓ Attendance Optional"
-                        : isCompliant
-                        ? `✓ Final Exam Unlocked (≥${b.thresholdPercentage}%)`
-                        : `🔒 Final Exam Locked (<${b.thresholdPercentage}%)`}
-                    </span>
-                  </div>
-
-                  {/* Progress Bar */}
-                  <div
-                    style={{
-                      width: "100%",
-                      height: "8px",
-                      background: "#f5efe8",
-                      borderRadius: "999px",
-                      overflow: "hidden",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: `${Math.min(100, Math.max(0, pct))}%`,
-                        height: "100%",
-                        background: isCompliant ? "#16a34a" : "#ea580c",
-                        borderRadius: "999px",
-                        transition: "width 0.3s ease",
-                      }}
-                    />
-                  </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      flexWrap: "wrap",
-                      gap: "8px",
-                      fontSize: "0.8rem",
-                      color: "#57534e",
-                    }}
-                  >
-                    <span>
-                      Live Attendance: <strong>{pct}%</strong> ({b.attendedSessionCount} of{" "}
-                      {b.requiredSessionCount} live sessions) • Required:{" "}
-                      <strong>{b.thresholdPercentage}%</strong>
-                    </span>
-                    <Link
-                      href={`/programs/${b.programId}/steps`}
-                      style={{
-                        color: "#ea580c",
-                        fontWeight: 700,
-                        textDecoration: "none",
-                      }}
-                    >
-                      Course Path →
-                    </Link>
-                  </div>
+                        {b.batchName} · {b.programTitle} ({Math.round(b.attendancePercentage)}%)
+                      </button>
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
+              )}
 
-      {/* 2-Column Dashboard Layout: Left Calendar, Right Stats & Today Activity */}
-      <div className={styles.mainLayout}>
-        {/* LEFT COLUMN: Calendar (or List History) */}
-        <div className={styles.calendarColumn}>
-          {viewMode === "calendar" ? (
+              {/* Per-Batch Compliance Cards */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(290px, 1fr))",
+                  gap: "14px",
+                }}
+              >
+                {(selectedBatchId === "ALL"
+                  ? batches
+                  : batches.filter(
+                      (b) => (b.batchId || b.enrolmentId) === selectedBatchId
+                    )
+                ).map((b) => {
+                  const pct = Math.round(b.attendancePercentage);
+                  const isCompliant = b.isEligibleForExam;
+                  return (
+                    <div
+                      key={b.enrolmentId}
+                      style={{
+                        background: "#ffffff",
+                        border: isCompliant
+                          ? "1px solid rgba(22, 163, 74, 0.3)"
+                          : "1px solid rgba(234, 88, 12, 0.35)",
+                        borderRadius: "14px",
+                        padding: "16px 18px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "12px",
+                        boxShadow: "0 2px 8px rgba(20, 17, 15, 0.04)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          gap: "10px",
+                        }}
+                      >
+                        <div>
+                          <span
+                            style={{
+                              fontSize: "0.73rem",
+                              fontWeight: 700,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.04em",
+                              color: "#ea580c",
+                              display: "block",
+                            }}
+                          >
+                            {b.batchName}
+                          </span>
+                          <strong
+                            style={{
+                              fontSize: "1rem",
+                              color: "#1c1917",
+                              display: "block",
+                              marginTop: "2px",
+                            }}
+                          >
+                            {b.programTitle}
+                          </strong>
+                        </div>
+                        <span
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: "999px",
+                            fontSize: "0.75rem",
+                            fontWeight: 700,
+                            whiteSpace: "nowrap",
+                            background: isCompliant
+                              ? "rgba(22, 163, 74, 0.12)"
+                              : "rgba(217, 119, 6, 0.14)",
+                            color: isCompliant ? "#15803d" : "#b45309",
+                          }}
+                        >
+                          {!b.attendanceRequired
+                            ? "✓ Attendance Optional"
+                            : isCompliant
+                            ? `✓ Final Exam Unlocked (≥${b.thresholdPercentage}%)`
+                            : `🔒 Final Exam Locked (<${b.thresholdPercentage}%)`}
+                        </span>
+                      </div>
+
+                      {/* Progress Bar */}
+                      <div
+                        style={{
+                          width: "100%",
+                          height: "8px",
+                          background: "#f5efe8",
+                          borderRadius: "999px",
+                          overflow: "hidden",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: `${Math.min(100, Math.max(0, pct))}%`,
+                            height: "100%",
+                            background: isCompliant ? "#16a34a" : "#ea580c",
+                            borderRadius: "999px",
+                            transition: "width 0.3s ease",
+                          }}
+                        />
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: "8px",
+                          fontSize: "0.82rem",
+                          color: "#57534e",
+                        }}
+                      >
+                        <span>
+                          Live Attendance: <strong>{pct}%</strong> ({b.attendedSessionCount} of{" "}
+                          {b.requiredSessionCount} live sessions) • Required:{" "}
+                          <strong>{b.thresholdPercentage}%</strong>
+                        </span>
+                        <Link
+                          href={`/programs/${b.programId}/steps`}
+                          style={{
+                            color: "#ea580c",
+                            fontWeight: 700,
+                            textDecoration: "none",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "2px",
+                          }}
+                        >
+                          Course Path →
+                        </Link>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : viewMode === "calendar" ? (
             <div className={styles.calendarCard}>
               {/* Calendar Top Navigation */}
               <div className={styles.calendarNav}>
@@ -689,15 +763,23 @@ export default function AttendancePage() {
                   <button
                     type="button"
                     onClick={() => setViewMode("calendar")}
-                    className={`${styles.toggleBtn} ${styles.toggleBtnActive}`}
+                    className={`${styles.toggleBtn} ${viewMode === "calendar" ? styles.toggleBtnActive : ""}`}
                   >
                     {Icons.calendarSmall}
                     <span>Calendar</span>
                   </button>
                   <button
                     type="button"
+                    onClick={() => setViewMode("batches")}
+                    className={`${styles.toggleBtn} ${viewMode === "batches" ? styles.toggleBtnActive : ""}`}
+                  >
+                    {Icons.userGroup}
+                    <span>Batches</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setViewMode("list")}
-                    className={styles.toggleBtn}
+                    className={`${styles.toggleBtn} ${viewMode === "list" ? styles.toggleBtnActive : ""}`}
                   >
                     <span>List History</span>
                   </button>
@@ -810,15 +892,23 @@ export default function AttendancePage() {
                   <button
                     type="button"
                     onClick={() => setViewMode("calendar")}
-                    className={styles.toggleBtn}
+                    className={`${styles.toggleBtn} ${viewMode === "calendar" ? styles.toggleBtnActive : ""}`}
                   >
                     {Icons.calendarSmall}
                     <span>Calendar</span>
                   </button>
                   <button
                     type="button"
+                    onClick={() => setViewMode("batches")}
+                    className={`${styles.toggleBtn} ${viewMode === "batches" ? styles.toggleBtnActive : ""}`}
+                  >
+                    {Icons.userGroup}
+                    <span>Batches</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setViewMode("list")}
-                    className={`${styles.toggleBtn} ${styles.toggleBtnActive}`}
+                    className={`${styles.toggleBtn} ${viewMode === "list" ? styles.toggleBtnActive : ""}`}
                   >
                     <span>List History</span>
                   </button>
@@ -1035,7 +1125,7 @@ export default function AttendancePage() {
                                     method: "POST",
                                     headers: token ? { Authorization: `Bearer ${token}` } : {},
                                     keepalive: true,
-                                  }).catch(() => {});
+                                  }).catch(() => { });
                                 }}
                                 className={styles.joinNowBtn}
                               >

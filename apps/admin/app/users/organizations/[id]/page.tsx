@@ -899,7 +899,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
         });
 
         toast.success(
-          `Institutional Net-30 invoice recorded! ${selectedPoolForPayment.totalSeats} student seats are provisioned.`,
+          `Institutional Net-30 invoice recorded! WhatBoutMe finance will review and unlock student seats once wire payment is confirmed.`,
           "Invoice Issued"
         );
       }
@@ -909,7 +909,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
       fetchOrganizationDetails();
       fetchLearners();
       fetchAvailableBatches();
-      setActiveTab("students");
+      setActiveTab(paymentForm.paymentMethod === "ONLINE" ? "students" : "pools");
     } catch (err: any) {
       toast.error(err?.message || "Payment checkout failed", "Payment Error");
     } finally {
@@ -2073,6 +2073,47 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                                       ✕ Cancel
                                     </button>
                                   </>
+                                )}
+                              </div>
+                            )}
+
+                            {/* State 2.5: INVOICE_ISSUED */}
+                            {pool.status === "INVOICE_ISSUED" && (
+                              <div style={{ display: "inline-flex", gap: "8px", alignItems: "center" }}>
+                                {isPlatformAdmin ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMarkPaid(pool.id)}
+                                    style={{
+                                      padding: "6px 14px",
+                                      borderRadius: "6px",
+                                      border: "none",
+                                      background: "#16a34a",
+                                      color: "#ffffff",
+                                      fontWeight: 700,
+                                      fontSize: "0.8rem",
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    ✓ Confirm Wire Receipt &amp; Activate
+                                  </button>
+                                ) : (
+                                  <span
+                                    style={{
+                                      color: "#1e40af",
+                                      fontSize: "0.78rem",
+                                      fontWeight: 600,
+                                      background: "#eff6ff",
+                                      border: "1px solid #bfdbfe",
+                                      padding: "5px 10px",
+                                      borderRadius: "6px",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "5px",
+                                    }}
+                                  >
+                                    📄 Net-30 Invoice Issued (Awaiting Wire Receipt)
+                                  </span>
                                 )}
                               </div>
                             )}

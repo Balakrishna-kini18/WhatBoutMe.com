@@ -137,4 +137,56 @@ describe('Payment Gateway P0/P1 Security Specification Suite', () => {
       expect(result.status).toBe('FAILED');
     });
   });
+
+  // =========================================================================
+  // 3. Seat Pool Self-Activation Guard (Finding 4)
+  // =========================================================================
+  describe('Finding 4: Seat Pool Direct Payment Authorization', () => {
+    let controller: any;
+    let seatPoolsServiceMock: any;
+
+    beforeEach(async () => {
+      seatPoolsServiceMock = {
+        markPaid: vi.fn(),
+        requestOfflineInvoice: vi.fn().mockResolvedValue({ status: 'INVOICE_ISSUED' }),
+      };
+
+      const { AdminOrganizationsController } = await import(
+        '../src/modules/organizations/admin-organizations.controller.js'
+      );
+      controller = new AdminOrganizationsController(
+        {} as any,
+        seatPoolsServiceMock,
+        {} as any,
+        {} as any,
+        {} as any,
+        {} as any,
+      );
+    });
+
+    it('rejects online self-activation on paySeatPool endpoint', async () => {
+      const mockReq = { user: { id: 'org-user-1', role: 'USER' } };
+
+      await expect(
+        controller.paySeatPool('org-1', 'pool-1', { paymentMethod: 'ONLINE' }, mockReq),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(seatPoolsServiceMock.markPaid).not.toHaveBeenCalled();
+    });
+
+    it('routes INVOICE_OFFLINE through requestOfflineInvoice without activating seats', async () => {
+      const mockReq = { user: { id: 'org-user-1', role: 'USER' } };
+
+      const res = await controller.paySeatPool(
+        'org-1',
+        'pool-1',
+        { paymentMethod: 'INVOICE_OFFLINE', notes: 'Net 30' },
+        mockReq,
+      );
+
+      expect(res.status).toBe('INVOICE_ISSUED');
+      expect(seatPoolsServiceMock.requestOfflineInvoice).toHaveBeenCalledWith('pool-1', mockReq.user, 'Net 30');
+      expect(seatPoolsServiceMock.markPaid).not.toHaveBeenCalled();
+    });
+  });
 });

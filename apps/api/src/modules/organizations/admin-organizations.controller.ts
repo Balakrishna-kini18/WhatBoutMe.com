@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -342,10 +343,12 @@ export class AdminOrganizationsController {
     @Body() body: { paymentMethod?: any; notes?: string },
     @Request() req: any,
   ) {
-    return this.seatPoolsService.markPaid(poolId, req.user, {
-      paymentMethod: body?.paymentMethod,
-      notes: body?.notes || 'Paid via Test Bypass Simulated Checkout',
-    });
+    if (body?.paymentMethod === 'INVOICE_OFFLINE') {
+      return this.seatPoolsService.requestOfflineInvoice(poolId, req.user, body?.notes);
+    }
+    throw new BadRequestException(
+      'Online seat pool payments must be initiated via Stripe Checkout (/payments/checkout-session).',
+    );
   }
 
   @Delete(':id/seat-pools/:poolId')

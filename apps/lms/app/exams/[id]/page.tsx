@@ -36,6 +36,18 @@ interface ExamQuestion {
   options: ExamQuestionOption[];
 }
 
+interface ExamAttendanceGate {
+  isAttendanceRequired: boolean;
+  isOverridden: boolean;
+  isEligible: boolean;
+  attendancePercentage: number;
+  requiredThreshold: number;
+  attendedSessions: number;
+  totalSessions: number;
+  batchId: string | null;
+  batchName: string | null;
+}
+
 interface ExamConfig {
   id: string;
   programId: string;
@@ -47,6 +59,7 @@ interface ExamConfig {
   maxAttempts: number;
   cooldownHours: number;
   status: string;
+  attendanceGate?: ExamAttendanceGate | null;
 }
 
 interface ActiveAttempt {
@@ -1319,34 +1332,117 @@ export default function ExamPage({
         </div>
 
         {/* Exam Rules & Integrity */}
-        <ul style={{ color: "#64748b", fontSize: "0.875rem", lineHeight: 1.6, paddingLeft: "1.25rem", marginBottom: "2rem" }}>
+        <ul style={{ color: "#64748b", fontSize: "0.875rem", lineHeight: 1.6, paddingLeft: "1.25rem", marginBottom: "1.5rem" }}>
           <li>All curriculum steps must be completed prior to sitting this exam.</li>
+          {config?.attendanceGate?.isAttendanceRequired !== false && (
+            <li>
+              Minimum <strong>{config?.attendanceGate?.requiredThreshold ?? 80}%</strong> live session attendance in your enrolled batch is required to unlock this exam.
+            </li>
+          )}
           <li>The countdown timer starts immediately once you click Start Exam.</li>
           <li>Unsubmitted answers are automatically collected upon timer expiry.</li>
           <li>Scoring and pass status are calculated exclusively by the server.</li>
         </ul>
 
-        {/* Start / Retry Button */}
-        {(!result || !result.passed) && (
-          <button
-            type="button"
-            onClick={handleStartExam}
-            disabled={loading || ((result?.attemptsRemaining ?? 1) <= 0 && result !== null)}
+        {/* Live Session Attendance Gate Notice */}
+        {config?.attendanceGate?.isAttendanceRequired && (!result || !result.passed) && (
+          <div
             style={{
-              width: "100%",
-              padding: "14px",
+              backgroundColor: config.attendanceGate.isEligible ? "#f0fdf4" : "#fffbeb",
+              border: config.attendanceGate.isEligible ? "1px solid #86efac" : "1px solid #f59e0b",
+              color: config.attendanceGate.isEligible ? "#166534" : "#92400e",
+              padding: "14px 16px",
               borderRadius: "10px",
-              border: "none",
-              backgroundColor: ((result?.attemptsRemaining ?? 1) <= 0 && result !== null) ? "#94a3b8" : "#c97a1e",
-              color: "white",
-              fontSize: "1.05rem",
-              fontWeight: 700,
-              cursor: ((result?.attemptsRemaining ?? 1) <= 0 && result !== null) ? "not-allowed" : "pointer",
+              marginBottom: "1.5rem",
+              display: "flex",
+              flexDirection: "column",
+              gap: "6px",
             }}
           >
-            {result ? `Start Next Attempt (${config?.questionCount ? `${config.questionCount} Questions` : "Exam"})` : `Begin ${config?.questionCount ? `${config.questionCount}-Mark ` : ""}Final Examination`}
-          </button>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+              <strong style={{ fontSize: "0.92rem", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                {config.attendanceGate.isEligible ? (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    <span>Batch Live Session Attendance Requirement Met</span>
+                  </>
+                ) : (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="4" y="11" width="16" height="10" rx="2" />
+                      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                    </svg>
+                    <span>Final Exam Locked — Live Session Attendance Below Threshold</span>
+                  </>
+                )}
+              </strong>
+              <Link
+                href="/attendance"
+                style={{
+                  color: "inherit",
+                  fontWeight: 700,
+                  fontSize: "0.84rem",
+                  textDecoration: "underline",
+                }}
+              >
+                View Batch Attendance →
+              </Link>
+            </div>
+            <p style={{ margin: 0, fontSize: "0.86rem", lineHeight: 1.5 }}>
+              {config.attendanceGate.batchName ? (
+                <>
+                  Batch: <strong>{config.attendanceGate.batchName}</strong> •{" "}
+                </>
+              ) : null}
+              Your Attendance: <strong>{Math.round(config.attendanceGate.attendancePercentage)}%</strong> (
+              {config.attendanceGate.attendedSessions} of {config.attendanceGate.totalSessions} live sessions attended) • Required:{" "}
+              <strong>{config.attendanceGate.requiredThreshold}%</strong>
+            </p>
+            {!config.attendanceGate.isEligible && (
+              <p style={{ margin: 0, fontSize: "0.82rem", opacity: 0.9 }}>
+                {config.attendanceGate.totalSessions === 0
+                  ? `No live sessions have been conducted for ${config.attendanceGate.batchName || "your batch"} yet. You can take the Final Examination once live sessions are conducted and you meet the ${config.attendanceGate.requiredThreshold}% attendance requirement.`
+                  : `You must attend at least ${config.attendanceGate.requiredThreshold}% of the live sessions conducted for ${config.attendanceGate.batchName || "your batch"} before you can attend the Final Examination.`}
+              </p>
+            )}
+          </div>
         )}
+
+        {/* Start / Retry Button */}
+        {(!result || !result.passed) && (() => {
+          const isAttendanceBlocked =
+            config?.attendanceGate?.isAttendanceRequired === true &&
+            config?.attendanceGate?.isEligible === false;
+          const isAttemptsExhausted =
+            (result?.attemptsRemaining ?? 1) <= 0 && result !== null;
+          const isBtnDisabled = loading || isAttemptsExhausted || isAttendanceBlocked;
+          return (
+            <button
+              type="button"
+              onClick={handleStartExam}
+              disabled={isBtnDisabled}
+              style={{
+                width: "100%",
+                padding: "14px",
+                borderRadius: "10px",
+                border: "none",
+                backgroundColor: isBtnDisabled ? "#94a3b8" : "#c97a1e",
+                color: "white",
+                fontSize: "1.05rem",
+                fontWeight: 700,
+                cursor: isBtnDisabled ? "not-allowed" : "pointer",
+              }}
+            >
+              {isAttendanceBlocked
+                ? `Locked — Requires ${config?.attendanceGate?.requiredThreshold ?? 80}% Batch Live Attendance (Current: ${Math.round(config?.attendanceGate?.attendancePercentage ?? 0)}%)`
+                : result
+                ? `Start Next Attempt (${config?.questionCount ? `${config.questionCount} Questions` : "Exam"})`
+                : `Begin ${config?.questionCount ? `${config.questionCount}-Mark ` : ""}Final Examination`}
+            </button>
+          );
+        })()}
       </div>
     </div>
   );

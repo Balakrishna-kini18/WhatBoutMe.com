@@ -280,6 +280,13 @@ function ApprovalsContent() {
   const [submittingMissionReject, setSubmittingMissionReject] = useState(false);
 
   useEffect(() => {
+    if (previewMissionDoc) {
+      setPreviewLoading(true);
+      setPreviewError(false);
+    }
+  }, [previewMissionDoc?.id]);
+
+  useEffect(() => {
     fetchCertificates();
     loadBatches();
     loadMissionStatements();
@@ -2786,15 +2793,17 @@ function ApprovalsContent() {
           MISSION STATEMENT DOCUMENT PREVIEW MODAL
          ───────────────────────────────────────────────────────────────────────────── */}
       {previewMissionDoc && (() => {
-        const isDataUri = previewMissionDoc.fileUrl.startsWith("data:");
-        const docFileUrl =
-          previewMissionDoc.fileUrl.startsWith("http") || isDataUri
-            ? previewMissionDoc.fileUrl
-            : `${API_URL}/mission-statements/${previewMissionDoc.id}/file`;
+        const isDataUri = previewMissionDoc.fileUrl?.startsWith("data:");
+        const docFileUrl = isDataUri
+          ? previewMissionDoc.fileUrl
+          : `${API_URL}/mission-statements/${previewMissionDoc.id}/file`;
+        const downloadUrl = isDataUri ? docFileUrl : `${docFileUrl}?download=1`;
         const isImage =
-          (previewMissionDoc.mimeType || "").includes("image") ||
-          (isDataUri && previewMissionDoc.fileUrl.startsWith("data:image/")) ||
-          docFileUrl.match(/\.(jpg|jpeg|png|webp|svg)(\?.*)?$/i) !== null;
+          Boolean(
+            (previewMissionDoc.mimeType || "").toLowerCase().includes("image") ||
+            (previewMissionDoc.fileName || "").match(/\.(jpg|jpeg|png|webp|svg|gif)$/i) ||
+            previewMissionDoc.fileUrl?.match(/\.(jpg|jpeg|png|webp|svg|gif)(\?.*)?$/i)
+          );
 
         return (
           <Modal
@@ -2866,7 +2875,7 @@ function ApprovalsContent() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", flexWrap: "wrap", gap: "10px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                   <a
-                    href={docFileUrl}
+                    href={downloadUrl}
                     download={previewMissionDoc.fileName || "mission-statement.pdf"}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -3007,7 +3016,7 @@ function ApprovalsContent() {
                     className={styles.primaryBtnSmall}
                     style={{ marginTop: 6 }}
                   >
-                    <span>Open in New Tab &nearr;</span>
+                    <span>Open in New Tab ↗</span>
                   </a>
                 </div>
               )}
@@ -3016,6 +3025,7 @@ function ApprovalsContent() {
                 <img
                   src={docFileUrl}
                   alt="Learner Mission Statement"
+                  crossOrigin="anonymous"
                   onLoad={(e) => {
                     const img = e.currentTarget;
                     if (img.naturalWidth <= 1 && img.naturalHeight <= 1) {

@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { ArrowRight } from "lucide-react";
 import { enrolUrl } from "@/lib/courses";
 import { LMS_URL } from "@/lib/api";
-import { openPortal, useEnrolmentStatus } from "@/lib/auth";
+import { openPortal, portalUrl, useEnrolmentStatus } from "@/lib/auth";
 import {
   buildCourseEnrollmentReturnUrl,
   saveEnrollmentIntent,
@@ -71,13 +71,13 @@ export default function EnrolLink({
   // If already enrolled and active / completed: DO NOT SHOW ENROL NOW!
   // Route learner directly to the LMS learning path:
   if (isFullyActive) {
-    const lmsCoursePath = `/programs/${programId}/steps`;
+    const lmsCoursePath = `/programs/${programId}/steps?welcomeBack=1`;
     const buttonContent = (
       <a
-        href={`${LMS_URL}${lmsCoursePath}`}
+        href={portalUrl(lmsCoursePath)}
         onClick={openPortal(lmsCoursePath)}
         className={resolvedActiveClass}
-        title="Open course in Learner Portal"
+        title="Continue your learning journey in the Learner Portal"
       >
         <span>Go to Course</span>
         <ArrowRight className="h-4 w-4 shrink-0 transition-transform duration-200 group-hover:translate-x-1" />
@@ -96,7 +96,7 @@ export default function EnrolLink({
     const agreementPath = `/agreement?programId=${programId}${enrolment?.enrolmentId ? `&enrolmentId=${enrolment.enrolmentId}` : ""}`;
     const buttonContent = (
       <a
-        href={`${LMS_URL}${agreementPath}`}
+        href={portalUrl(agreementPath)}
         onClick={openPortal(agreementPath)}
         className={resolvedActiveClass}
         title="Complete Program Agreement"
@@ -118,7 +118,7 @@ export default function EnrolLink({
     const checkoutPath = `/checkout?programId=${programId}${enrolment?.enrolmentId ? `&enrolmentId=${enrolment.enrolmentId}` : ""}`;
     const buttonContent = (
       <a
-        href={`${LMS_URL}${checkoutPath}`}
+        href={portalUrl(checkoutPath)}
         onClick={openPortal(checkoutPath)}
         className={resolvedActiveClass}
         title="Complete Course Payment"

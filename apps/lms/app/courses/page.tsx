@@ -66,7 +66,7 @@ function CoursesContent() {
       .then((res) => (res.ok ? res.json() : null))
       .catch(() => null);
 
-    const attPromise = fetch(`${API_URL}/attendance/mine`, { headers })
+    const attPromise = fetch(`${API_URL}/me/attendance`, { headers })
       .then((res) => (res.ok ? res.json() : null))
       .catch(() => null);
 
@@ -81,7 +81,9 @@ function CoursesContent() {
       } else if (isInitial) {
         setError("We could not load your courses. Please try again in a moment.");
       }
-      setDaysPresent(Array.isArray(attData?.days) ? attData.days.length : 0);
+      setDaysPresent(
+        typeof attData?.totalAttendedSessions === "number" ? attData.totalAttendedSessions : 0
+      );
       setCertificates(
         Array.isArray(certData)
           ? certData.filter((c: { status?: string }) => c.status === "APPROVED" || c.status === "ISSUED").length
@@ -169,8 +171,8 @@ function CoursesContent() {
     },
     {
       id: "attendance",
-      label: "Days Present",
-      subtext: "Total attendance",
+      label: "Live Sessions Attended",
+      subtext: "Batch live attendance",
       value: daysPresent,
       href: "/attendance",
       badgeClass: styles.statBadgeAttendance,

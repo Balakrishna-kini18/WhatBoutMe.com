@@ -9,6 +9,7 @@ import Nav from "@/components/site/Nav";
 import Footer from "@/components/site/Footer";
 import CourseCard from "@/components/site/CourseCard";
 import EnrolLink from "@/components/site/EnrolLink";
+import CourseEnrolmentGuard from "@/components/site/CourseEnrolmentGuard";
 import { formatPrice, getCourses, isOptimisable } from "@/lib/courses";
 import {
   Accordion,
@@ -55,6 +56,13 @@ export default async function CoursePage({ params }: Props) {
     <main className="relative min-h-screen bg-cream text-ink">
       <SmoothScroll />
       <Nav />
+      {course.programId && (
+        <CourseEnrolmentGuard
+          programId={course.programId}
+          slug={course.slug}
+          title={course.title}
+        />
+      )}
 
       <div className="mx-auto max-w-[1240px] px-5 pb-20 pt-20 sm:pt-32 md:px-10 md:pb-28 md:pt-36">
         <Link

@@ -19,8 +19,6 @@ import {
   type NotificationPreferences,
 } from "./lib/api";
 
-const VISIT_KEY = "attendance_visit";
-
 function formatRelativeTime(isoDate: string): string {
   const date = new Date(isoDate);
   const now = new Date();
@@ -658,20 +656,6 @@ function ProfileMenu() {
 /** Main column. Login, signup and the sign-in handoff render full width, without the top bar. */
 export default function LmsMain({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-
-  // Opening the portal counts as attending today. Sent once per day per
-  // browser; the server keeps one row per day, so a repeat is harmless.
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) return;
-    const today = new Date().toDateString();
-    if (localStorage.getItem(VISIT_KEY) === today) return;
-    fetch(`${API_URL}/attendance/visit`, { method: "POST", headers: { Authorization: `Bearer ${token}` } })
-      .then((res) => {
-        if (res.ok) localStorage.setItem(VISIT_KEY, today);
-      })
-      .catch(() => {});
-  }, [pathname]);
 
   // Phones hide the bottom bar while a text field has focus. Closing the
   // keyboard with the back gesture leaves the field focused, so the bar would

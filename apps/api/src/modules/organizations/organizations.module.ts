@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module.js';
+import { EmailModule } from '../email/email.module.js';
 import { OrganizationsService } from './organizations.service.js';
 import { SeatPoolsService } from './seat-pools.service.js';
 import { VolumePricingService } from './volume-pricing.service.js';
@@ -11,7 +12,7 @@ import { OrgScopeGuard } from './guards/org-scope.guard.js';
 import { OrgRoleGuard } from './guards/org-role.guard.js';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, EmailModule],
   controllers: [AdminOrganizationsController, OrgPortalController],
   providers: [
     OrganizationsService,

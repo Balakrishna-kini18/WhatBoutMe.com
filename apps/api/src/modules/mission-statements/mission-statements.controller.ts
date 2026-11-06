@@ -81,21 +81,38 @@ export class MissionStatementsController {
   @Get([':id/file', 'download/:id'])
   async getFile(
     @Param('id') id: string,
+    @Req() req: any,
     @Res() res: any,
   ) {
     const fileResult = await this.missionStatementsService.getFile(id);
-    if (fileResult.redirectUrl) {
-      return res.redirect(fileResult.redirectUrl);
-    }
-    res.setHeader('Content-Type', fileResult.mimeType || 'application/octet-stream');
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileResult.fileName)}"`);
+    const isDownload =
+      (req?.url || '').includes('/download/') ||
+      req?.query?.download === '1' ||
+      req?.query?.download === 'true';
+    const dispositionType = isDownload ? 'attachment' : 'inline';
+
+    res.removeHeader('X-Frame-Options');
+    res.setHeader(
+      'Content-Security-Policy',
+      "frame-ancestors 'self' https://whatboutme.com https://*.whatboutme.com https://*.testfox.in http://localhost:*",
+    );
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Type', fileResult.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `${dispositionType}; filename="${encodeURIComponent(fileResult.fileName)}"`);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+
     if (fileResult.buffer) {
       res.setHeader('Content-Length', fileResult.buffer.length);
+      res.setHeader('Accept-Ranges', 'bytes');
       return res.end(fileResult.buffer);
     }
     if (fileResult.filePath) {
       return res.sendFile(fileResult.filePath);
+    }
+    if (fileResult.redirectUrl) {
+      return res.redirect(302, fileResult.redirectUrl);
     }
     return res.status(404).send('File not found');
   }

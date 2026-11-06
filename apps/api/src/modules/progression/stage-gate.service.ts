@@ -634,6 +634,23 @@ export class StageGateService {
           oralScheduledDate: latestOral?.scheduledDate ?? null,
           oralTrainerNotes: latestOral?.trainerNotes ?? null,
           oralAssessmentId: latestOral?.id ?? null,
+          attendanceRequired: isAttendanceRequired,
+          attendancePercentage:
+            attendanceCompliance.requiredSessionCount === 0
+              ? 0
+              : attendanceCompliance.attendancePercentage,
+          attendanceThreshold: attendanceCompliance.thresholdUsed,
+          attendedSessions: attendanceCompliance.attendedSessionCount,
+          requiredSessions: attendanceCompliance.requiredSessionCount,
+          attendanceMetForExam:
+            !isAttendanceRequired ||
+            stage2Overridden ||
+            stage3Overridden ||
+            Boolean(passedExam) ||
+            (attendanceCompliance.requiredSessionCount > 0 &&
+              (attendanceCompliance.status === 'COMPLIANT' ||
+                attendanceCompliance.attendancePercentage >=
+                  attendanceCompliance.thresholdUsed)),
         },
         unmetPrerequisites: stage2Unlocked
           ? !stage2Met
@@ -651,6 +668,7 @@ export class StageGateService {
         isOverridden: stage3Overridden,
         completedAt: stage3CompletedAt,
         details: {
+          attendanceRequired: isAttendanceRequired,
           complianceStatus: attendanceCompliance.status,
           attendancePercentage:
             attendanceCompliance.requiredSessionCount === 0
@@ -660,6 +678,15 @@ export class StageGateService {
           requiredSessions: attendanceCompliance.requiredSessionCount,
           thresholdPercent: attendanceCompliance.thresholdUsed,
           hasScheduledSessions: attendanceCompliance.requiredSessionCount > 0,
+          attendanceMetForExam:
+            !isAttendanceRequired ||
+            stage2Overridden ||
+            stage3Overridden ||
+            Boolean(passedExam) ||
+            (attendanceCompliance.requiredSessionCount > 0 &&
+              (attendanceCompliance.status === 'COMPLIANT' ||
+                attendanceCompliance.attendancePercentage >=
+                  attendanceCompliance.thresholdUsed)),
         },
         unmetPrerequisites: stage3Unlocked
           ? !stage3Met

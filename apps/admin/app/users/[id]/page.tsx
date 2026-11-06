@@ -2618,7 +2618,7 @@ export default function UserDetailPage({
                 {(() => {
                   const latestMission = missionSubmissions[0] || null;
                   if (!latestMission) return null;
-                  const fileLink = latestMission.fileUrl.startsWith("http")
+                  const fileLink = latestMission.fileUrl.startsWith("data:")
                     ? latestMission.fileUrl
                     : `${API_URL}/mission-statements/${latestMission.id}/file`;
                   const sizeMb = (latestMission.sizeBytes / (1024 * 1024)).toFixed(2);
@@ -3225,13 +3225,14 @@ export default function UserDetailPage({
           {/* Modal for Mission Statement Document Preview */}
           {previewMissionModalDoc && (() => {
             const isDataUri = previewMissionModalDoc.fileUrl.startsWith("data:");
-            const docFileUrl =
-              previewMissionModalDoc.fileUrl.startsWith("http") || isDataUri
-                ? previewMissionModalDoc.fileUrl
-                : `${API_URL}/mission-statements/${previewMissionModalDoc.id}/file`;
+            const docFileUrl = isDataUri
+              ? previewMissionModalDoc.fileUrl
+              : `${API_URL}/mission-statements/${previewMissionModalDoc.id}/file`;
             const isImage =
               (previewMissionModalDoc.mimeType || "").includes("image") ||
               (isDataUri && previewMissionModalDoc.fileUrl.startsWith("data:image/")) ||
+              /\.(jpg|jpeg|png|webp|svg)(\?.*)?$/i.test(previewMissionModalDoc.fileName || "") ||
+              /\.(jpg|jpeg|png|webp|svg)(\?.*)?$/i.test(previewMissionModalDoc.fileUrl || "") ||
               docFileUrl.match(/\.(jpg|jpeg|png|webp|svg)(\?.*)?$/i) !== null;
 
             return (

@@ -820,7 +820,9 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const allStepsCompleted = total > 0 && done === total;
 
   const stage2State = stagesEval?.stages?.STAGE_2_EXAM;
-  const isExamUnlocked = Boolean(allStepsCompleted || stage2State?.isOverridden === true);
+  const stage3State = stagesEval?.stages?.STAGE_3_ATTENDANCE;
+  const stage3Details = (stage3State?.details || stage2State?.details || {}) as any;
+
   const isExamPassed = Boolean(
     examAttempt?.status === "PASSED" ||
       examAttempt?.passed === true ||
@@ -829,14 +831,43 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   );
   const examBestScore = examAttempt?.score ?? stage2State?.details?.examScore ?? null;
 
-  const stage3State = stagesEval?.stages?.STAGE_3_ATTENDANCE;
-  const isAttendanceRequired = stage3State?.details?.thresholdPercent !== undefined && (progression as any)?.program?.attendanceRequired !== false;
+  const isAttendanceRequired = stage3Details?.attendanceRequired !== false;
+  const attendanceThreshold = Number(
+    stage3Details?.thresholdPercent ?? stage3Details?.attendanceThreshold ?? 80
+  );
+  const attendedLiveSessions = Number(stage3Details?.attendedSessions ?? 0);
+  const requiredLiveSessions = Number(stage3Details?.requiredSessions ?? 0);
+  const liveAttendancePercent =
+    requiredLiveSessions === 0
+      ? 0
+      : Math.round(Number(stage3Details?.attendancePercentage ?? 0));
+
+  const isAttendanceMetForExam = Boolean(
+    !isAttendanceRequired ||
+      stage2State?.isOverridden === true ||
+      stage3State?.isOverridden === true ||
+      isExamPassed ||
+      examAttempt?.status === "IN_PROGRESS" ||
+      stage3Details?.attendanceMetForExam === true ||
+      (requiredLiveSessions > 0 &&
+        (stage3Details?.complianceStatus === "COMPLIANT" ||
+          liveAttendancePercent >= attendanceThreshold))
+  );
+
   const isAttendanceSatisfied = Boolean(
     !isAttendanceRequired ||
-    stage3State?.isCompleted ||
-    stage3State?.isOverridden === true ||
-    stage3State?.details?.complianceStatus === "COMPLIANT" ||
-    stage3State?.details?.complianceStatus === "NOT_APPLICABLE"
+      stage3State?.isOverridden === true ||
+      isAttendanceMetForExam ||
+      (isExamPassed &&
+        (stage3State?.isCompleted ||
+          stage3Details?.complianceStatus === "COMPLIANT" ||
+          stage3Details?.complianceStatus === "NOT_APPLICABLE"))
+  );
+
+  const isExamUnlocked = Boolean(
+    (allStepsCompleted && isAttendanceMetForExam) ||
+      stage2State?.isOverridden === true ||
+      isExamPassed
   );
 
   const stage4State = stagesEval?.stages?.STAGE_4_ONE_ON_ONE;
@@ -911,6 +942,10 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
     completedSteps: done,
     examPassed: isExamPassed,
     examScore: examBestScore,
+    attendanceRequired: isAttendanceRequired,
+    attendanceMetForExam: isAttendanceMetForExam,
+    attendancePercentage: liveAttendancePercent,
+    attendanceThreshold: attendanceThreshold,
     coachingCompleted: isCoachingCompleted,
     coachingStatus: activeCoachingReq?.status ?? latestCoachingReq?.status ?? null,
     coachingRequired: isCoachingRequired,
@@ -1266,13 +1301,74 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                       <p style={{ margin: "4px 0 0", fontSize: "0.84rem", color: "var(--text-secondary, #4a443d)" }}>
                         {isExamPassed
                           ? `Passed with ${examBestScore !== null ? `${examBestScore}%` : "success"}. Examination completed.`
-                          : `${examConfig?.questionCount ? `${examConfig.questionCount} Questions · ` : ""}Pass Mark: ${examConfig?.passMark ?? 75}% · Time Limit: ${examConfig?.timeLimitMin ?? 90} mins`}
+                          : `${examConfig?.questionCount ? `${examConfig.questionCount} Questions · ` : ""}Pass Mark: ${examConfig?.passMark ?? 80}% · Time Limit: ${examConfig?.timeLimitMin ?? 90} mins${isAttendanceRequired ? ` · Required Batch Attendance: ${attendanceThreshold}%` : ""}`}
                       </p>
+
+                      {isAttendanceRequired && !isExamPassed && (
+                        <div
+                          style={{
+                            marginTop: "8px",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            flexWrap: "wrap",
+                            gap: "8px",
+                            padding: "4px 10px",
+                            borderRadius: "8px",
+                            fontSize: "0.78rem",
+                            fontWeight: 600,
+                            background: isAttendanceMetForExam
+                              ? "rgba(22, 163, 74, 0.1)"
+                              : "rgba(217, 119, 6, 0.12)",
+                            color: isAttendanceMetForExam ? "#15803d" : "#b45309",
+                            border: isAttendanceMetForExam
+                              ? "1px solid rgba(22, 163, 74, 0.25)"
+                              : "1px solid rgba(217, 119, 6, 0.3)",
+                          }}
+                        >
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                            {isAttendanceMetForExam ? (
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                            ) : (
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                                <line x1="12" y1="9" x2="12" y2="13" />
+                                <line x1="12" y1="17" x2="12.01" y2="17" />
+                              </svg>
+                            )}
+                            <span>
+                              {isAttendanceMetForExam
+                                ? `Attendance Met: ${liveAttendancePercent}%`
+                                : `Low Attendance: ${liveAttendancePercent}% (Min ${attendanceThreshold}%)`}
+                            </span>
+                          </span>
+                          <Link
+                            href="/attendance"
+                            style={{
+                              color: "inherit",
+                              textDecoration: "underline",
+                              fontWeight: 700,
+                              marginLeft: "4px",
+                            }}
+                          >
+                            View Attendance →
+                          </Link>
+                        </div>
+                      )}
 
                       {!isExamUnlocked && (
                         <div className={styles.lockMessage}>
                           {InfoCircle}
-                          <span>Requires completing all {total} curriculum steps</span>
+                          <span>
+                            {!allStepsCompleted
+                              ? `Complete all ${total} curriculum steps${
+                                  isAttendanceRequired
+                                    ? ` and reach ${attendanceThreshold}% live attendance`
+                                    : ""
+                                } to unlock.`
+                              : `Requires minimum ${attendanceThreshold}% live attendance to unlock (Current: ${liveAttendancePercent}%).`}
+                          </span>
                         </div>
                       )}
 
@@ -1301,14 +1397,20 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                       ) : (
                         <span
                           className={styles.lockedPill}
-                          title={`Requires completing all ${total} curriculum steps`}
+                          title={
+                            !allStepsCompleted
+                              ? `Requires completing all ${total} curriculum steps`
+                              : `Requires ${attendanceThreshold}% live session attendance (Current: ${liveAttendancePercent}%)`
+                          }
                           aria-disabled="true"
                         >
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ opacity: 0.7 }}>
                             <rect x="4" y="11" width="16" height="10" rx="2" />
                             <path d="M8 11V7a4 4 0 0 1 8 0v4" />
                           </svg>
-                          Locked
+                          {allStepsCompleted && !isAttendanceMetForExam
+                            ? `Locked (<${attendanceThreshold}% Attendance)`
+                            : "Locked"}
                         </span>
                       )}
                     </div>
@@ -2197,22 +2299,46 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                   )}
                                 </div>
 
-                                <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+                                <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.65rem", flexWrap: "wrap" }}>
                                   <button
                                     type="button"
                                     onClick={() => setShowCoachingPanel(false)}
-                                    className={styles.reviewBtn}
-                                    style={{ cursor: "pointer" }}
+                                    style={{
+                                      padding: "0.55rem 1.25rem",
+                                      borderRadius: 8,
+                                      border: "1px solid #dcd5cb",
+                                      background: "#ffffff",
+                                      color: "#4a443d",
+                                      fontWeight: 600,
+                                      fontSize: "0.85rem",
+                                      cursor: "pointer",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      transition: "all 0.15s ease",
+                                    }}
                                   >
                                     Close
                                   </button>
                                   <button
                                     type="submit"
                                     disabled={submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime}
-                                    className={styles.startBtn}
                                     style={{
+                                      padding: "0.55rem 1.4rem",
+                                      borderRadius: 8,
+                                      border: "none",
+                                      background: "linear-gradient(135deg, #d97706, #c26904)",
+                                      color: "#ffffff",
+                                      fontWeight: 700,
+                                      fontSize: "0.85rem",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      whiteSpace: "nowrap",
+                                      boxShadow: "0 2px 8px rgba(217, 119, 6, 0.25)",
                                       cursor: submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime ? "not-allowed" : "pointer",
-                                      opacity: submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime ? 0.7 : 1,
+                                      opacity: submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime ? 0.65 : 1,
+                                      transition: "all 0.15s ease",
                                     }}
                                   >
                                     {submittingCoaching
@@ -2361,7 +2487,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                 <a
                                   href={
                                     sanitizeExternalUrl(
-                                      latestMission.fileUrl && latestMission.fileUrl.startsWith("http")
+                                      latestMission.fileUrl?.startsWith("data:")
                                         ? latestMission.fileUrl
                                         : `${API_URL}/mission-statements/${encodeURIComponent(latestMission.id)}/file`
                                     ) || "#"

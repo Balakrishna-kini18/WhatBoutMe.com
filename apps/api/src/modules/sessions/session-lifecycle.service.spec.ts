@@ -202,26 +202,15 @@ describe('D2-Lifecycle: SessionLifecycleService', () => {
       const stats = await service.processLifecycleTransitions();
 
       expect(stats.reminders24hSent).toBe(1);
-      expect(emailMock.sendTemplateEmail).toHaveBeenCalledWith({
-        to: 'londoner@example.com',
-        subject: 'Reminder: Vision Board Masterclass starts in 24 hours',
-        template: 'SessionReminderEmail',
-        props: expect.objectContaining({
-          firstName: 'Arthur',
-          sessionTitle: 'Vision Board Masterclass',
-          timeframe: '24 hours',
-          date: '2026-10-21',
-          time: expect.stringContaining('Europe/London'),
-          joinUrl: expect.stringContaining('/live?autoJoin=sess-24h'),
-        }),
-      });
+      expect(emailMock.sendTemplateEmail).not.toHaveBeenCalled();
 
       expect(prismaMock.notification.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           userId: 'user-uk',
           type: 'SESSION_REMINDER_24H:sess-24h',
-          channel: NotificationChannel.BOTH,
-          deliveryStatus: DeliveryStatus.SENT,
+          title: 'Reminder: Vision Board Masterclass starts in 24 hours',
+          channel: NotificationChannel.IN_APP,
+          deliveryStatus: DeliveryStatus.DELIVERED,
         }),
       });
     });
@@ -287,14 +276,13 @@ describe('D2-Lifecycle: SessionLifecycleService', () => {
       const stats = await service.processLifecycleTransitions();
 
       expect(stats.reminders1hSent).toBe(1);
-      expect(emailMock.sendTemplateEmail).toHaveBeenCalledWith({
-        to: 'ny@example.com',
-        subject: 'Reminder: Imminent 1-on-1 Call starts in 1 hour',
-        template: 'SessionReminderEmail',
-        props: expect.objectContaining({
-          firstName: 'Jane',
-          timeframe: '1 hour',
-          time: expect.stringContaining('America/New_York'),
+      expect(prismaMock.notification.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'user-ny',
+          type: 'SESSION_REMINDER_1H:sess-1h',
+          title: 'Reminder: Imminent 1-on-1 Call starts in 1 hour',
+          channel: NotificationChannel.IN_APP,
+          deliveryStatus: DeliveryStatus.DELIVERED,
         }),
       });
     });
@@ -329,15 +317,13 @@ describe('D2-Lifecycle: SessionLifecycleService', () => {
       const stats = await service.processLifecycleTransitions();
 
       expect(stats.reminders10mSent).toBe(1);
-      expect(emailMock.sendTemplateEmail).toHaveBeenCalledWith({
-        to: 'dubai10@example.com',
-        subject: 'Reminder: Starting Soon Session starts in 10 minutes',
-        template: 'SessionReminderEmail',
-        props: expect.objectContaining({
-          firstName: 'Ahmed',
-          sessionTitle: 'Starting Soon Session',
-          timeframe: '10 minutes',
-          time: expect.stringContaining('Asia/Dubai'),
+      expect(prismaMock.notification.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'user-dubai-10m',
+          type: 'SESSION_REMINDER_10M:sess-10m',
+          title: 'Reminder: Starting Soon Session starts in 10 minutes',
+          channel: NotificationChannel.IN_APP,
+          deliveryStatus: DeliveryStatus.DELIVERED,
         }),
       });
     });
@@ -371,12 +357,15 @@ describe('D2-Lifecycle: SessionLifecycleService', () => {
       const stats = await service.processLifecycleTransitions();
 
       expect(stats.reminders24hSent).toBe(1);
-      expect(emailMock.sendTemplateEmail).toHaveBeenCalledWith(
-        expect.objectContaining({
-          to: 'rec@example.com',
-          subject: 'Reminder: Recovered Session starts in 24 hours',
+      expect(prismaMock.notification.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'user-rec',
+          type: 'SESSION_REMINDER_24H:sess-missed-24h',
+          title: 'Reminder: Recovered Session starts in 24 hours',
+          channel: NotificationChannel.IN_APP,
+          deliveryStatus: DeliveryStatus.DELIVERED,
         }),
-      );
+      });
     });
 
     it('does NOT leak 1-on-1 reminders to other batch learners when 1-on-1 session has a batchId', async () => {
@@ -415,17 +404,11 @@ describe('D2-Lifecycle: SessionLifecycleService', () => {
       const stats = await service.processLifecycleTransitions();
 
       expect(stats.reminders24hSent).toBe(1);
-      expect(emailMock.sendTemplateEmail).toHaveBeenCalledTimes(1);
-      expect(emailMock.sendTemplateEmail).toHaveBeenCalledWith(
-        expect.objectContaining({
-          to: 'dedicated@example.com',
-          subject: 'Reminder: 1-on-1 Coaching: Dedicated Learner starts in 24 hours',
-        }),
-      );
       expect(prismaMock.notification.create).toHaveBeenCalledTimes(1);
       expect(prismaMock.notification.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           userId: 'dedicated-user-id',
+          title: 'Reminder: 1-on-1 Coaching: Dedicated Learner starts in 24 hours',
         }),
       });
     });
@@ -471,20 +454,20 @@ describe('D2-Lifecycle: SessionLifecycleService', () => {
       const stats = await service.processLifecycleTransitions();
 
       expect(stats.reminders10mSent).toBe(1);
-      // Verify ONLY the dedicated learner received the email, NOT sahyadri or cohort peers!
-      expect(emailMock.sendTemplateEmail).toHaveBeenCalledTimes(1);
-      expect(emailMock.sendTemplateEmail).toHaveBeenCalledWith(
-        expect.objectContaining({
-          to: 'kamathbro99@gmail.com',
-          subject: 'Reminder: 1-on-1 Coaching: siddhlinga starts in 10 minutes',
+      // Verify ONLY the dedicated learner received the notification, NOT sahyadri or cohort peers!
+      expect(prismaMock.notification.create).toHaveBeenCalledTimes(1);
+      expect(prismaMock.notification.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'sid-user-id',
+          title: 'Reminder: 1-on-1 Coaching: siddhlinga starts in 10 minutes',
         }),
-      );
+      });
       // Gagan / Sahyadri must NOT be notified
-      expect(emailMock.sendTemplateEmail).not.toHaveBeenCalledWith(
-        expect.objectContaining({
-          to: 'gagan.cs22@sahyadri.edu.in',
+      expect(prismaMock.notification.create).not.toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'sahyadri-user-id',
         }),
-      );
+      });
     });
 
     it('does NOT leak Speaker Discovery Call reminders to cohort batch peers', async () => {
@@ -523,13 +506,13 @@ describe('D2-Lifecycle: SessionLifecycleService', () => {
       const stats = await service.processLifecycleTransitions();
 
       expect(stats.reminders1hSent).toBe(1);
-      expect(emailMock.sendTemplateEmail).toHaveBeenCalledTimes(1);
-      expect(emailMock.sendTemplateEmail).toHaveBeenCalledWith(
-        expect.objectContaining({
-          to: 'prospect@example.com',
-          subject: 'Reminder: 1-to-1 Discovery Call: Roweena & Prospect starts in 1 hour',
+      expect(prismaMock.notification.create).toHaveBeenCalledTimes(1);
+      expect(prismaMock.notification.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'prospect-user-id',
+          title: 'Reminder: 1-to-1 Discovery Call: Roweena & Prospect starts in 1 hour',
         }),
-      );
+      });
     });
   });
 

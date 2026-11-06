@@ -515,8 +515,8 @@
 .startBtn,
 .reviewBtn,
 .lockedPill {
-  width: 140px;
   min-width: 140px;
+  width: auto;
   height: 38px;
   min-height: 38px;
   box-sizing: border-box;
@@ -529,7 +529,7 @@
   line-height: 1;
   text-align: center;
   white-space: nowrap;
-  padding: 0 0.65rem;
+  padding: 0 1rem;
   transition: all 0.15s ease;
 }
 

@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Request,
@@ -20,6 +21,7 @@ import { OrgAcademicTrackerService } from './org-academic-tracker.service.js';
 import {
   AssignSeatDto,
   BulkInviteDto,
+  ReassignSeatDto,
   SeatPoolCheckoutDto,
 } from './dto/index.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -137,7 +139,22 @@ export class OrgPortalController {
     @Body() dto: AssignSeatDto,
     @Request() req: any,
   ) {
-    return this.seatsService.assignSeat(orgId, { ...dto, seatId }, req.user);
+    return this.seatsService.assignSeat(orgId, { ...dto, seatId }, req.user, req);
+  }
+
+  /**
+   * Reassign or edit details of an already allocated slot.
+   */
+  @Patch(':orgId/slots/:seatId/reassign')
+  @UseGuards(JwtAuthGuard, OrgScopeGuard, OrgRoleGuard)
+  @RequireOrgRole(OrgMemberRole.OWNER, OrgMemberRole.ADMIN)
+  async reassignSlot(
+    @Param('orgId') orgId: string,
+    @Param('seatId') seatId: string,
+    @Body() dto: ReassignSeatDto,
+    @Request() req: any,
+  ) {
+    return this.seatsService.reassignSeat(orgId, seatId, dto, req.user, req);
   }
 
   /**

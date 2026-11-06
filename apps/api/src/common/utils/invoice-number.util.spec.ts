@@ -26,3 +26,4 @@ describe('generateSequentialInvoiceNumber', () => {
     expect(inv).toMatch(/^WBM-INV-2026-\d{5}$/);
   });
 });
+

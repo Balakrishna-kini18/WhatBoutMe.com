@@ -49,3 +49,4 @@ CREATE TABLE IF NOT EXISTS "InvoiceCounter" (
   "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "InvoiceCounter_pkey" PRIMARY KEY ("year")
 );
+

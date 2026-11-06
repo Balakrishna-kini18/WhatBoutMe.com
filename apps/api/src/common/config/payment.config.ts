@@ -56,3 +56,4 @@ export function assertPaymentConfig(options?: PaymentConfigAssertionOptions): vo
     throw new Error(message);
   }
 }
+

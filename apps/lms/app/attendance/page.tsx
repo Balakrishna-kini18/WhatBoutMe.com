@@ -344,7 +344,7 @@ export default function AttendancePage() {
     ? activeBatch.isEligibleForExam
     : batches.length > 0
       ? batches.every((b) => b.isEligibleForExam)
-      : activeRequiredCount > 0 && activeAttendancePct >= activeThresholdPct;
+      : activeRequiredCount === 0 || activeAttendancePct >= activeThresholdPct;
 
   // Map sessions by date
   const sessionsMap = new Map<string, MySession[]>();
@@ -657,6 +657,11 @@ export default function AttendancePage() {
                               {Icons.checkSmall}
                               <span>Attendance Optional</span>
                             </>
+                          ) : b.requiredSessionCount === 0 || b.complianceStatus === "NOT_APPLICABLE" ? (
+                            <>
+                              {Icons.checkSmall}
+                              <span>Attendance Exempt (No Sessions Held)</span>
+                            </>
                           ) : isCompliant ? (
                             <>
                               {Icons.checkSmall}
@@ -704,9 +709,15 @@ export default function AttendancePage() {
                         }}
                       >
                         <span>
-                          Live Attendance: <strong>{pct}%</strong> ({b.attendedSessionCount} of{" "}
-                          {b.requiredSessionCount} live sessions) • Required:{" "}
-                          <strong>{b.thresholdPercentage}%</strong>
+                          {b.requiredSessionCount === 0 ? (
+                            <>No live sessions conducted yet (Attendance Exempt)</>
+                          ) : (
+                            <>
+                              Live Attendance: <strong>{pct}%</strong> ({b.attendedSessionCount} of{" "}
+                              {b.requiredSessionCount} live sessions) • Required:{" "}
+                              <strong>{b.thresholdPercentage}%</strong>
+                            </>
+                          )}
                         </span>
                         <Link
                           href={`/programs/${b.programId}/steps`}

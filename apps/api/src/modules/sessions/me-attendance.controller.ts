@@ -221,12 +221,14 @@ export class MeAttendanceController {
         if (enr.batchId && this.complianceService) {
           try {
             const comp = await this.complianceService.calculateCompliance(enr.id);
-            const effectivePct =
-              comp.requiredSessionCount === 0
-                ? 0
-                : Math.round(comp.attendancePercentage * 100) / 100;
+            const isZeroSessions =
+              comp.requiredSessionCount === 0 || comp.status === 'NOT_APPLICABLE';
+            const effectivePct = isZeroSessions
+              ? 100
+              : Math.round(comp.attendancePercentage * 100) / 100;
             const isEligibleForExam =
               !attendanceRequired ||
+              isZeroSessions ||
               (comp.requiredSessionCount > 0 &&
                 (comp.status === 'COMPLIANT' || effectivePct >= comp.thresholdUsed));
 
@@ -242,8 +244,7 @@ export class MeAttendanceController {
               requiredSessionCount: comp.requiredSessionCount,
               attendedSessionCount: comp.attendedSessionCount,
               attendancePercentage: effectivePct,
-              complianceStatus:
-                comp.requiredSessionCount === 0 ? 'NOT_COMPLIANT' : comp.status,
+              complianceStatus: isZeroSessions ? 'NOT_APPLICABLE' : comp.status,
               isEligibleForExam,
             };
           } catch {
@@ -256,9 +257,9 @@ export class MeAttendanceController {
         );
         const reqCount = batchCohortSessions.length;
         const attCount = batchCohortSessions.filter((h) => h.attended).length;
-        const pct = reqCount > 0 ? Math.round((attCount / reqCount) * 100) : 0;
+        const pct = reqCount > 0 ? Math.round((attCount / reqCount) * 100) : 100;
         const isEligibleForExam =
-          !attendanceRequired || (reqCount > 0 && pct >= defaultThreshold);
+          !attendanceRequired || reqCount === 0 || (reqCount > 0 && pct >= defaultThreshold);
 
         return {
           enrolmentId: enr.id,
@@ -273,7 +274,11 @@ export class MeAttendanceController {
           attendedSessionCount: attCount,
           attendancePercentage: pct,
           complianceStatus:
-            reqCount > 0 && pct >= defaultThreshold ? 'COMPLIANT' : 'NOT_COMPLIANT',
+            reqCount === 0
+              ? 'NOT_APPLICABLE'
+              : pct >= defaultThreshold
+                ? 'COMPLIANT'
+                : 'NOT_COMPLIANT',
           isEligibleForExam,
         };
       }),

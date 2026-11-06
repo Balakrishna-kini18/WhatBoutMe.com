@@ -104,25 +104,28 @@ export class ExamsService {
     const compliance = await this.attendanceComplianceService.calculateCompliance(
       enrolment.id,
     );
-    const effectivePercentage =
-      compliance.requiredSessionCount === 0
-        ? 0
-        : Math.round(compliance.attendancePercentage * 100) / 100;
+    const isZeroSessions =
+      compliance.requiredSessionCount === 0 || compliance.status === 'NOT_APPLICABLE';
+    const effectivePercentage = isZeroSessions
+      ? 100
+      : Math.round(compliance.attendancePercentage * 100) / 100;
 
     const isEligible =
       isOverridden ||
+      isZeroSessions ||
       (compliance.requiredSessionCount > 0 &&
         (compliance.status === 'COMPLIANT' ||
           effectivePercentage >= compliance.thresholdUsed));
 
     return {
-      isAttendanceRequired: true,
+      isAttendanceRequired: !isZeroSessions && isAttendanceRequired,
       isOverridden,
       isEligible,
       attendancePercentage: effectivePercentage,
       requiredThreshold: compliance.thresholdUsed,
       attendedSessions: compliance.attendedSessionCount,
       totalSessions: compliance.requiredSessionCount,
+      isZeroSessions,
       batchId: enrolment?.batchId || null,
       batchName: enrolment?.batch?.name || null,
     };
@@ -373,10 +376,7 @@ export class ExamsService {
       );
       if (!attendanceGate.isEligible) {
         const batchLabel = attendanceGate.batchName || 'your enrolled batch';
-        const message =
-          attendanceGate.totalSessions === 0
-            ? `Minimum ${attendanceGate.requiredThreshold}% live session attendance in ${batchLabel} is required to take the Final Examination. No live sessions have been conducted for your batch yet (Current: 0% / Required: ${attendanceGate.requiredThreshold}%).`
-            : `Minimum ${attendanceGate.requiredThreshold}% live session attendance in ${batchLabel} is required to take the Final Examination. Your current batch attendance is ${Math.round(attendanceGate.attendancePercentage)}% (${attendanceGate.attendedSessions} of ${attendanceGate.totalSessions} live sessions attended).`;
+        const message = `Minimum ${attendanceGate.requiredThreshold}% live session attendance in ${batchLabel} is required to take the Final Examination. Your current batch attendance is ${Math.round(attendanceGate.attendancePercentage)}% (${attendanceGate.attendedSessions} of ${attendanceGate.totalSessions} live sessions attended).`;
 
         throw new ForbiddenException({
           statusCode: 403,

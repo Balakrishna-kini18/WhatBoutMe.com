@@ -595,6 +595,10 @@ export class StageGateService {
       enrolment.missionStatementApprovedAt = null;
     }
 
+    const isZeroAttendanceSessions =
+      attendanceCompliance.requiredSessionCount === 0 ||
+      attendanceCompliance.status === 'NOT_APPLICABLE';
+
     const stages: Record<LearnerStage, StageStatus> = {
       [LearnerStage.STAGE_1_CURRICULUM]: {
         stage: LearnerStage.STAGE_1_CURRICULUM,
@@ -634,16 +638,16 @@ export class StageGateService {
           oralScheduledDate: latestOral?.scheduledDate ?? null,
           oralTrainerNotes: latestOral?.trainerNotes ?? null,
           oralAssessmentId: latestOral?.id ?? null,
-          attendanceRequired: isAttendanceRequired,
-          attendancePercentage:
-            attendanceCompliance.requiredSessionCount === 0
-              ? 0
-              : attendanceCompliance.attendancePercentage,
+          attendanceRequired: isAttendanceRequired && !isZeroAttendanceSessions,
+          attendancePercentage: isZeroAttendanceSessions
+            ? 100
+            : attendanceCompliance.attendancePercentage,
           attendanceThreshold: attendanceCompliance.thresholdUsed,
           attendedSessions: attendanceCompliance.attendedSessionCount,
           requiredSessions: attendanceCompliance.requiredSessionCount,
           attendanceMetForExam:
             !isAttendanceRequired ||
+            isZeroAttendanceSessions ||
             stage2Overridden ||
             stage3Overridden ||
             Boolean(passedExam) ||
@@ -668,18 +672,20 @@ export class StageGateService {
         isOverridden: stage3Overridden,
         completedAt: stage3CompletedAt,
         details: {
-          attendanceRequired: isAttendanceRequired,
-          complianceStatus: attendanceCompliance.status,
-          attendancePercentage:
-            attendanceCompliance.requiredSessionCount === 0
-              ? 0
-              : attendanceCompliance.attendancePercentage,
+          attendanceRequired: isAttendanceRequired && !isZeroAttendanceSessions,
+          complianceStatus: isZeroAttendanceSessions
+            ? 'NOT_APPLICABLE'
+            : attendanceCompliance.status,
+          attendancePercentage: isZeroAttendanceSessions
+            ? 100
+            : attendanceCompliance.attendancePercentage,
           attendedSessions: attendanceCompliance.attendedSessionCount,
           requiredSessions: attendanceCompliance.requiredSessionCount,
           thresholdPercent: attendanceCompliance.thresholdUsed,
           hasScheduledSessions: attendanceCompliance.requiredSessionCount > 0,
           attendanceMetForExam:
             !isAttendanceRequired ||
+            isZeroAttendanceSessions ||
             stage2Overridden ||
             stage3Overridden ||
             Boolean(passedExam) ||
@@ -689,7 +695,7 @@ export class StageGateService {
                   attendanceCompliance.thresholdUsed)),
         },
         unmetPrerequisites: stage3Unlocked
-          ? !stage3Met
+          ? !stage3Met && !isZeroAttendanceSessions
             ? [
                 `Attendance threshold not met (${Math.round(
                   attendanceCompliance.attendancePercentage,

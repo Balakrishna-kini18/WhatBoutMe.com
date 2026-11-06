@@ -837,13 +837,17 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   );
   const attendedLiveSessions = Number(stage3Details?.attendedSessions ?? 0);
   const requiredLiveSessions = Number(stage3Details?.requiredSessions ?? 0);
-  const liveAttendancePercent =
-    requiredLiveSessions === 0
-      ? 0
-      : Math.round(Number(stage3Details?.attendancePercentage ?? 0));
+  const hasZeroLiveSessions =
+    requiredLiveSessions === 0 ||
+    stage3Details?.complianceStatus === "NOT_APPLICABLE" ||
+    stage3Details?.hasScheduledSessions === false;
+  const liveAttendancePercent = hasZeroLiveSessions
+    ? 100
+    : Math.round(Number(stage3Details?.attendancePercentage ?? 0));
 
   const isAttendanceMetForExam = Boolean(
     !isAttendanceRequired ||
+      hasZeroLiveSessions ||
       stage2State?.isOverridden === true ||
       stage3State?.isOverridden === true ||
       isExamPassed ||
@@ -856,6 +860,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
 
   const isAttendanceSatisfied = Boolean(
     !isAttendanceRequired ||
+      hasZeroLiveSessions ||
       stage3State?.isOverridden === true ||
       isAttendanceMetForExam ||
       (isExamPassed &&
@@ -1301,7 +1306,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                       <p style={{ margin: "4px 0 0", fontSize: "0.84rem", color: "var(--text-secondary, #4a443d)" }}>
                         {isExamPassed
                           ? `Passed with ${examBestScore !== null ? `${examBestScore}%` : "success"}. Examination completed.`
-                          : `${examConfig?.questionCount ? `${examConfig.questionCount} Questions · ` : ""}Pass Mark: ${examConfig?.passMark ?? 80}% · Time Limit: ${examConfig?.timeLimitMin ?? 90} mins${isAttendanceRequired ? ` · Required Batch Attendance: ${attendanceThreshold}%` : ""}`}
+                          : `${examConfig?.questionCount ? `${examConfig.questionCount} Questions · ` : ""}Pass Mark: ${examConfig?.passMark ?? 80}% · Time Limit: ${examConfig?.timeLimitMin ?? 90} mins${isAttendanceRequired && !hasZeroLiveSessions ? ` · Required Batch Attendance: ${attendanceThreshold}%` : ""}`}
                       </p>
 
                       {isAttendanceRequired && !isExamPassed && (
@@ -1316,17 +1321,25 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                             borderRadius: "8px",
                             fontSize: "0.78rem",
                             fontWeight: 600,
-                            background: isAttendanceMetForExam
+                            background: hasZeroLiveSessions
+                              ? "rgba(16, 185, 129, 0.08)"
+                              : isAttendanceMetForExam
                               ? "rgba(22, 163, 74, 0.1)"
                               : "rgba(217, 119, 6, 0.12)",
-                            color: isAttendanceMetForExam ? "#15803d" : "#b45309",
-                            border: isAttendanceMetForExam
+                            color: hasZeroLiveSessions
+                              ? "#059669"
+                              : isAttendanceMetForExam
+                              ? "#15803d"
+                              : "#b45309",
+                            border: hasZeroLiveSessions
+                              ? "1px solid rgba(16, 185, 129, 0.25)"
+                              : isAttendanceMetForExam
                               ? "1px solid rgba(22, 163, 74, 0.25)"
                               : "1px solid rgba(217, 119, 6, 0.3)",
                           }}
                         >
                           <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
-                            {isAttendanceMetForExam ? (
+                            {hasZeroLiveSessions || isAttendanceMetForExam ? (
                               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                                 <polyline points="20 6 9 17 4 12" />
                               </svg>
@@ -1338,7 +1351,9 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                               </svg>
                             )}
                             <span>
-                              {isAttendanceMetForExam
+                              {hasZeroLiveSessions
+                                ? "No live sessions held yet (Attendance Exempt)"
+                                : isAttendanceMetForExam
                                 ? `Attendance Met: ${liveAttendancePercent}%`
                                 : `Low Attendance: ${liveAttendancePercent}% (Min ${attendanceThreshold}%)`}
                             </span>
@@ -1363,10 +1378,12 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                           <span>
                             {!allStepsCompleted
                               ? `Complete all ${total} curriculum steps${
-                                  isAttendanceRequired
+                                  isAttendanceRequired && !hasZeroLiveSessions
                                     ? ` and reach ${attendanceThreshold}% live attendance`
                                     : ""
                                 } to unlock.`
+                              : hasZeroLiveSessions
+                              ? `Complete all curriculum steps to unlock.`
                               : `Requires minimum ${attendanceThreshold}% live attendance to unlock (Current: ${liveAttendancePercent}%).`}
                           </span>
                         </div>
@@ -1400,6 +1417,8 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                           title={
                             !allStepsCompleted
                               ? `Requires completing all ${total} curriculum steps`
+                              : hasZeroLiveSessions
+                              ? `Requires completing all curriculum steps`
                               : `Requires ${attendanceThreshold}% live session attendance (Current: ${liveAttendancePercent}%)`
                           }
                           aria-disabled="true"
@@ -1408,7 +1427,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                             <rect x="4" y="11" width="16" height="10" rx="2" />
                             <path d="M8 11V7a4 4 0 0 1 8 0v4" />
                           </svg>
-                          {allStepsCompleted && !isAttendanceMetForExam
+                          {allStepsCompleted && !isAttendanceMetForExam && !hasZeroLiveSessions
                             ? `Locked (<${attendanceThreshold}% Attendance)`
                             : "Locked"}
                         </span>

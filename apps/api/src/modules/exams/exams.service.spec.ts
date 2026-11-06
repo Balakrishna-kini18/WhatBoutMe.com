@@ -1120,7 +1120,7 @@ describe('D1-038: ExamsService - Comprehensive 50-Question Final Exam', () => {
       expect(complianceMock.calculateCompliance).toHaveBeenCalledWith('enrolment-1');
     });
 
-    it('blocks starting the Final Exam when attendanceRequired is true and 0 live sessions have been conducted in the batch yet', async () => {
+    it('allows starting the Final Exam when attendanceRequired is true but 0 live sessions have been conducted in the batch yet (exempt)', async () => {
       const complianceMock = {
         calculateCompliance: vi.fn().mockResolvedValue({
           status: 'NOT_APPLICABLE',
@@ -1139,6 +1139,7 @@ describe('D1-038: ExamsService - Comprehensive 50-Question Final Exam', () => {
         complianceMock as any,
       );
 
+      const pool = generateQuestions(60);
       prismaMock.exam.findUnique.mockResolvedValueOnce({
         ...mockExam,
         program: {
@@ -1153,10 +1154,16 @@ describe('D1-038: ExamsService - Comprehensive 50-Question Final Exam', () => {
         batch: { id: 'batch-sigma', name: 'Sigma Batch' },
       });
       prismaMock.auditLog.findMany = vi.fn().mockResolvedValueOnce([]);
+      prismaMock.examAttempt.findMany.mockResolvedValueOnce([]);
+      prismaMock.questionBank.findFirst.mockResolvedValueOnce(null);
+      prismaMock.question.findMany.mockResolvedValueOnce(pool);
+      prismaMock.examAttempt.create.mockImplementationOnce(async ({ data }: any) => ({
+        ...data,
+        id: 'attempt-sigma-exempt-gate',
+      }));
 
-      await expect(
-        gatedService.startExam('exam-final-1', mockLearner),
-      ).rejects.toThrow(/No live sessions have been conducted/);
+      const result = await gatedService.startExam('exam-final-1', mockLearner);
+      expect(result).toHaveProperty('attemptId');
     });
 
     it('allows starting the Final Exam when learner meets dynamic Admin attendance threshold (e.g., 75% >= 70% custom threshold)', async () => {

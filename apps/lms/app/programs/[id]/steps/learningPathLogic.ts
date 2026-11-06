@@ -39,7 +39,9 @@ export function computeMilestoneProgression(params: {
 
   const curriculumCompleted = totalSteps > 0 && completedSteps >= totalSteps;
   const examPassed = Boolean(params.examAttempt?.passed);
-  const attendanceSatisfied = params.attendanceCompliance?.status === "COMPLIANT";
+  const attendanceSatisfied =
+    params.attendanceCompliance?.status === "COMPLIANT" ||
+    params.attendanceCompliance?.status === "NOT_APPLICABLE";
   const coachingCompleted =
     Boolean(params.coachingSession?.attended) ||
     params.coachingSession?.status === "COMPLETED";

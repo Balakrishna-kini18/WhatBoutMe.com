@@ -18,6 +18,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { CreateSeatPoolDto, SeatPoolCheckoutDto } from './dto/index.js';
 import { CAPACITY_OCCUPYING_STATUSES } from '../enrollments/enrollments.service.js';
 import { VolumePricingService } from './volume-pricing.service.js';
+import { generateSequentialInvoiceNumber } from '../../common/utils/invoice-number.util.js';
 
 @Injectable()
 export class SeatPoolsService {
@@ -485,6 +486,9 @@ export class SeatPoolsService {
       notes?: string;
       stripeSessionId?: string;
       idempotencyKey?: string;
+      chargedCurrency?: string;
+      chargedAmountMinor?: number;
+      fxRate?: string;
     },
   ) {
     const pool = await this.prisma.seatPool.findUnique({
@@ -501,6 +505,12 @@ export class SeatPoolsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      // Concurrency Guard: re-check status inside transaction to prevent double activation
+      const currentPool = await tx.seatPool.findUnique({ where: { id: poolId } });
+      if (currentPool?.status === SeatPoolStatus.ACTIVE) {
+        return currentPool;
+      }
+
       const updatedPool = await tx.seatPool.update({
         where: { id: poolId },
         data: {
@@ -530,6 +540,7 @@ export class SeatPoolsService {
       }
 
       // Ledger or update Payment record if Stripe/Online session is provided
+      const expectedAmountMinor = Math.round(Number(pool.netAmount) * 100);
       let paymentRecord: any = null;
       if (details?.stripeSessionId) {
         paymentRecord = await tx.payment.upsert({
@@ -539,6 +550,11 @@ export class SeatPoolsService {
             amount: pool.netAmount,
             currency: pool.currency,
             seatPoolId: pool.id,
+            expectedAmountMinor,
+            expectedCurrency: pool.currency || 'USD',
+            chargedCurrency: details?.chargedCurrency || pool.currency || 'USD',
+            chargedAmountMinor: details?.chargedAmountMinor || expectedAmountMinor,
+            fxRate: details?.fxRate || null,
           },
           create: {
             seatPoolId: pool.id,
@@ -547,12 +563,22 @@ export class SeatPoolsService {
             currency: pool.currency,
             status: 'succeeded',
             idempotencyKey: details.idempotencyKey || null,
+            expectedAmountMinor,
+            expectedCurrency: pool.currency || 'USD',
+            chargedCurrency: details?.chargedCurrency || pool.currency || 'USD',
+            chargedAmountMinor: details?.chargedAmountMinor || expectedAmountMinor,
+            fxRate: details?.fxRate || null,
           },
         }).catch(() => null);
       }
 
       // Generate or update WhatBoutMe FZE Tax Invoice to PAID
-      const invoiceNumber = `WBM-INV-${new Date().getFullYear()}-${pool.poolCode.replace('SP-', '')}`;
+      const existingInvoice = await tx.invoice.findFirst({
+        where: { seatPoolId: pool.id },
+      });
+
+      const invoiceNumber = existingInvoice?.invoiceNumber || (await generateSequentialInvoiceNumber(tx));
+
       await tx.invoice.upsert({
         where: { invoiceNumber },
         create: {

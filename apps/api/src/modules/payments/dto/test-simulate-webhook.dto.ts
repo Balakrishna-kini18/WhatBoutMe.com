@@ -79,4 +79,16 @@ export class TestSimulateWebhookDto {
   @IsString()
   @IsOptional()
   failureReason?: string;
+
+  @IsString()
+  @IsOptional()
+  chargedCurrency?: string;
+
+  @IsNumber()
+  @IsOptional()
+  chargedAmountMinor?: number;
+
+  @IsString()
+  @IsOptional()
+  fxRate?: string;
 }

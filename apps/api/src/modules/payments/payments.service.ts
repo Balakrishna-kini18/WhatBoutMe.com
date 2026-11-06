@@ -27,6 +27,7 @@ import { CouponsService } from '../coupons/coupons.service.js';
 import { SeatPoolsService } from '../organizations/seat-pools.service.js';
 import { InvoicePdfService } from '../invoices/invoice-pdf.service.js';
 import { isRegistrationDeadlinePassed } from '../../common/utils/deadline.util.js';
+import { generateSequentialInvoiceNumber } from '../../common/utils/invoice-number.util.js';
 import { isUUID } from 'class-validator';
 
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/i;
@@ -867,7 +868,7 @@ export class PaymentsService {
     const subtotal = Math.round((finalAmount - taxAmount) * 100) / 100;
     const totalInvoiceAmount = finalAmount;
 
-    const invoiceNumber = `INV-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
+    const invoiceNumber = await generateSequentialInvoiceNumber(this.prisma);
 
     // Execute Atomic Database Mutation
     const result = await this.prisma.$transaction(async (tx) => {
@@ -1396,6 +1397,9 @@ export class PaymentsService {
         notes: 'Paid securely via Stripe Checkout',
         stripeSessionId: dto.stripeSessionId,
         idempotencyKey,
+        chargedCurrency: dto.chargedCurrency,
+        chargedAmountMinor: dto.chargedAmountMinor,
+        fxRate: dto.fxRate,
       });
     } else {
       await this.prisma.seatPool.update({
@@ -1584,6 +1588,17 @@ export class PaymentsService {
       const targetType = (meta.targetType as PaymentTargetType) || 'ENROLMENT';
       const targetId = meta.targetId || meta.enrolmentId || meta.poolId;
 
+      const baseAmountUSD = meta.baseAmountUSD ? Number(meta.baseAmountUSD) : undefined;
+      const isAdaptive = Boolean(
+        baseAmountUSD &&
+        verification.currency &&
+        verification.currency.toUpperCase() !== 'USD',
+      );
+      const chargedCurrency = verification.currency;
+      const chargedAmountMinor = Math.round(Number(verification.amount) * 100);
+      const authoritativeAmount = isAdaptive ? baseAmountUSD! : verification.amount;
+      const authoritativeCurrency: SupportedCurrency = isAdaptive ? 'USD' : (verification.currency as SupportedCurrency);
+
       return await this.simulateTestWebhook({
         targetType,
         targetId,
@@ -1591,10 +1606,12 @@ export class PaymentsService {
         poolId: meta.poolId || (targetType === 'SEAT_POOL' ? targetId : undefined),
         registrationId: meta.registrationId || targetId,
         status: 'PAID',
-        amount: verification.amount,
-        currency: verification.currency,
+        amount: authoritativeAmount,
+        currency: authoritativeCurrency,
         idempotencyKey: meta.idempotencyKey,
         stripeSessionId: verification.orderId || verification.transactionId,
+        chargedCurrency,
+        chargedAmountMinor,
       });
     }
 

@@ -8,6 +8,7 @@ import {
   HttpCode,
   HttpStatus,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { PaymentsService } from './payments.service.js';
@@ -56,7 +57,15 @@ export class PaymentsController {
     @Req() req: any,
     @Headers('stripe-signature') signature: string,
   ) {
-    const rawPayload = req.rawBody || req.body;
+    if (!signature) {
+      throw new BadRequestException('Missing stripe-signature header.');
+    }
+    const rawPayload = req.rawBody || (typeof req.body === 'string' ? Buffer.from(req.body, 'utf8') : null);
+    if (!rawPayload || !Buffer.isBuffer(rawPayload)) {
+      throw new BadRequestException(
+        'Raw buffer body is strictly required for cryptographic Stripe signature verification.',
+      );
+    }
     return this.paymentsService.handleStripeWebhook(rawPayload, signature, req.headers);
   }
 

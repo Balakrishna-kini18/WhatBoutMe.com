@@ -182,36 +182,54 @@ export class StripePaymentProvider implements IPaymentProvider {
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
     if (!stripe || !webhookSecret) {
-      this.logger.warn(
-        '[StripeProvider] Stripe SDK or webhook secret missing; performing standard JSON extraction.'
+      this.logger.error(
+        '[StripeProvider] Stripe SDK or STRIPE_WEBHOOK_SECRET missing; refusing unverified webhook processing.'
       );
-      const dataObj = params.rawPayload?.data?.object || params.rawPayload || {};
-      const status = dataObj?.payment_status === 'paid' || dataObj?.status === 'succeeded' ? 'PAID' : 'FAILED';
       return {
-        isVerified: !process.env.NODE_ENV || process.env.NODE_ENV !== 'production',
-        eventType: params.rawPayload?.type || 'checkout.session.completed',
-        transactionId: dataObj?.id || `pi_${Date.now()}`,
-        orderId: dataObj?.id,
-        status,
-        amount: (dataObj?.amount_total || 0) / 100,
-        currency: (dataObj?.currency || 'USD').toUpperCase(),
-        metadata: dataObj?.metadata || {},
+        isVerified: false,
+        eventType: 'missing_credentials',
+        transactionId: '',
+        orderId: undefined,
+        status: 'FAILED',
+        amount: 0,
+        currency: 'USD',
+      };
+    }
+
+    if (!params.signature) {
+      this.logger.warn('[StripeProvider] Webhook request missing stripe-signature header.');
+      return {
+        isVerified: false,
+        eventType: 'missing_signature',
+        transactionId: '',
+        orderId: undefined,
+        status: 'FAILED',
+        amount: 0,
+        currency: 'USD',
+      };
+    }
+
+    if (!Buffer.isBuffer(params.rawPayload) && typeof params.rawPayload !== 'string') {
+      this.logger.warn(
+        '[StripeProvider] Webhook payload is not a Buffer or string; refusing to parse unverified payload.'
+      );
+      return {
+        isVerified: false,
+        eventType: 'invalid_payload_type',
+        transactionId: '',
+        orderId: undefined,
+        status: 'FAILED',
+        amount: 0,
+        currency: 'USD',
       };
     }
 
     try {
-      let event: Stripe.Event;
-
-      if (Buffer.isBuffer(params.rawPayload) || typeof params.rawPayload === 'string') {
-        event = stripe.webhooks.constructEvent(
-          params.rawPayload,
-          params.signature || '',
-          webhookSecret
-        );
-      } else {
-        // Fallback if payload was already parsed
-        event = params.rawPayload;
-      }
+      const event: Stripe.Event = stripe.webhooks.constructEvent(
+        params.rawPayload,
+        params.signature,
+        webhookSecret,
+      );
 
       const dataObj = event.data?.object as any;
       let status: 'PAID' | 'FAILED' | 'REFUNDED' = 'FAILED';
@@ -223,7 +241,7 @@ export class StripePaymentProvider implements IPaymentProvider {
         status = 'PAID';
       } else if (
         event.type === 'charge.refunded' ||
-          (event.type as string) === 'payment.refunded'
+        (event.type as string) === 'payment.refunded'
       ) {
         status = 'REFUNDED';
       }

@@ -1803,7 +1803,7 @@ export async function generateLeadCheckoutPaymentLink(
 
   const data = await res.json();
   const token = data.token || data.checkoutToken || `tok_${params.leadId}_${Date.now()}`;
-  const origin = typeof window !== "undefined" ? window.location.origin : "https://whatboutme.com";
+  const origin = getMarketingUrl();
   const checkoutUrl = data.checkoutUrl || `${origin}/checkout?token=${token}`;
   const expiresAtUtc = data.expiresAtUtc || new Date(Date.now() + (params.expiresHours || 72) * 3600 * 1000).toISOString();
 

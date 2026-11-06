@@ -4,6 +4,10 @@ export class PasswordResetRequestDto {
   @IsEmail({}, { message: 'Valid email is required' })
   @IsNotEmpty({ message: 'Email is required' })
   email: string;
+
+  @IsOptional()
+  @IsString()
+  origin?: string;
 }
 
 export class PasswordResetConfirmDto {

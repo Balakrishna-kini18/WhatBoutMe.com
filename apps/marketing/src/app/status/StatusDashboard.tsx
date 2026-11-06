@@ -125,7 +125,7 @@ export default function StatusDashboard() {
   const services = [
     {
       name: "Main Web Application",
-      url: typeof window !== "undefined" ? window.location.origin : (process.env.NEXT_PUBLIC_SITE_URL || "https://whatboutme.com"),
+      url: typeof window !== "undefined" ? window.location.origin : (process.env.NEXT_PUBLIC_MARKETING_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://whatboutme.com"),
       description: "Frontend Next.js marketing and course platform",
       port: 3000,
       icon: Code2,

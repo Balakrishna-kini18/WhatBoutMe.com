@@ -1334,110 +1334,16 @@ export default function ExamPage({
         {/* Exam Rules & Integrity */}
         <ul style={{ color: "#64748b", fontSize: "0.875rem", lineHeight: 1.6, paddingLeft: "1.25rem", marginBottom: "1.5rem" }}>
           <li>All curriculum steps must be completed prior to sitting this exam.</li>
-          {config?.attendanceGate?.isAttendanceRequired !== false && config?.attendanceGate?.totalSessions !== 0 && (
-            <li>
-              Minimum <strong>{config?.attendanceGate?.requiredThreshold ?? 80}%</strong> live session attendance in your enrolled batch is required to unlock this exam.
-            </li>
-          )}
           <li>The countdown timer starts immediately once you click Start Exam.</li>
           <li>Unsubmitted answers are automatically collected upon timer expiry.</li>
           <li>Scoring and pass status are calculated exclusively by the server.</li>
         </ul>
 
-        {/* Live Session Attendance Gate Notice */}
-        {config?.attendanceGate?.isAttendanceRequired && (!result || !result.passed) && (
-          <div
-            style={{
-              backgroundColor: config.attendanceGate.totalSessions === 0
-                ? "#f0fdf4"
-                : config.attendanceGate.isEligible ? "#f0fdf4" : "#fffbeb",
-              border: config.attendanceGate.totalSessions === 0
-                ? "1px solid #86efac"
-                : config.attendanceGate.isEligible ? "1px solid #86efac" : "1px solid #f59e0b",
-              color: config.attendanceGate.totalSessions === 0
-                ? "#166534"
-                : config.attendanceGate.isEligible ? "#166534" : "#92400e",
-              padding: "14px 16px",
-              borderRadius: "10px",
-              marginBottom: "1.5rem",
-              display: "flex",
-              flexDirection: "column",
-              gap: "6px",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
-              <strong style={{ fontSize: "0.92rem", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                {config.attendanceGate.totalSessions === 0 ? (
-                  <>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                    <span>Live Sessions: None Held (Attendance Exempt)</span>
-                  </>
-                ) : config.attendanceGate.isEligible ? (
-                  <>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                    <span>Batch Live Session Attendance Requirement Met</span>
-                  </>
-                ) : (
-                  <>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <rect x="4" y="11" width="16" height="10" rx="2" />
-                      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-                    </svg>
-                    <span>Final Exam Locked — Live Session Attendance Below Threshold</span>
-                  </>
-                )}
-              </strong>
-              <Link
-                href="/attendance"
-                style={{
-                  color: "inherit",
-                  fontWeight: 700,
-                  fontSize: "0.84rem",
-                  textDecoration: "underline",
-                }}
-              >
-                View Batch Attendance →
-              </Link>
-            </div>
-            {config.attendanceGate.totalSessions === 0 ? (
-              <p style={{ margin: 0, fontSize: "0.86rem", lineHeight: 1.5 }}>
-                No live sessions have been scheduled or conducted for this batch yet. Attendance is exempt and you may sit the examination directly.
-              </p>
-            ) : (
-              <>
-                <p style={{ margin: 0, fontSize: "0.86rem", lineHeight: 1.5 }}>
-                  {config.attendanceGate.batchName ? (
-                    <>
-                      Batch: <strong>{config.attendanceGate.batchName}</strong> •{" "}
-                    </>
-                  ) : null}
-                  Your Attendance: <strong>{Math.round(config.attendanceGate.attendancePercentage)}%</strong> (
-                  {config.attendanceGate.attendedSessions} of {config.attendanceGate.totalSessions} live sessions attended) • Required:{" "}
-                  <strong>{config.attendanceGate.requiredThreshold}%</strong>
-                </p>
-                {!config.attendanceGate.isEligible && (
-                  <p style={{ margin: 0, fontSize: "0.82rem", opacity: 0.9 }}>
-                    You must attend at least {config.attendanceGate.requiredThreshold}% of the live sessions conducted for {config.attendanceGate.batchName || "your batch"} before you can attend the Final Examination.
-                  </p>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
         {/* Start / Retry Button */}
         {(!result || !result.passed) && (() => {
-          const isAttendanceBlocked =
-            config?.attendanceGate?.isAttendanceRequired === true &&
-            config?.attendanceGate?.totalSessions !== 0 &&
-            config?.attendanceGate?.isEligible === false;
           const isAttemptsExhausted =
             (result?.attemptsRemaining ?? 1) <= 0 && result !== null;
-          const isBtnDisabled = loading || isAttemptsExhausted || isAttendanceBlocked;
+          const isBtnDisabled = loading || isAttemptsExhausted;
           return (
             <button
               type="button"
@@ -1455,9 +1361,7 @@ export default function ExamPage({
                 cursor: isBtnDisabled ? "not-allowed" : "pointer",
               }}
             >
-              {isAttendanceBlocked
-                ? `Locked — Requires ${config?.attendanceGate?.requiredThreshold ?? 80}% Batch Live Attendance (Current: ${Math.round(config?.attendanceGate?.attendancePercentage ?? 0)}%)`
-                : result
+              {result
                 ? `Start Next Attempt (${config?.questionCount ? `${config.questionCount} Questions` : "Exam"})`
                 : `Begin ${config?.questionCount ? `${config.questionCount}-Mark ` : ""}Final Examination`}
             </button>

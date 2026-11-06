@@ -1078,65 +1078,12 @@ describe('D1-038: ExamsService - Comprehensive 50-Question Final Exam', () => {
     });
   });
 
-  describe('7. Live-Session Batch Attendance Gate on Final Examination', () => {
-    it('blocks starting the Final Exam when learner batch live-session attendance is below threshold (e.g., 50% < 80% in Sigma Batch)', async () => {
-      const complianceMock = {
-        calculateCompliance: vi.fn().mockResolvedValue({
-          status: 'NOT_COMPLIANT',
-          thresholdUsed: 80,
-          requiredSessionCount: 4,
-          attendedSessionCount: 2,
-          attendancePercentage: 50,
-        }),
-      };
-
-      const gatedService = new ExamsService(
+  describe('7. Final Examination Milestone Independence', () => {
+    it('allows starting the Final Exam when learner completes foundational curriculum steps without attendance restriction', async () => {
+      const service = new ExamsService(
         prismaMock,
         cacheHelperMock,
         progressionServiceMock,
-        undefined,
-        complianceMock as any,
-      );
-
-      prismaMock.exam.findUnique.mockResolvedValueOnce({
-        ...mockExam,
-        program: {
-          ...mockExam.program,
-          attendanceRequired: true,
-          attendanceThreshold: 80,
-        },
-      });
-      prismaMock.enrolment.findFirst.mockResolvedValueOnce({
-        ...mockEnrolment,
-        batchId: 'batch-sigma',
-        batch: { id: 'batch-sigma', name: 'Sigma Batch' },
-      });
-      prismaMock.auditLog.findMany = vi.fn().mockResolvedValueOnce([]);
-
-      await expect(
-        gatedService.startExam('exam-final-1', mockLearner),
-      ).rejects.toThrow(ForbiddenException);
-
-      expect(complianceMock.calculateCompliance).toHaveBeenCalledWith('enrolment-1');
-    });
-
-    it('allows starting the Final Exam when attendanceRequired is true but 0 live sessions have been conducted in the batch yet (exempt)', async () => {
-      const complianceMock = {
-        calculateCompliance: vi.fn().mockResolvedValue({
-          status: 'NOT_APPLICABLE',
-          thresholdUsed: 80,
-          requiredSessionCount: 0,
-          attendedSessionCount: 0,
-          attendancePercentage: 100,
-        }),
-      };
-
-      const gatedService = new ExamsService(
-        prismaMock,
-        cacheHelperMock,
-        progressionServiceMock,
-        undefined,
-        complianceMock as any,
       );
 
       const pool = generateQuestions(60);
@@ -1153,114 +1100,39 @@ describe('D1-038: ExamsService - Comprehensive 50-Question Final Exam', () => {
         batchId: 'batch-sigma',
         batch: { id: 'batch-sigma', name: 'Sigma Batch' },
       });
-      prismaMock.auditLog.findMany = vi.fn().mockResolvedValueOnce([]);
       prismaMock.examAttempt.findMany.mockResolvedValueOnce([]);
       prismaMock.questionBank.findFirst.mockResolvedValueOnce(null);
       prismaMock.question.findMany.mockResolvedValueOnce(pool);
       prismaMock.examAttempt.create.mockImplementationOnce(async ({ data }: any) => ({
         ...data,
-        id: 'attempt-sigma-exempt-gate',
-      }));
-
-      const result = await gatedService.startExam('exam-final-1', mockLearner);
-      expect(result).toHaveProperty('attemptId');
-    });
-
-    it('allows starting the Final Exam when learner meets dynamic Admin attendance threshold (e.g., 75% >= 70% custom threshold)', async () => {
-      const complianceMock = {
-        calculateCompliance: vi.fn().mockResolvedValue({
-          status: 'COMPLIANT',
-          thresholdUsed: 70,
-          requiredSessionCount: 4,
-          attendedSessionCount: 3,
-          attendancePercentage: 75,
-        }),
-      };
-
-      const gatedService = new ExamsService(
-        prismaMock,
-        cacheHelperMock,
-        progressionServiceMock,
-        undefined,
-        complianceMock as any,
-      );
-
-      const pool = generateQuestions(60);
-      prismaMock.exam.findUnique.mockResolvedValueOnce({
-        ...mockExam,
-        program: {
-          ...mockExam.program,
-          attendanceRequired: true,
-          attendanceThreshold: 70,
-        },
-      });
-      prismaMock.enrolment.findFirst.mockResolvedValueOnce({
-        ...mockEnrolment,
-        batchId: 'batch-sigma',
-        batch: { id: 'batch-sigma', name: 'Sigma Batch' },
-      });
-      prismaMock.auditLog.findMany = vi.fn().mockResolvedValueOnce([]);
-      prismaMock.examAttempt.findMany.mockResolvedValueOnce([]);
-      prismaMock.questionBank.findFirst.mockResolvedValueOnce(null);
-      prismaMock.question.findMany.mockResolvedValueOnce(pool);
-      prismaMock.examAttempt.create.mockImplementationOnce(async ({ data }: any) => ({
-        ...data,
-        id: 'attempt-sigma-pass-gate',
+        id: 'attempt-curriculum-complete-pass',
         startedAt: new Date(),
       }));
 
-      const res = await gatedService.startExam('exam-final-1', mockLearner);
-      expect(res.attemptId).toBe('attempt-sigma-pass-gate');
+      const res = await service.startExam('exam-final-1', mockLearner);
+      expect(res.attemptId).toBe('attempt-curriculum-complete-pass');
       expect(res.questions).toHaveLength(50);
     });
 
-    it('allows starting the Final Exam when Admin issues STAGE_UNLOCK_OVERRIDE even if attendance is below threshold', async () => {
-      const complianceMock = {
-        calculateCompliance: vi.fn().mockResolvedValue({
-          status: 'NOT_COMPLIANT',
-          thresholdUsed: 80,
-          requiredSessionCount: 4,
-          attendedSessionCount: 1,
-          attendancePercentage: 25,
-        }),
-      };
-
-      const gatedService = new ExamsService(
+    it('returns attendanceGate as eligible so exam is never blocked by attendance', async () => {
+      const service = new ExamsService(
         prismaMock,
         cacheHelperMock,
         progressionServiceMock,
-        undefined,
-        complianceMock as any,
       );
 
-      const pool = generateQuestions(60);
-      prismaMock.exam.findUnique.mockResolvedValueOnce({
+      prismaMock.exam.findFirst.mockResolvedValueOnce({
         ...mockExam,
         program: {
           ...mockExam.program,
           attendanceRequired: true,
-          attendanceThreshold: 80,
         },
       });
-      prismaMock.enrolment.findFirst.mockResolvedValueOnce({
-        ...mockEnrolment,
-        batchId: 'batch-sigma',
-        batch: { id: 'batch-sigma', name: 'Sigma Batch' },
-      });
-      prismaMock.auditLog.findMany = vi.fn().mockResolvedValueOnce([
-        { meta: { stage: 'STAGE_3_ATTENDANCE' } },
-      ]);
-      prismaMock.examAttempt.findMany.mockResolvedValueOnce([]);
-      prismaMock.questionBank.findFirst.mockResolvedValueOnce(null);
-      prismaMock.question.findMany.mockResolvedValueOnce(pool);
-      prismaMock.examAttempt.create.mockImplementationOnce(async ({ data }: any) => ({
-        ...data,
-        id: 'attempt-override-gate',
-        startedAt: new Date(),
-      }));
+      prismaMock.enrolment.findFirst.mockResolvedValueOnce(mockEnrolment);
 
-      const res = await gatedService.startExam('exam-final-1', mockLearner);
-      expect(res.attemptId).toBe('attempt-override-gate');
+      const config = await service.getExamConfig('prog-1', mockLearner.id);
+      expect(config.attendanceGate?.isEligible).toBe(true);
+      expect(config.attendanceGate?.isAttendanceRequired).toBe(false);
     });
   });
 });

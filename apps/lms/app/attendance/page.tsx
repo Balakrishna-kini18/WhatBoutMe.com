@@ -501,9 +501,9 @@ export default function AttendancePage() {
             <section className={styles.batchesPanel} aria-label="Enrolled Batch Attendance Compliance">
               <div className={styles.batchesPanelHead}>
                 <div>
-                  <h2 className={styles.batchesPanelTitle}>Batch Attendance &amp; Final Exam Eligibility</h2>
+                  <h2 className={styles.batchesPanelTitle}>Batch Attendance &amp; 1-on-1 Coaching Eligibility</h2>
                   <p className={styles.batchesPanelSubtitle}>
-                    Live session attendance is evaluated per enrolled batch. Reach the minimum attendance threshold in your batch to unlock the Final Examination.
+                    Live session attendance is evaluated per enrolled batch. Reach the minimum attendance threshold in your batch to unlock 1-on-1 Coaching with your trainer.
                   </p>
                 </div>
               </div>
@@ -665,12 +665,12 @@ export default function AttendancePage() {
                           ) : isCompliant ? (
                             <>
                               {Icons.checkSmall}
-                              <span>Final Exam Unlocked (≥{b.thresholdPercentage}%)</span>
+                              <span>1-on-1 Coaching Unlocked (≥{b.thresholdPercentage}%)</span>
                             </>
                           ) : (
                             <>
                               {Icons.lockSmall}
-                              <span>Final Exam Locked (&lt;{b.thresholdPercentage}%)</span>
+                              <span>1-on-1 Coaching Locked (&lt;{b.thresholdPercentage}%)</span>
                             </>
                           )}
                         </span>
@@ -962,7 +962,7 @@ export default function AttendancePage() {
                 <div className={styles.tileLabel}>Live Sessions</div>
               </div>
 
-              {/* Tile 3: Final Exam Gate */}
+              {/* Tile 3: 1-on-1 Coaching Gate */}
               <div className={styles.statTile}>
                   <div className={isActiveExamEligible ? styles.tileIconGreen : styles.tileIconLocked}>
                     {isActiveExamEligible ? (
@@ -982,7 +982,7 @@ export default function AttendancePage() {
                   >
                     {loading ? "–" : isActiveExamEligible ? "Eligible" : "Locked"}
                   </div>
-                  <div className={styles.tileLabel}>Final Exam</div>
+                  <div className={styles.tileLabel}>1-on-1 Coaching</div>
                 </div>
               </div>
             </div>

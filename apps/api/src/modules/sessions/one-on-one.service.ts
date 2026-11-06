@@ -20,6 +20,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { StageGateService } from '../progression/stage-gate.service.js';
+import { AttendanceComplianceService } from './attendance-compliance.service.js';
 import { EmailService } from '../email/email.service.js';
 import { MEETING_PROVIDER } from '../../common/interfaces/meeting-provider.interface.js';
 import {
@@ -61,18 +62,19 @@ export class OneOnOneService {
     private readonly stageGateService: StageGateService,
     private readonly emailService: EmailService,
     @Optional() @Inject(MEETING_PROVIDER) private readonly meetingProvider: any,
+    @Optional() private readonly attendanceComplianceService?: AttendanceComplianceService,
   ) {}
 
   /**
-   * Learner creates a 1-on-1 coaching request (gated by Post-Exam / Stage 4 milestone).
+   * Learner creates a 1-on-1 coaching request (gated by Final Exam & Stage 3 Live Attendance milestone).
    */
   async createRequest(userId: string, dto: CreateOneOnOneRequestDto) {
-    // Fast-path parallel query: fetch enrolment, duplicate pending check, and passed exam status in 1 round-trip
+    // Fast-path parallel query: fetch enrolment with program & batch, duplicate pending check, and passed exam status
     const hasExamAttemptReader = typeof (this.prisma as any).examAttempt?.findFirst === 'function';
     const [enrolment, existingPending, fastPassedExam] = await Promise.all([
       this.prisma.enrolment.findUnique({
         where: { id: dto.enrolmentId },
-        include: { program: true },
+        include: { program: true, batch: true },
       }),
       this.prisma.oneOnOneRequest.findFirst({
         where: {
@@ -91,50 +93,81 @@ export class OneOnOneService {
         : Promise.resolve(null),
     ]);
 
-    const fastUnlockedByExam = Boolean(
-      enrolment?.examPassedAt ||
-        fastPassedExam ||
-        (enrolment?.program && (enrolment.program as any).requireExam === false),
-    );
-
-    // 1. Stage gate enforcement: only invoke full stage evaluation if fast-path exam check did not already satisfy it
-    if (!fastUnlockedByExam) {
-      try {
-        await this.stageGateService.assertStageUnlocked(
-          dto.enrolmentId,
-          LearnerStage.STAGE_4_ONE_ON_ONE,
-        );
-      } catch (stageErr: any) {
-        let unlockedViaExam = false;
-        const evalResult =
-          stageErr?.evaluation ??
-          (typeof this.stageGateService?.evaluateStages === 'function'
-            ? await this.stageGateService.evaluateStages(dto.enrolmentId).catch(() => null)
-            : null);
-
-        const s2 = evalResult?.stages?.[LearnerStage.STAGE_2_EXAM];
-        const s4 = evalResult?.stages?.[LearnerStage.STAGE_4_ONE_ON_ONE];
-        if (
-          s4?.isUnlocked ||
-          s4?.isOverridden ||
-          s2?.isCompleted ||
-          s2?.isOverridden ||
-          s2?.details?.examPassed === true
-        ) {
-          unlockedViaExam = true;
-        }
-        if (!unlockedViaExam) {
-          throw stageErr;
-        }
-      }
-    }
-
     if (!enrolment) {
       throw new NotFoundException(`Enrolment with ID ${dto.enrolmentId} not found`);
     }
 
     if (enrolment.userId !== userId) {
       throw new ForbiddenException('You can only request 1-on-1 coaching for your own enrolment');
+    }
+
+    // 1. Check for staff STAGE_UNLOCK_OVERRIDE (allows Admin/Manager override)
+    let isStageOverridden = false;
+    if (this.prisma.auditLog?.findMany) {
+      const stageOverrides = await this.prisma.auditLog
+        .findMany({
+          where: {
+            entity: 'Enrolment',
+            entityId: enrolment.id,
+            action: 'STAGE_UNLOCK_OVERRIDE',
+          },
+          select: { meta: true },
+        })
+        .catch(() => []);
+
+      for (const log of stageOverrides) {
+        const stage = (log?.meta as any)?.stage;
+        if (
+          stage === LearnerStage.STAGE_4_ONE_ON_ONE ||
+          stage === LearnerStage.STAGE_3_ATTENDANCE
+        ) {
+          isStageOverridden = true;
+          break;
+        }
+      }
+    }
+
+    // 2. Final Examination Prerequisite: Learner must pass the Final Exam first
+    const isExamRequired = (enrolment.program as any)?.requireExam !== false;
+    const hasPassedExam = Boolean(enrolment.examPassedAt || fastPassedExam);
+    if (isExamRequired && !hasPassedExam && !isStageOverridden) {
+      let unlockedViaStage = false;
+      try {
+        await this.stageGateService.assertStageUnlocked(
+          dto.enrolmentId,
+          LearnerStage.STAGE_4_ONE_ON_ONE,
+        );
+        unlockedViaStage = true;
+      } catch {}
+      if (!unlockedViaStage) {
+        throw new ForbiddenException(
+          'Prerequisite incomplete: You must pass the Final Examination before scheduling a 1-on-1 coaching session',
+        );
+      }
+    }
+
+    // 3. Live Batch Attendance Prerequisite: Learner must meet batch attendance threshold
+    const isAttendanceRequired = (enrolment.program as any)?.attendanceRequired !== false;
+    if (isAttendanceRequired && !isStageOverridden && this.attendanceComplianceService) {
+      const compliance = await this.attendanceComplianceService.calculateCompliance(
+        enrolment.id,
+      );
+      const isZeroSessions =
+        compliance.requiredSessionCount === 0 || compliance.status === 'NOT_APPLICABLE';
+
+      if (!isZeroSessions && compliance.status === 'NOT_COMPLIANT') {
+        const batchLabel = (enrolment as any).batch?.name || 'your enrolled batch';
+        const effectivePct = Math.round(compliance.attendancePercentage);
+        throw new ForbiddenException({
+          statusCode: 403,
+          error: 'ATTENDANCE_THRESHOLD_NOT_MET',
+          message: `Minimum ${compliance.thresholdUsed}% live session attendance in ${batchLabel} is required to schedule a 1-on-1 coaching session. Current attendance is ${effectivePct}% (${compliance.attendedSessionCount} of ${compliance.requiredSessionCount} sessions attended).`,
+          attendancePercentage: effectivePct,
+          requiredThreshold: compliance.thresholdUsed,
+          attendedSessions: compliance.attendedSessionCount,
+          totalSessions: compliance.requiredSessionCount,
+        });
+      }
     }
 
     if (existingPending) {

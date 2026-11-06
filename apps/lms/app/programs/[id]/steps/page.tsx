@@ -845,43 +845,31 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
     ? 100
     : Math.round(Number(stage3Details?.attendancePercentage ?? 0));
 
-  const isAttendanceMetForExam = Boolean(
-    !isAttendanceRequired ||
-      hasZeroLiveSessions ||
-      stage2State?.isOverridden === true ||
-      stage3State?.isOverridden === true ||
-      isExamPassed ||
-      examAttempt?.status === "IN_PROGRESS" ||
-      stage3Details?.attendanceMetForExam === true ||
-      (requiredLiveSessions > 0 &&
-        (stage3Details?.complianceStatus === "COMPLIANT" ||
-          liveAttendancePercent >= attendanceThreshold))
-  );
+  const stage4State = stagesEval?.stages?.STAGE_4_ONE_ON_ONE;
+  const stage4Details = stage4State?.details as any;
+  const isCoachingRequired = stage4Details?.isRequired !== false;
 
   const isAttendanceSatisfied = Boolean(
     !isAttendanceRequired ||
       hasZeroLiveSessions ||
       stage3State?.isOverridden === true ||
-      isAttendanceMetForExam ||
-      (isExamPassed &&
-        (stage3State?.isCompleted ||
-          stage3Details?.complianceStatus === "COMPLIANT" ||
-          stage3Details?.complianceStatus === "NOT_APPLICABLE"))
+      stage4State?.isOverridden === true ||
+      stage3State?.isCompleted === true ||
+      stage3Details?.complianceStatus === "COMPLIANT" ||
+      stage3Details?.complianceStatus === "NOT_APPLICABLE" ||
+      liveAttendancePercent >= attendanceThreshold
   );
 
   const isExamUnlocked = Boolean(
-    (allStepsCompleted && isAttendanceMetForExam) ||
+    allStepsCompleted ||
       stage2State?.isOverridden === true ||
       isExamPassed
   );
 
-  const stage4State = stagesEval?.stages?.STAGE_4_ONE_ON_ONE;
-  const stage4Details = stage4State?.details as any;
-  const isCoachingRequired = stage4Details?.isRequired !== false;
   const isCoachingUnlocked = Boolean(
-    stage4State?.isUnlocked ||
     stage4State?.isOverridden === true ||
-    (isExamUnlocked && isExamPassed && isAttendanceSatisfied)
+    (isExamPassed && isAttendanceSatisfied) ||
+    stage4State?.isUnlocked
   );
   const coachingRequestsSorted = [...coachingRequests].sort(
     (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
@@ -948,7 +936,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
     examPassed: isExamPassed,
     examScore: examBestScore,
     attendanceRequired: isAttendanceRequired,
-    attendanceMetForExam: isAttendanceMetForExam,
+    attendanceSatisfied: isAttendanceSatisfied,
     attendancePercentage: liveAttendancePercent,
     attendanceThreshold: attendanceThreshold,
     coachingCompleted: isCoachingCompleted,
@@ -1306,85 +1294,14 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                       <p style={{ margin: "4px 0 0", fontSize: "0.84rem", color: "var(--text-secondary, #4a443d)" }}>
                         {isExamPassed
                           ? `Passed with ${examBestScore !== null ? `${examBestScore}%` : "success"}. Examination completed.`
-                          : `${examConfig?.questionCount ? `${examConfig.questionCount} Questions · ` : ""}Pass Mark: ${examConfig?.passMark ?? 80}% · Time Limit: ${examConfig?.timeLimitMin ?? 90} mins${isAttendanceRequired && !hasZeroLiveSessions ? ` · Required Batch Attendance: ${attendanceThreshold}%` : ""}`}
+                          : `${examConfig?.questionCount ? `${examConfig.questionCount} Questions · ` : ""}Pass Mark: ${examConfig?.passMark ?? 80}% · Time Limit: ${examConfig?.timeLimitMin ?? 90} mins`}
                       </p>
-
-                      {isAttendanceRequired && !isExamPassed && (
-                        <div
-                          style={{
-                            marginTop: "8px",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            flexWrap: "wrap",
-                            gap: "8px",
-                            padding: "4px 10px",
-                            borderRadius: "8px",
-                            fontSize: "0.78rem",
-                            fontWeight: 600,
-                            background: hasZeroLiveSessions
-                              ? "rgba(16, 185, 129, 0.08)"
-                              : isAttendanceMetForExam
-                              ? "rgba(22, 163, 74, 0.1)"
-                              : "rgba(217, 119, 6, 0.12)",
-                            color: hasZeroLiveSessions
-                              ? "#059669"
-                              : isAttendanceMetForExam
-                              ? "#15803d"
-                              : "#b45309",
-                            border: hasZeroLiveSessions
-                              ? "1px solid rgba(16, 185, 129, 0.25)"
-                              : isAttendanceMetForExam
-                              ? "1px solid rgba(22, 163, 74, 0.25)"
-                              : "1px solid rgba(217, 119, 6, 0.3)",
-                          }}
-                        >
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
-                            {hasZeroLiveSessions || isAttendanceMetForExam ? (
-                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <polyline points="20 6 9 17 4 12" />
-                              </svg>
-                            ) : (
-                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-                                <line x1="12" y1="9" x2="12" y2="13" />
-                                <line x1="12" y1="17" x2="12.01" y2="17" />
-                              </svg>
-                            )}
-                            <span>
-                              {hasZeroLiveSessions
-                                ? "No live sessions held yet (Attendance Exempt)"
-                                : isAttendanceMetForExam
-                                ? `Attendance Met: ${liveAttendancePercent}%`
-                                : `Low Attendance: ${liveAttendancePercent}% (Min ${attendanceThreshold}%)`}
-                            </span>
-                          </span>
-                          <Link
-                            href="/attendance"
-                            style={{
-                              color: "inherit",
-                              textDecoration: "underline",
-                              fontWeight: 700,
-                              marginLeft: "4px",
-                            }}
-                          >
-                            View Attendance →
-                          </Link>
-                        </div>
-                      )}
 
                       {!isExamUnlocked && (
                         <div className={styles.lockMessage}>
                           {InfoCircle}
                           <span>
-                            {!allStepsCompleted
-                              ? `Complete all ${total} curriculum steps${
-                                  isAttendanceRequired && !hasZeroLiveSessions
-                                    ? ` and reach ${attendanceThreshold}% live attendance`
-                                    : ""
-                                } to unlock.`
-                              : hasZeroLiveSessions
-                              ? `Complete all curriculum steps to unlock.`
-                              : `Requires minimum ${attendanceThreshold}% live attendance to unlock (Current: ${liveAttendancePercent}%).`}
+                            {`Complete all ${total} curriculum steps to unlock.`}
                           </span>
                         </div>
                       )}
@@ -1414,22 +1331,14 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                       ) : (
                         <span
                           className={styles.lockedPill}
-                          title={
-                            !allStepsCompleted
-                              ? `Requires completing all ${total} curriculum steps`
-                              : hasZeroLiveSessions
-                              ? `Requires completing all curriculum steps`
-                              : `Requires ${attendanceThreshold}% live session attendance (Current: ${liveAttendancePercent}%)`
-                          }
+                          title={`Requires completing all ${total} curriculum steps`}
                           aria-disabled="true"
                         >
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ opacity: 0.7 }}>
                             <rect x="4" y="11" width="16" height="10" rx="2" />
                             <path d="M8 11V7a4 4 0 0 1 8 0v4" />
                           </svg>
-                          {allStepsCompleted && !isAttendanceMetForExam && !hasZeroLiveSessions
-                            ? `Locked (<${attendanceThreshold}% Attendance)`
-                            : "Locked"}
+                          Locked
                         </span>
                       )}
                     </div>
@@ -1490,16 +1399,63 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                           ? "Session scheduled. Join at your confirmed time."
                           : activeCoachingReq?.status === "PENDING_APPROVAL"
                           ? "Booking request submitted. Awaiting confirmation."
+                          : isAttendanceRequired && !hasZeroLiveSessions
+                          ? `1-on-1 coaching session with your trainer (Requires ${attendanceThreshold}% batch live attendance).`
                           : "1-on-1 coaching session with your trainer."}
                       </p>
+
+                      {/* Low Attendance Warning Banner on 1-on-1 Coaching */}
+                      {isExamPassed && !isAttendanceSatisfied && !isCoachingCompleted && (
+                        <div
+                          style={{
+                            marginTop: "8px",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            flexWrap: "wrap",
+                            gap: "8px",
+                            padding: "4px 10px",
+                            borderRadius: "8px",
+                            fontSize: "0.78rem",
+                            fontWeight: 600,
+                            background: "rgba(217, 119, 6, 0.12)",
+                            color: "#b45309",
+                            border: "1px solid rgba(217, 119, 6, 0.3)",
+                          }}
+                        >
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                              <line x1="12" y1="9" x2="12" y2="13" />
+                              <line x1="12" y1="17" x2="12.01" y2="17" />
+                            </svg>
+                            <span>
+                              Low Attendance: {liveAttendancePercent}% (Min {attendanceThreshold}% required to unlock 1-on-1 coaching)
+                            </span>
+                          </span>
+                          <Link
+                            href="/attendance"
+                            style={{
+                              color: "inherit",
+                              textDecoration: "underline",
+                              fontWeight: 700,
+                              marginLeft: "4px",
+                            }}
+                          >
+                            View Attendance →
+                          </Link>
+                        </div>
+                      )}
 
                       {!isCoachingUnlocked && (
                         <div className={styles.lockMessage}>
                           {InfoCircle}
                           <span>
-                            {stage4State?.unmetPrerequisites?.[0] ||
-                              stage4State?.unmetRequirements?.[0] ||
-                              "Requires completing previous milestones (Curriculum, Exam & Live Attendance)"}
+                            {!isExamPassed
+                              ? "Requires completing the curriculum and passing the Final Examination to unlock 1-on-1 coaching."
+                              : !isAttendanceSatisfied
+                              ? `Requires minimum ${attendanceThreshold}% live session attendance to unlock 1-on-1 coaching (Current: ${liveAttendancePercent}%).`
+                              : stage4State?.unmetPrerequisites?.[0] ||
+                                "Requires completing previous milestones (Curriculum, Exam & Live Attendance)"}
                           </span>
                         </div>
                       )}
@@ -2294,36 +2250,57 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                               <div
                                 style={{
                                   display: "flex",
-                                  justifyContent: "space-between",
-                                  alignItems: "center",
-                                  flexWrap: "wrap",
+                                  flexDirection: "column",
                                   gap: "0.75rem",
-                                  paddingTop: "0.25rem",
+                                  paddingTop: "0.5rem",
+                                  width: "100%",
                                 }}
                               >
-                                <div style={{ fontSize: "0.8rem", color: "#4a443d" }}>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    flexWrap: "wrap",
+                                    gap: "0.5rem",
+                                    padding: "0.55rem 0.85rem",
+                                    borderRadius: 8,
+                                    background: preferredDate && preferredTime ? "rgba(217, 119, 6, 0.08)" : "#f5f0e8",
+                                    border: preferredDate && preferredTime ? "1px solid rgba(217, 119, 6, 0.2)" : "1px solid #e7dfd3",
+                                    fontSize: "0.82rem",
+                                    width: "100%",
+                                    boxSizing: "border-box",
+                                  }}
+                                >
+                                  <span style={{ color: "#7c7267", fontWeight: 600 }}>
+                                    Selected Slot:
+                                  </span>
                                   {preferredDate && preferredTime ? (
-                                    <>
-                                      <span style={{ color: "#7c7267", fontWeight: 600 }}>
-                                        Selected Slot:{" "}
-                                      </span>
-                                      <strong style={{ color: "#14110f" }}>
-                                        {formatCoachingSlotSummary(preferredDate, preferredTime)}
-                                      </strong>
-                                    </>
+                                    <strong style={{ color: "#b45309" }}>
+                                      {formatCoachingSlotSummary(preferredDate, preferredTime)}
+                                    </strong>
                                   ) : (
-                                    <span style={{ color: "#7c7267" }}>
+                                    <span style={{ color: "#7c7267", fontStyle: "italic" }}>
                                       Select a date and time slot above
                                     </span>
                                   )}
                                 </div>
 
-                                <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.65rem", flexWrap: "wrap" }}>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    justifyContent: "flex-end",
+                                    alignItems: "center",
+                                    gap: "0.75rem",
+                                    flexWrap: "wrap",
+                                    width: "100%",
+                                  }}
+                                >
                                   <button
                                     type="button"
                                     onClick={() => setShowCoachingPanel(false)}
                                     style={{
-                                      padding: "0.55rem 1.25rem",
+                                      padding: "0.6rem 1.25rem",
                                       borderRadius: 8,
                                       border: "1px solid #dcd5cb",
                                       background: "#ffffff",
@@ -2343,7 +2320,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                     type="submit"
                                     disabled={submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime}
                                     style={{
-                                      padding: "0.55rem 1.4rem",
+                                      padding: "0.6rem 1.45rem",
                                       borderRadius: 8,
                                       border: "none",
                                       background: "linear-gradient(135deg, #d97706, #c26904)",
@@ -2353,7 +2330,10 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                                       display: "inline-flex",
                                       alignItems: "center",
                                       justifyContent: "center",
-                                      whiteSpace: "nowrap",
+                                      textAlign: "center",
+                                      whiteSpace: "normal",
+                                      maxWidth: "100%",
+                                      minWidth: "fit-content",
                                       boxShadow: "0 2px 8px rgba(217, 119, 6, 0.25)",
                                       cursor: submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime ? "not-allowed" : "pointer",
                                       opacity: submittingCoaching || Boolean(activeCoachingReq && !showRescheduleForm) || !preferredDate || !preferredTime ? 0.65 : 1,
@@ -2395,14 +2375,22 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                       ) : (
                         <span
                           className={styles.lockedPill}
-                          title="Requires passing the Final Examination"
+                          title={
+                            !isExamPassed
+                              ? "Requires passing the Final Examination"
+                              : !isAttendanceSatisfied
+                              ? `Requires ${attendanceThreshold}% live session attendance (Current: ${liveAttendancePercent}%)`
+                              : "Locked"
+                          }
                           aria-disabled="true"
                         >
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ opacity: 0.7 }}>
                             <rect x="4" y="11" width="16" height="10" rx="2" />
                             <path d="M8 11V7a4 4 0 0 1 8 0v4" />
                           </svg>
-                          Locked
+                          {isExamPassed && !isAttendanceSatisfied
+                            ? `Locked (<${attendanceThreshold}% Attendance)`
+                            : "Locked"}
                         </span>
                       )}
                     </div>

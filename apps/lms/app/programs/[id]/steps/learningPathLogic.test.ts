@@ -87,6 +87,45 @@ describe("LMS Learning Path Progression Logic", () => {
     expect(isStageUnlocked(5, state)).toBe(false); // Mission statement still locked
   });
 
+  it("locks Stage 4 (1-on-1 Coaching) when Final Exam is passed but attendance is NOT_COMPLIANT", () => {
+    const stepsWithAllDone = mock11Steps.map((s) => ({
+      ...s,
+      isCompleted: true,
+    }));
+
+    const state = computeMilestoneProgression({
+      steps: stepsWithAllDone,
+      examAttempt: { passed: true, score: 85, status: "PASSED" },
+      attendanceCompliance: { status: "NOT_COMPLIANT" },
+      coachingSession: null,
+      missionStatement: null,
+    });
+
+    expect(state.examPassed).toBe(true);
+    expect(state.attendanceSatisfied).toBe(false);
+    expect(isStageUnlocked(2, state)).toBe(true); // Final exam was unlocked & passed
+    expect(isStageUnlocked(4, state)).toBe(false); // 1-on-1 Coaching locked due to low attendance!
+  });
+
+  it("unlocks Stage 4 (1-on-1 Coaching) when Final Exam is passed and 0 live sessions were held (NOT_APPLICABLE exempt)", () => {
+    const stepsWithAllDone = mock11Steps.map((s) => ({
+      ...s,
+      isCompleted: true,
+    }));
+
+    const state = computeMilestoneProgression({
+      steps: stepsWithAllDone,
+      examAttempt: { passed: true, score: 90, status: "PASSED" },
+      attendanceCompliance: { status: "NOT_APPLICABLE" },
+      coachingSession: null,
+      missionStatement: null,
+    });
+
+    expect(state.examPassed).toBe(true);
+    expect(state.attendanceSatisfied).toBe(true);
+    expect(isStageUnlocked(4, state)).toBe(true); // 1-on-1 Coaching unlocked!
+  });
+
   it("unlocks Stage 5 (Mission Statement) once 1-on-1 Coaching is attended/completed", () => {
     const stepsWithAllDone = mock11Steps.map((s) => ({
       ...s,

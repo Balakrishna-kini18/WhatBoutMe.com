@@ -6,6 +6,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import {
   CurrencyCode,
@@ -465,6 +466,17 @@ export class EventsService {
         throw new ForbiddenException('Simulated payment verification is disabled for paid events.');
       }
 
+      if (isPaidEvent && (isProduction || isStripeActive)) {
+        if (!dto.gatewayOrderId || !dto.gatewayOrderId.startsWith('cs_')) {
+          throw new BadRequestException(
+            'A valid Stripe checkout session ID (cs_...) is strictly required to verify paid event registration.',
+          );
+        }
+        if (!process.env.STRIPE_SECRET_KEY) {
+          throw new ServiceUnavailableException('Payment gateway configuration error: STRIPE_SECRET_KEY is missing.');
+        }
+      }
+
       if (dto.gatewayOrderId?.startsWith('cs_') && process.env.STRIPE_SECRET_KEY && !dto.isSimulated) {
         try {
           const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -497,7 +509,7 @@ export class EventsService {
             throw new BadRequestException('Stripe payment amount is less than required registration price.');
           }
         } catch (err: any) {
-          if (err instanceof BadRequestException || err instanceof ForbiddenException) throw err;
+          if (err instanceof BadRequestException || err instanceof ForbiddenException || err instanceof ServiceUnavailableException) throw err;
           this.logger.error(`Stripe session retrieval verification error: ${err?.message}`);
           throw new BadRequestException('Could not verify payment status with Stripe.');
         }
@@ -506,9 +518,30 @@ export class EventsService {
       const paymentId = dto.gatewayPaymentId || `sim_pay_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
 
       await this.prisma.$transaction(async (tx) => {
+        const currentReg = await tx.eventRegistration.findUnique({
+          where: { id: reg.id },
+          select: { paymentStatus: true },
+        });
+
+        // Concurrency Guard: If already marked paid (e.g. by concurrent webhook), avoid double-incrementing seat count
+        if (currentReg?.paymentStatus === EventPaymentStatus.PAID) {
+          return;
+        }
+
         const currentEvt = await tx.event.findUnique({ where: { id: reg.eventId } });
         if (currentEvt && currentEvt.seatLimit !== null && currentEvt.seatsBooked >= currentEvt.seatLimit) {
-          throw new BadRequestException('Sorry, this event reached maximum capacity while payment was processing');
+          // Locked Decision D2: Do NOT auto-refund. Mark PAYMENT_HELD and leave for admin reconciliation.
+          await tx.eventRegistration.update({
+            where: { id: reg.id },
+            data: {
+              paymentStatus: EventPaymentStatus.PAYMENT_HELD,
+              gatewayPaymentId: paymentId,
+              gatewayOrderId: dto.gatewayOrderId || reg.gatewayOrderId,
+            },
+          });
+          throw new BadRequestException(
+            'Sorry, this event reached maximum capacity while payment was processing. Your payment is held (PAYMENT_HELD) and our team will accommodate you.',
+          );
         }
 
         await tx.eventRegistration.update({

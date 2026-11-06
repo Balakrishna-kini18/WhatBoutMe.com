@@ -189,4 +189,76 @@ describe('Payment Gateway P0/P1 Security Specification Suite', () => {
       expect(seatPoolsServiceMock.markPaid).not.toHaveBeenCalled();
     });
   });
+
+  // =========================================================================
+  // 4. Public Event Payment Verification Spoofing Guard (Finding 5)
+  // =========================================================================
+  describe('Finding 5: Event Payment Verification Spoofing Guard', () => {
+    let eventsService: any;
+    let prismaMock: any;
+
+    beforeEach(async () => {
+      prismaMock = {
+        eventRegistration: {
+          findUnique: vi.fn(),
+          findFirst: vi.fn(),
+          update: vi.fn(),
+        },
+        event: {
+          findUnique: vi.fn(),
+          update: vi.fn(),
+        },
+        $transaction: vi.fn().mockImplementation((cb) => cb(prismaMock)),
+      };
+
+      const { EventsService } = await import('../src/modules/events/events.service.js');
+      eventsService = new EventsService(
+        prismaMock,
+        {} as any,
+        {} as any,
+      );
+    });
+
+    it('rejects verification of paid event with missing or fake non-cs_ gatewayOrderId in live Stripe mode', async () => {
+      process.env.PAYMENT_PROVIDER = 'STRIPE';
+      process.env.STRIPE_SECRET_KEY = 'sk_test_12345678901234567890';
+
+      prismaMock.eventRegistration.findUnique.mockResolvedValue({
+        id: 'reg-paid-1',
+        eventId: 'evt-paid-1',
+        amount: 100, // Paid event ($100)
+        currency: 'USD',
+        paymentStatus: 'PENDING',
+        event: { id: 'evt-paid-1', price: 100, seatsBooked: 5, seatLimit: 50 },
+      });
+
+      await expect(
+        eventsService.verifyPayment({
+          registrationId: 'reg-paid-1',
+          gatewayOrderId: 'fake_non_cs_id_123',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects simulated verification of paid event when PAYMENT_PROVIDER is STRIPE', async () => {
+      process.env.PAYMENT_PROVIDER = 'STRIPE';
+      process.env.STRIPE_SECRET_KEY = 'sk_test_12345678901234567890';
+
+      prismaMock.eventRegistration.findUnique.mockResolvedValue({
+        id: 'reg-paid-1',
+        eventId: 'evt-paid-1',
+        amount: 100,
+        currency: 'USD',
+        paymentStatus: 'PENDING',
+        event: { id: 'evt-paid-1', price: 100, seatsBooked: 5, seatLimit: 50 },
+      });
+
+      await expect(
+        eventsService.verifyPayment({
+          registrationId: 'reg-paid-1',
+          isSimulated: true,
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
 });

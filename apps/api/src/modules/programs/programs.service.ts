@@ -291,15 +291,50 @@ export class ProgramsService {
   }
 
   async duplicate(id: string) {
-    const original = await this.prisma.program.findUnique({
+    const original: any = await this.prisma.program.findUnique({
       where: { id },
       include: {
         steps: {
           include: {
-            lessons: true,
+            lessons: {
+              orderBy: { order: 'asc' },
+            },
+            quiz: {
+              include: {
+                questions: {
+                  include: {
+                    options: {
+                      orderBy: { order: 'asc' },
+                    },
+                  },
+                  orderBy: { createdAt: 'asc' },
+                },
+              },
+            },
+            resources: true,
           },
           orderBy: { sequence: 'asc' },
         },
+        exams: {
+          orderBy: { createdAt: 'asc' },
+        },
+        questionBanks: {
+          include: {
+            questions: {
+              include: {
+                options: {
+                  orderBy: { order: 'asc' },
+                },
+              },
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+        resources: {
+          where: { stepId: null },
+        },
+        resourceItems: true,
       },
     });
 
@@ -336,25 +371,33 @@ export class ProgramsService {
         attendanceRequired: original.attendanceRequired,
         minAttendancePercentage: original.minAttendancePercentage,
         deliveryMode: original.deliveryMode,
+        requireExam: original.requireExam ?? true,
+        requireCoaching: original.requireCoaching ?? true,
+        requireMissionStatement: original.requireMissionStatement ?? true,
+        sequentialProgressionEnabled: original.sequentialProgressionEnabled ?? true,
         faqs: original.faqs ?? [],
       },
     });
 
-    for (const step of original.steps) {
+    const stepIdMap = new Map<string, string>();
+    const examIdMap = new Map<string, string>();
+
+    for (const step of original.steps ?? []) {
       const createdStep = await this.prisma.step.create({
         data: {
           programId: created.id,
           sequence: step.sequence,
           title: step.title,
           description: step.description,
-          status: ContentStatus.DRAFT,
+          status: step.status ?? ContentStatus.PUBLISHED,
           releaseSchedule: step.releaseSchedule,
           unlockDelayDays: step.unlockDelayDays,
           quizPlacement: step.quizPlacement,
         },
       });
+      stepIdMap.set(step.id, createdStep.id);
 
-      for (const lesson of step.lessons) {
+      for (const lesson of step.lessons ?? []) {
         await this.prisma.lesson.create({
           data: {
             stepId: createdStep.id,
@@ -364,13 +407,191 @@ export class ProgramsService {
             content: lesson.content,
             mediaUrl: lesson.mediaUrl,
             durationSec: lesson.durationSec,
-            status: ContentStatus.DRAFT,
+            minWatchPercent: lesson.minWatchPercent,
+            status: lesson.status ?? ContentStatus.PUBLISHED,
+          },
+        });
+      }
+
+      // Clone step quiz & questions/options
+      if (step.quiz && typeof (this.prisma as any).quiz?.create === 'function') {
+        const qz = step.quiz;
+        const createdQuiz = await this.prisma.quiz.create({
+          data: {
+            stepId: createdStep.id,
+            title: qz.title,
+            passMark: qz.passMark,
+            maxAttempts: qz.maxAttempts,
+            cooldownHours: qz.cooldownHours,
+            questionCount: qz.questionCount,
+            timeLimitMin: qz.timeLimitMin,
+            retryGuidance: qz.retryGuidance,
+            quizPlacement: qz.quizPlacement,
+          },
+        });
+
+        if (Array.isArray(qz.questions) && typeof (this.prisma as any).question?.create === 'function') {
+          for (const q of qz.questions) {
+            await this.prisma.question.create({
+              data: {
+                quizId: createdQuiz.id,
+                stepId: createdStep.id,
+                type: q.type,
+                text: q.text,
+                imageUrl: q.imageUrl,
+                gradingMode: q.gradingMode,
+                minCharacters: q.minCharacters,
+                explanation: q.explanation,
+                points: q.points ?? 1,
+                options: {
+                  create: (q.options ?? []).map((opt: any, idx: number) => ({
+                    text: opt.text,
+                    imageUrl: opt.imageUrl ?? null,
+                    isCorrect: Boolean(opt.isCorrect),
+                    order: opt.order ?? idx + 1,
+                  })),
+                },
+              },
+            });
+          }
+        }
+      }
+
+      // Clone step-level resources
+      if (Array.isArray(step.resources) && typeof (this.prisma as any).resource?.create === 'function') {
+        for (const res of step.resources) {
+          await this.prisma.resource.create({
+            data: {
+              programId: created.id,
+              stepId: createdStep.id,
+              title: res.title,
+              description: res.description,
+              type: res.type,
+              scope: res.scope,
+              mediaUrl: res.mediaUrl,
+              fileSize: res.fileSize,
+              mimeType: res.mimeType,
+              status: res.status ?? ContentStatus.PUBLISHED,
+            },
+          });
+        }
+      }
+    }
+
+    // Clone Final Exams
+    if (Array.isArray(original.exams) && typeof (this.prisma as any).exam?.create === 'function') {
+      for (const exam of original.exams) {
+        const createdExam = await this.prisma.exam.create({
+          data: {
+            programId: created.id,
+            title: exam.title,
+            description: exam.description,
+            questionCount: exam.questionCount,
+            passMark: exam.passMark,
+            timeLimitMin: exam.timeLimitMin,
+            shuffleQuestions: exam.shuffleQuestions,
+            maxAttempts: exam.maxAttempts,
+            cooldownHours: exam.cooldownHours,
+            retryGuidance: exam.retryGuidance,
+            status: exam.status ?? ContentStatus.PUBLISHED,
+          },
+        });
+        examIdMap.set(exam.id, createdExam.id);
+      }
+    }
+
+    // Clone Question Banks (Final Exam Question Banks & Step Question Banks) + Questions + Options
+    if (Array.isArray(original.questionBanks) && typeof (this.prisma as any).questionBank?.create === 'function') {
+      for (const bank of original.questionBanks) {
+        const mappedStepId = bank.stepId ? (stepIdMap.get(bank.stepId) ?? null) : null;
+        const mappedExamId = bank.examId ? (examIdMap.get(bank.examId) ?? null) : null;
+
+        const createdBank = await this.prisma.questionBank.create({
+          data: {
+            programId: created.id,
+            stepId: mappedStepId,
+            examId: mappedExamId,
+            title: bank.title,
+            description: bank.description,
+          },
+        });
+
+        if (Array.isArray(bank.questions) && typeof (this.prisma as any).question?.create === 'function') {
+          for (const q of bank.questions) {
+            // Avoid double-cloning a question that was already attached to a step quiz above
+            if (q.quizId) continue;
+            await this.prisma.question.create({
+              data: {
+                questionBankId: createdBank.id,
+                stepId: q.stepId ? (stepIdMap.get(q.stepId) ?? mappedStepId) : mappedStepId,
+                type: q.type,
+                text: q.text,
+                imageUrl: q.imageUrl,
+                gradingMode: q.gradingMode,
+                minCharacters: q.minCharacters,
+                explanation: q.explanation,
+                points: q.points ?? 1,
+                options: {
+                  create: (q.options ?? []).map((opt: any, idx: number) => ({
+                    text: opt.text,
+                    imageUrl: opt.imageUrl ?? null,
+                    isCorrect: Boolean(opt.isCorrect),
+                    order: opt.order ?? idx + 1,
+                  })),
+                },
+              },
+            });
+          }
+        }
+      }
+    }
+
+    // Clone Program-level Resources (where stepId is null)
+    if (Array.isArray(original.resources) && typeof (this.prisma as any).resource?.create === 'function') {
+      for (const res of original.resources) {
+        await this.prisma.resource.create({
+          data: {
+            programId: created.id,
+            stepId: null,
+            title: res.title,
+            description: res.description,
+            type: res.type,
+            scope: res.scope,
+            mediaUrl: res.mediaUrl,
+            fileSize: res.fileSize,
+            mimeType: res.mimeType,
+            status: res.status ?? ContentStatus.PUBLISHED,
           },
         });
       }
     }
 
-    await this.safeInvalidateTags(['programs']);
+    // Clone Program ResourceItems
+    if (Array.isArray(original.resourceItems) && typeof (this.prisma as any).resourceItem?.create === 'function') {
+      for (const item of original.resourceItems) {
+        await this.prisma.resourceItem.create({
+          data: {
+            title: item.title,
+            description: item.description,
+            type: item.type,
+            categoryId: item.categoryId,
+            storageKey: item.storageKey,
+            mimeType: item.mimeType,
+            fileSizeBytes: item.fileSizeBytes,
+            durationSeconds: item.durationSeconds,
+            pageCount: item.pageCount,
+            stepTagNumber: item.stepTagNumber,
+            accessScope: item.accessScope,
+            programId: created.id,
+            requiredStepId: item.requiredStepId ? (stepIdMap.get(item.requiredStepId) ?? null) : null,
+            isPublished: item.isPublished ?? true,
+            createdById: item.createdById ?? null,
+          },
+        });
+      }
+    }
+
+    await this.safeInvalidateTags(['programs', 'steps', 'lessons', 'quizzes']);
     return created;
   }
 
@@ -674,6 +895,12 @@ export class ProgramsService {
 
       // Fast-path: When deleting a draft/empty program without enrolments, batches, or steps
       if (batchIds.length === 0 && enrolmentIds.length === 0 && stepIds.length === 0 && qbIds.length === 0 && examIds.length === 0) {
+        if (typeof (tx as any).seat?.deleteMany === 'function') {
+          await (tx as any).seat.deleteMany({ where: { seatPool: { programId: id } } }).catch(() => {});
+        }
+        if (typeof (tx as any).seatPool?.deleteMany === 'function') {
+          await (tx as any).seatPool.deleteMany({ where: { programId: id } }).catch(() => {});
+        }
         if (typeof (tx as any).signedAgreement?.deleteMany === 'function') {
           await (tx as any).signedAgreement.deleteMany({ where: { programId: id } }).catch(() => {});
         }
@@ -830,14 +1057,49 @@ export class ProgramsService {
         }
       }
 
-      // D. Enrolment children: payments, redemptions, agreements, certificates
+      // D. Invoices, Payments, Seats, and Enrolment Children
       if (enrolmentIds.length > 0) {
+        if (typeof (tx as any).invoice?.deleteMany === 'function') {
+          await (tx as any).invoice.deleteMany({
+            where: {
+              OR: [
+                { enrolmentId: { in: enrolmentIds } },
+                { payment: { enrolmentId: { in: enrolmentIds } } },
+              ],
+            },
+          }).catch(() => {});
+        }
         if (typeof (tx as any).payment?.deleteMany === 'function') {
           await (tx as any).payment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
+        }
+        if (typeof (tx as any).seat?.deleteMany === 'function') {
+          await (tx as any).seat.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
         }
         if (typeof (tx as any).couponRedemption?.deleteMany === 'function') {
           await (tx as any).couponRedemption.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } }).catch(() => {});
         }
+      }
+
+      // Clean up any seats or seat pools associated with this program or its batches
+      if (typeof (tx as any).seat?.deleteMany === 'function') {
+        await (tx as any).seat.deleteMany({
+          where: {
+            OR: [
+              { seatPool: { programId: id } },
+              ...(batchIds.length > 0 ? [{ seatPool: { batchId: { in: batchIds } } }] : []),
+            ],
+          },
+        }).catch(() => {});
+      }
+      if (typeof (tx as any).seatPool?.deleteMany === 'function') {
+        await (tx as any).seatPool.deleteMany({
+          where: {
+            OR: [
+              { programId: id },
+              ...(batchIds.length > 0 ? [{ batchId: { in: batchIds } }] : []),
+            ],
+          },
+        }).catch(() => {});
       }
 
       if (typeof (tx as any).certificate?.deleteMany === 'function') {

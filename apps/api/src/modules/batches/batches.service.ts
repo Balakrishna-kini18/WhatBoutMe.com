@@ -109,20 +109,28 @@ export class BatchesService {
         }).catch(() => {});
       }
 
-      // Automatically restore any ARCHIVED batches to ACTIVE so they are never hidden
+      // Reconcile any legacy "(Waitlist Pool)" / "- Waitlist Batch" placeholder batches:
+      // keep them ARCHIVED (hidden from batch directory) and ensure their learners stay in WAITLIST status.
+      await this.reconcileWaitlistPlaceholderBatches().catch(() => {});
+
+      // Automatically restore real ARCHIVED batches to ACTIVE so they are never hidden,
+      // excluding internal waitlist placeholder batches.
       if (typeof (this.prisma.batch as any)?.updateMany === 'function') {
         await this.prisma.batch.updateMany({
           where: {
             status: BatchStatus.ARCHIVED,
+            NOT: {
+              OR: [
+                { name: { contains: '(Waitlist Pool)' } },
+                { name: { contains: '- Waitlist Batch' } },
+              ],
+            },
           },
           data: {
             status: BatchStatus.ACTIVE,
           },
         }).catch(() => {});
       }
-
-      // Automatically absorb waitlisted learners into any open batches for the same program
-      await this.absorbWaitlistLearners().catch(() => {});
 
       const batches = await this.prisma.batch.findMany({
         where,
@@ -159,7 +167,13 @@ export class BatchesService {
         orderBy: { startDate: 'desc' },
       });
 
-      return batches.map((batch) => this.formatBatchResponse(batch));
+      const visibleBatches = batches.filter(
+        (b) =>
+          !b.name?.includes('(Waitlist Pool)') &&
+          !b.name?.includes('- Waitlist Batch'),
+      );
+
+      return visibleBatches.map((batch) => this.formatBatchResponse(batch));
     });
   }
 
@@ -974,104 +988,98 @@ export class BatchesService {
         const enrolmentIds = enrolments.map((e: any) => e.id);
 
         if (enrolmentIds.length > 0) {
-          // If another active or upcoming batch exists for the same program, reassign learners so they don't lose course access
-          const otherBatch =
-            typeof (tx as any).batch?.findFirst === 'function'
-              ? await (tx as any).batch.findFirst({
-                  where: {
-                    programId: batch.programId,
-                    id: { not: id },
-                    status: { in: [BatchStatus.UPCOMING, BatchStatus.ACTIVE] },
-                  },
-                  orderBy: { startDate: 'asc' },
-                })
-              : null;
+          // Move confirmed / waitlisted learners to the Program Waitlist (status = WAITLIST)
+          // so they appear in the Admin Waitlist tab table rather than creating a visible batch.
+          const confirmedLearners = enrolments.filter((e: any) =>
+            [
+              EnrolmentStatus.ACTIVE,
+              EnrolmentStatus.PENDING_AGREEMENT,
+              EnrolmentStatus.COMPLETED,
+              EnrolmentStatus.WAITLIST,
+            ].includes(e.status),
+          );
 
-          if (otherBatch) {
-            await (tx as any).enrolment.updateMany({
-              where: { batchId: id },
-              data: { batchId: otherBatch.id },
-            });
-            for (const enr of enrolments) {
-              await this.cacheHelper.invalidateNamespace(`enrolment_progression:${enr.id}`).catch(() => {});
-              await this.cacheHelper.invalidateNamespace(`auth_user:${enr.userId}`).catch(() => {});
-            }
-          } else {
-            // When no other active/upcoming batch exists, move confirmed learners to the Program Waitlist
-            const confirmedLearners = enrolments.filter((e: any) =>
-              [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED].includes(e.status),
-            );
+          if (confirmedLearners.length > 0) {
+            let waitlistBatch =
+              typeof (tx as any).batch?.findFirst === 'function'
+                ? await (tx as any).batch.findFirst({
+                    where: {
+                      programId: batch.programId,
+                      id: { not: id },
+                      OR: [
+                        { name: { contains: '(Waitlist Pool)' } },
+                        { name: { contains: '- Waitlist Batch' } },
+                      ],
+                    },
+                  })
+                : null;
 
-            if (confirmedLearners.length > 0) {
-              let waitlistBatch =
-                typeof (tx as any).batch?.findFirst === 'function'
-                  ? await (tx as any).batch.findFirst({
-                      where: {
-                        programId: batch.programId,
-                        id: { not: id },
-                        name: { contains: 'Waitlist' },
-                      },
+            if (!waitlistBatch && typeof (tx as any).batch?.create === 'function') {
+              const prog =
+                typeof (tx as any).program?.findUnique === 'function'
+                  ? await (tx as any).program.findUnique({
+                      where: { id: batch.programId },
+                      select: { title: true },
                     })
                   : null;
 
-              if (!waitlistBatch && typeof (tx as any).batch?.create === 'function') {
-                const prog =
-                  typeof (tx as any).program?.findUnique === 'function'
-                    ? await (tx as any).program.findUnique({
-                        where: { id: batch.programId },
-                        select: { title: true },
-                      })
-                    : null;
+              waitlistBatch = await (tx as any).batch.create({
+                data: {
+                  name: `${prog?.title || 'Program'} (Waitlist Pool)`,
+                  programId: batch.programId,
+                  startDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                  capacity: 500,
+                  status: BatchStatus.ARCHIVED,
+                },
+              });
+            } else if (
+              waitlistBatch &&
+              waitlistBatch.status !== BatchStatus.ARCHIVED &&
+              typeof (tx as any).batch?.update === 'function'
+            ) {
+              await (tx as any).batch.update({
+                where: { id: waitlistBatch.id },
+                data: { status: BatchStatus.ARCHIVED },
+              });
+            }
 
-                waitlistBatch = await (tx as any).batch.create({
-                  data: {
-                    name: `${prog?.title || 'Program'} (Waitlist Pool)`,
-                    programId: batch.programId,
-                    startDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-                    capacity: 500,
-                    status: BatchStatus.UPCOMING,
-                  },
-                });
+            if (waitlistBatch) {
+              const confirmedIds = confirmedLearners.map((e: any) => e.id);
+              await (tx as any).enrolment.updateMany({
+                where: { id: { in: confirmedIds } },
+                data: {
+                  batchId: waitlistBatch.id,
+                  status: EnrolmentStatus.WAITLIST,
+                },
+              });
+
+              for (const enr of confirmedLearners) {
+                await this.cacheHelper.invalidateNamespace(`enrolment_progression:${enr.id}`).catch(() => {});
+                await this.cacheHelper.invalidateNamespace(`auth_user:${enr.userId}`).catch(() => {});
               }
+            }
 
-              if (waitlistBatch) {
-                const confirmedIds = confirmedLearners.map((e: any) => e.id);
-                await (tx as any).enrolment.updateMany({
-                  where: { id: { in: confirmedIds } },
-                  data: {
-                    batchId: waitlistBatch.id,
-                    status: EnrolmentStatus.WAITLIST,
-                  },
-                });
-
-                for (const enr of confirmedLearners) {
-                  await this.cacheHelper.invalidateNamespace(`enrolment_progression:${enr.id}`).catch(() => {});
-                  await this.cacheHelper.invalidateNamespace(`auth_user:${enr.userId}`).catch(() => {});
-                }
-              }
-
-              // Clean up any remaining unconfirmed/provisional checkouts
-              const confirmedSet = new Set(confirmedLearners.map((e: any) => e.id));
-              const unconfirmedIds = enrolmentIds.filter((eid: string) => !confirmedSet.has(eid));
-              if (unconfirmedIds.length > 0) {
-                if (typeof (tx as any).sessionBooking?.deleteMany === 'function') {
-                  await (tx as any).sessionBooking.deleteMany({ where: { enrolmentId: { in: unconfirmedIds } } });
-                }
-                if (typeof (tx as any).enrolment?.deleteMany === 'function') {
-                  await (tx as any).enrolment.deleteMany({ where: { id: { in: unconfirmedIds } } });
-                }
-              }
-            } else {
-              // All enrolments in batch are unconfirmed / abandoned: clean up
+            // Clean up any remaining unconfirmed/provisional checkouts
+            const confirmedSet = new Set(confirmedLearners.map((e: any) => e.id));
+            const unconfirmedIds = enrolmentIds.filter((eid: string) => !confirmedSet.has(eid));
+            if (unconfirmedIds.length > 0) {
               if (typeof (tx as any).sessionBooking?.deleteMany === 'function') {
-                await (tx as any).sessionBooking.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
-              }
-              if (typeof (tx as any).payment?.deleteMany === 'function') {
-                await (tx as any).payment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+                await (tx as any).sessionBooking.deleteMany({ where: { enrolmentId: { in: unconfirmedIds } } });
               }
               if (typeof (tx as any).enrolment?.deleteMany === 'function') {
-                await (tx as any).enrolment.deleteMany({ where: { id: { in: enrolmentIds } } });
+                await (tx as any).enrolment.deleteMany({ where: { id: { in: unconfirmedIds } } });
               }
+            }
+          } else {
+            // All enrolments in batch are unconfirmed / abandoned: clean up
+            if (typeof (tx as any).sessionBooking?.deleteMany === 'function') {
+              await (tx as any).sessionBooking.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+            }
+            if (typeof (tx as any).payment?.deleteMany === 'function') {
+              await (tx as any).payment.deleteMany({ where: { enrolmentId: { in: enrolmentIds } } });
+            }
+            if (typeof (tx as any).enrolment?.deleteMany === 'function') {
+              await (tx as any).enrolment.deleteMany({ where: { id: { in: enrolmentIds } } });
             }
           }
         }
@@ -1207,6 +1215,45 @@ export class BatchesService {
     };
   }
 
+  async reconcileWaitlistPlaceholderBatches(): Promise<void> {
+    if (
+      typeof (this.prisma.batch as any)?.updateMany !== 'function' ||
+      typeof (this.prisma.enrolment as any)?.updateMany !== 'function'
+    ) {
+      return;
+    }
+
+    await this.prisma.enrolment.updateMany({
+      where: {
+        status: {
+          in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT],
+        },
+        batch: {
+          OR: [
+            { name: { contains: '(Waitlist Pool)' } },
+            { name: { contains: '- Waitlist Batch' } },
+          ],
+        },
+      },
+      data: {
+        status: EnrolmentStatus.WAITLIST,
+      },
+    }).catch(() => {});
+
+    await this.prisma.batch.updateMany({
+      where: {
+        status: { not: BatchStatus.ARCHIVED },
+        OR: [
+          { name: { contains: '(Waitlist Pool)' } },
+          { name: { contains: '- Waitlist Batch' } },
+        ],
+      },
+      data: {
+        status: BatchStatus.ARCHIVED,
+      },
+    }).catch(() => {});
+  }
+
   async absorbWaitlistLearners(): Promise<number> {
     if (
       typeof (this.prisma.enrolment as any)?.findMany !== 'function' ||
@@ -1244,6 +1291,12 @@ export class BatchesService {
         where: {
           programId,
           status: { in: [BatchStatus.ACTIVE, BatchStatus.UPCOMING] },
+          NOT: {
+            OR: [
+              { name: { contains: '(Waitlist Pool)' } },
+              { name: { contains: '- Waitlist Batch' } },
+            ],
+          },
           OR: [
             { status: BatchStatus.ACTIVE },
             { registrationDeadline: null },
@@ -1271,6 +1324,12 @@ export class BatchesService {
       });
 
       for (const batch of openBatches) {
+        if (
+          batch.name?.includes('(Waitlist Pool)') ||
+          batch.name?.includes('- Waitlist Batch')
+        ) {
+          continue;
+        }
         if (batch.status !== BatchStatus.ACTIVE && isRegistrationDeadlinePassed(batch.registrationDeadline, now)) continue;
         let currentCount = batch._count.enrolments;
         const availableSeats = batch.capacity - currentCount;

@@ -204,6 +204,36 @@ function BatchesContent() {
     }
   };
 
+  const mapEnrolmentToWaitlistLearner = (e: any): WaitlistLearner => {
+    const isWaitlistPlaceholder = Boolean(
+      e.batch?.name &&
+        (e.batch.name.includes("(Waitlist Pool)") ||
+          e.batch.name.includes("- Waitlist Batch"))
+    );
+    return {
+      id: e.id,
+      userId: e.userId || e.user?.id || "",
+      userName: e.user?.name || "Unknown Learner",
+      userEmail: e.user?.email || "--",
+      programId: e.programId || e.program?.id || "",
+      programTitle: e.program?.title || "Unknown Program",
+      batchId: isWaitlistPlaceholder ? undefined : e.batchId || e.batch?.id,
+      batchName: isWaitlistPlaceholder ? "--" : e.batch?.name || "--",
+      batchCapacity: isWaitlistPlaceholder ? undefined : e.batch?.capacity,
+      createdAt: e.createdAt
+        ? new Date(e.createdAt).toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })
+        : "--",
+      reason:
+        !isWaitlistPlaceholder && (e.batchId || e.batch)
+          ? "Batch at Capacity"
+          : "Registration Closed / Pending Batch",
+    };
+  };
+
   const fetchWaitlistLearners = async () => {
     setIsLoadingWaitlist(true);
     try {
@@ -211,27 +241,7 @@ function BatchesContent() {
       if (res.ok) {
         const json = await res.json();
         const items = Array.isArray(json) ? json : json?.data || [];
-        const mapped: WaitlistLearner[] = items.map((e: any) => ({
-          id: e.id,
-          userId: e.userId || e.user?.id || "",
-          userName: e.user?.name || "Unknown Learner",
-          userEmail: e.user?.email || "--",
-          programId: e.programId || e.program?.id || "",
-          programTitle: e.program?.title || "Unknown Program",
-          batchId: e.batchId || e.batch?.id,
-          batchName: e.batch?.name || "--",
-          batchCapacity: e.batch?.capacity,
-          createdAt: e.createdAt
-            ? new Date(e.createdAt).toLocaleDateString(undefined, {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })
-            : "--",
-          reason: e.batchId || e.batch
-            ? "Batch at Capacity"
-            : "Registration Closed / Pending Batch",
-        }));
+        const mapped: WaitlistLearner[] = items.map(mapEnrolmentToWaitlistLearner);
         setWaitlistLearners(mapped);
       }
     } catch (err) {
@@ -264,6 +274,7 @@ function BatchesContent() {
 
       if (res.ok) {
         toastSuccess(`${learnerName} was successfully assigned to "${destinationBatchName}" and removed from waitlist.`);
+        setWaitlistLearners((prev) => prev.filter((l) => l.id !== enrolmentId));
         await Promise.all([fetchWaitlistLearners(), fetchBatches()]);
       } else {
         const err = await errorMessage(res, "Could not assign learner to batch.");
@@ -289,6 +300,7 @@ function BatchesContent() {
       });
       if (res.ok) {
         toastSuccess(`${learnerName} was removed from the waitlist.`);
+        setWaitlistLearners((prev) => prev.filter((l) => l.id !== enrolmentId));
         void fetchWaitlistLearners();
       } else {
         const err = await errorMessage(res, "Could not remove learner from waitlist.");
@@ -305,9 +317,18 @@ function BatchesContent() {
       const res = await cachedFetch(`${API_URL}/batches`, { skipCache: true });
       if (res.ok) {
         const data = await res.json();
-        const now = new Date();
-        const todayStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-        const mappedBatches = data.map((b: any) => {
+        const rawList = Array.isArray(data) ? data : [];
+        const isPlaceholderPool = (b: any) =>
+          Boolean(
+            b?.name &&
+              (b.name.includes("(Waitlist Pool)") ||
+                b.name.includes("- Waitlist Batch"))
+          );
+
+        const placeholderPools = rawList.filter(isPlaceholderPool);
+        const realBatches = rawList.filter((b: any) => !isPlaceholderPool(b));
+
+        const mappedBatches = realBatches.map((b: any) => {
           return {
             ...b,
             status: b.status,
@@ -337,6 +358,40 @@ function BatchesContent() {
           };
         });
         setBatches(mappedBatches);
+
+        // If any legacy "(Waitlist Pool)" placeholder batch still holds learners, surface them in the Waitlist tab
+        if (placeholderPools.length > 0) {
+          const poolEnrolmentLists = await Promise.all(
+            placeholderPools.map(async (pool: any) => {
+              try {
+                const poolRes = await cachedFetch(
+                  `${API_URL}/admin/enrolments?batchId=${pool.id}&limit=100`,
+                  { skipCache: true }
+                );
+                if (poolRes.ok) {
+                  const poolJson = await poolRes.json();
+                  return Array.isArray(poolJson) ? poolJson : poolJson?.data || [];
+                }
+              } catch {
+                // ignore
+              }
+              return [];
+            })
+          );
+          const poolLearners = poolEnrolmentLists
+            .flat()
+            .filter((e: any) => e && e.status !== "REVOKED")
+            .map(mapEnrolmentToWaitlistLearner);
+
+          if (poolLearners.length > 0) {
+            setWaitlistLearners((prev) => {
+              const byId = new Map<string, WaitlistLearner>();
+              for (const existing of prev) byId.set(existing.id, existing);
+              for (const item of poolLearners) byId.set(item.id, item);
+              return Array.from(byId.values());
+            });
+          }
+        }
       }
     } catch (e) {
       console.error("Failed to fetch batches", e);

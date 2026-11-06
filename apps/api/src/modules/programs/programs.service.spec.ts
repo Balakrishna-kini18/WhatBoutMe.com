@@ -65,10 +65,21 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
       },
       resourceItem: {
         findMany: vi.fn().mockResolvedValue([]),
+        create: vi.fn(),
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      quiz: {
+        create: vi.fn(),
+      },
+      exam: {
+        create: vi.fn(),
+      },
+      questionBank: {
+        create: vi.fn(),
       },
       question: {
         findMany: vi.fn().mockResolvedValue([]),
+        create: vi.fn(),
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
       agreementTemplate: {
@@ -639,7 +650,7 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
       });
     });
 
-    it('duplicates course and clones all its course-specific faqs, steps, and lessons', async () => {
+    it('duplicates course and clones all its course-specific faqs, steps, lessons, quizzes, exams, question banks, and resources', async () => {
       const existingFaqs = [
         { id: 'faq-1', question: 'Original Q?', answer: 'Original A.', sortOrder: 0 },
       ];
@@ -658,7 +669,7 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
               sequence: 1,
               title: 'Step 1 Title',
               description: 'Step 1 Desc',
-              status: ContentStatus.DRAFT,
+              status: ContentStatus.PUBLISHED,
               releaseSchedule: 'IMMEDIATE',
               quizPlacement: 'AFTER_VIDEO',
               lessons: [
@@ -670,10 +681,102 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
                   content: null,
                   mediaUrl: 'https://video.mp4',
                   durationSec: 120,
+                  minWatchPercent: 90,
+                  status: ContentStatus.PUBLISHED,
+                },
+              ],
+              quiz: {
+                id: 'quiz-1',
+                title: 'Step 1 Quiz',
+                passMark: 80,
+                maxAttempts: 3,
+                cooldownHours: 24,
+                questionCount: 1,
+                timeLimitMin: 15,
+                retryGuidance: 'Review video',
+                quizPlacement: 'AFTER_VIDEO',
+                questions: [
+                  {
+                    id: 'qz-q1',
+                    type: 'MULTIPLE_CHOICE',
+                    text: 'Quiz Question 1?',
+                    imageUrl: null,
+                    points: 1,
+                    options: [
+                      { id: 'opt-1', text: 'Option A', isCorrect: true, order: 1 },
+                      { id: 'opt-2', text: 'Option B', isCorrect: false, order: 2 },
+                    ],
+                  },
+                ],
+              },
+              resources: [
+                {
+                  id: 'res-step-1',
+                  title: 'Step 1 Worksheet',
+                  description: 'PDF worksheet',
+                  type: 'PDF',
+                  scope: 'STEP_SPECIFIC',
+                  mediaUrl: 'https://cdn.example.com/worksheet.pdf',
+                  fileSize: 1024,
+                  mimeType: 'application/pdf',
+                  status: ContentStatus.PUBLISHED,
                 },
               ],
             },
           ],
+          exams: [
+            {
+              id: 'exam-orig-1',
+              title: 'Final Exam',
+              description: 'Comprehensive Final Exam',
+              questionCount: 50,
+              passMark: 75,
+              timeLimitMin: 90,
+              shuffleQuestions: true,
+              maxAttempts: 3,
+              cooldownHours: 24,
+              retryGuidance: 'Review all steps',
+              status: ContentStatus.PUBLISHED,
+            },
+          ],
+          questionBanks: [
+            {
+              id: 'bank-orig-1',
+              title: 'Original Track - Final Exam Question Bank',
+              description: 'Dedicated Final Exam Question Pool',
+              stepId: null,
+              examId: 'exam-orig-1',
+              questions: [
+                {
+                  id: 'exam-q1',
+                  quizId: null,
+                  stepId: 'step-1',
+                  type: 'MULTIPLE_CHOICE',
+                  text: 'Final Exam Question 1?',
+                  imageUrl: null,
+                  points: 2,
+                  options: [
+                    { id: 'eopt-1', text: 'Answer 1', isCorrect: true, order: 1 },
+                    { id: 'eopt-2', text: 'Answer 2', isCorrect: false, order: 2 },
+                  ],
+                },
+              ],
+            },
+          ],
+          resources: [
+            {
+              id: 'res-prog-1',
+              title: 'Program Syllabus',
+              description: 'Full syllabus',
+              type: 'PDF',
+              scope: 'GLOBAL_PROGRAM',
+              mediaUrl: 'https://cdn.example.com/syllabus.pdf',
+              fileSize: 2048,
+              mimeType: 'application/pdf',
+              status: ContentStatus.PUBLISHED,
+            },
+          ],
+          resourceItems: [],
         })
         .mockResolvedValueOnce(null); // slug check for -copy
 
@@ -690,6 +793,21 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
       prismaMock.lesson.create.mockResolvedValue({
         id: 'les-copy-1',
       });
+      prismaMock.quiz.create.mockResolvedValue({
+        id: 'quiz-copy-1',
+      });
+      prismaMock.exam.create.mockResolvedValue({
+        id: 'exam-copy-1',
+      });
+      prismaMock.questionBank.create.mockResolvedValue({
+        id: 'bank-copy-1',
+      });
+      prismaMock.question.create.mockResolvedValue({
+        id: 'q-copy-1',
+      });
+      prismaMock.resource.create.mockResolvedValue({
+        id: 'res-copy-1',
+      });
 
       const copy = await service.duplicate('prog-orig');
 
@@ -705,6 +823,36 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
       );
       expect(prismaMock.step.create).toHaveBeenCalled();
       expect(prismaMock.lesson.create).toHaveBeenCalled();
+      expect(prismaMock.quiz.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            stepId: 'step-copy-1',
+            title: 'Step 1 Quiz',
+            passMark: 80,
+          }),
+        }),
+      );
+      expect(prismaMock.exam.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            programId: 'prog-copy',
+            title: 'Final Exam',
+            passMark: 75,
+          }),
+        }),
+      );
+      expect(prismaMock.questionBank.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            programId: 'prog-copy',
+            examId: 'exam-copy-1',
+          }),
+        }),
+      );
+      // 1 quiz question + 1 final exam bank question = 2 question.create calls
+      expect(prismaMock.question.create).toHaveBeenCalledTimes(2);
+      // 1 step resource + 1 program resource = 2 resource.create calls
+      expect(prismaMock.resource.create).toHaveBeenCalledTimes(2);
     });
 
     it('getStep completes rapidly from PostgreSQL when Redis cache hangs or is degraded', async () => {

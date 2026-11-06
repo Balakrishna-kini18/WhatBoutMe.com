@@ -867,6 +867,9 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
           targetId: selectedPoolForPayment.id,
           currency: selectedPoolForPayment.currency,
           amount: selectedPoolForPayment.netAmount,
+          origin: typeof window !== "undefined" ? window.location.origin : undefined,
+          returnUrl: typeof window !== "undefined" ? `${window.location.origin}/users/organizations/${orgId}?tab=pools&paid=1&poolId=${selectedPoolForPayment.id}` : undefined,
+          cancelUrl: typeof window !== "undefined" ? `${window.location.origin}/users/organizations/${orgId}?tab=pools&cancelled=1&poolId=${selectedPoolForPayment.id}` : undefined,
         });
 
         // Step 2: Redirect to Authoritative Checkout (Stripe Hosted or Server-Side Simulation)

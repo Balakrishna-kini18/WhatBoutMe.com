@@ -219,6 +219,9 @@ function CheckoutContent() {
           currency: "USD",
           couponCode: appliedCoupon?.code || couponCode || undefined,
           idempotencyKey,
+          origin: typeof window !== "undefined" ? window.location.origin : undefined,
+          returnUrl: typeof window !== "undefined" ? `${window.location.origin}/checkout/success` : undefined,
+          cancelUrl: typeof window !== "undefined" ? `${window.location.origin}/checkout?programId=${programId}&cancelled=1` : undefined,
         }),
       });
 

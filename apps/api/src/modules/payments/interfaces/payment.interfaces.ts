@@ -14,6 +14,9 @@ export interface CreateOrderParams {
   customerName?: string;
   customerPhone?: string;
   idempotencyKey?: string;
+  origin?: string;
+  returnUrl?: string;
+  cancelUrl?: string;
   metadata?: Record<string, any>;
 }
 

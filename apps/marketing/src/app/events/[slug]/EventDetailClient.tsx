@@ -239,7 +239,8 @@ export default function EventDetailClient({ initialEvent }: { initialEvent: Even
         attendeeName: attendeeName.trim(),
         attendeeEmail: attendeeEmail.trim().toLowerCase(),
         attendeePhone: attendeePhone.trim(),
-      });
+        origin: typeof window !== "undefined" ? window.location.origin : undefined,
+      } as any);
 
       // If user is already registered for this event
       if (checkoutRes.alreadyRegistered && checkoutRes.registration) {

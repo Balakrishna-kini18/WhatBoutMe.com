@@ -54,7 +54,7 @@ export class EventsController {
     @Body() dto: CheckoutEventDto,
   ) {
     const userId = req.user?.id || req.user?.userId || req.user?.sub || null;
-    return this.eventsService.checkout(idOrSlug, dto, userId);
+    return this.eventsService.checkout(idOrSlug, dto, userId, req);
   }
 
   // Alias for legacy register buttons
@@ -66,7 +66,7 @@ export class EventsController {
     @Body() dto: CheckoutEventDto,
   ) {
     const userId = req.user?.id || req.user?.userId || req.user?.sub || null;
-    return this.eventsService.checkout(idOrSlug, dto, userId);
+    return this.eventsService.checkout(idOrSlug, dto, userId, req);
   }
 
   @Public()

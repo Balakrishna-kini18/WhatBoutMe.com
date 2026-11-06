@@ -59,23 +59,34 @@ export class StripePaymentProvider implements IPaymentProvider {
     }
 
     try {
-      const { lmsUrl, marketingUrl, adminUrl } = getAppUrls();
+      const { lmsUrl, marketingUrl, adminUrl } = getAppUrls(params.origin || params.returnUrl);
       const isEvent = params.targetType === 'EVENT';
       const isSeatPool = params.targetType === 'SEAT_POOL';
-      const baseReturnUrl = isEvent ? marketingUrl : lmsUrl;
 
       let successUrl: string;
       let cancelUrl: string;
 
-      if (isSeatPool) {
+      if (params.returnUrl) {
+        successUrl = params.returnUrl.includes('{CHECKOUT_SESSION_ID}')
+          ? params.returnUrl
+          : `${params.returnUrl}${params.returnUrl.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`;
+      } else if (isSeatPool) {
         const orgId = params.metadata?.organizationId || '';
         successUrl = `${adminUrl}/users/organizations/${orgId}?tab=pools&paid=1&session_id={CHECKOUT_SESSION_ID}&poolId=${params.targetId}`;
-        cancelUrl = `${adminUrl}/users/organizations/${orgId}?tab=pools&cancelled=1&poolId=${params.targetId}`;
       } else if (isEvent) {
-        successUrl = `${baseReturnUrl}/events/${params.targetId}?session_id={CHECKOUT_SESSION_ID}&registered=1`;
-        cancelUrl = `${baseReturnUrl}/events/${params.targetId}?cancelled=1`;
+        successUrl = `${marketingUrl}/events/${params.targetId}?session_id={CHECKOUT_SESSION_ID}&registered=1`;
       } else {
         successUrl = `${lmsUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
+      }
+
+      if (params.cancelUrl) {
+        cancelUrl = params.cancelUrl;
+      } else if (isSeatPool) {
+        const orgId = params.metadata?.organizationId || '';
+        cancelUrl = `${adminUrl}/users/organizations/${orgId}?tab=pools&cancelled=1&poolId=${params.targetId}`;
+      } else if (isEvent) {
+        cancelUrl = `${marketingUrl}/events/${params.targetId}?cancelled=1`;
+      } else {
         cancelUrl = `${lmsUrl}/checkout?programId=${params.targetId}&cancelled=1`;
       }
 

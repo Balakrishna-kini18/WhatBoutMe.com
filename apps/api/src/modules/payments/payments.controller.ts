@@ -42,7 +42,7 @@ export class PaymentsController {
   @Post('checkout-session')
   createCheckoutSession(@Body() dto: CreateCheckoutSessionDto, @Req() req: any) {
     const user = req.user;
-    return this.paymentsService.createCheckoutSession(dto, user);
+    return this.paymentsService.createCheckoutSession(dto, user, req);
   }
 
   /**

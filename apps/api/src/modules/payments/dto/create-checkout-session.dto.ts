@@ -53,4 +53,16 @@ export class CreateCheckoutSessionDto {
   @IsString()
   @IsOptional()
   leadToken?: string;
+
+  @IsString()
+  @IsOptional()
+  origin?: string;
+
+  @IsString()
+  @IsOptional()
+  returnUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  cancelUrl?: string;
 }

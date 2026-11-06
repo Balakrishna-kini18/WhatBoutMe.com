@@ -9,7 +9,8 @@
  *
  * When custom domains or production environment variables are not explicitly set,
  * this prevents sending broken "http://localhost:..." links in automated emails
- * (such as password reset tokens, partner invites, certificates, invoices, and lead checkouts).
+ * (such as password reset tokens, partner invites, certificates, invoices, and lead checkouts)
+ * or redirecting live learners to localhost after Stripe checkout.
  */
 
 export interface AppUrls {
@@ -19,28 +20,60 @@ export interface AppUrls {
   apiUrl: string;
 }
 
+export function isLocalHost(host?: string | null): boolean {
+  if (!host) return false;
+  return (
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host === '127.0.0.1' ||
+    /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(host)
+  );
+}
+
+export function isLocalUrl(url?: string | null): boolean {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url.includes('://') ? url : `http://${url}`);
+    return isLocalHost(parsed.hostname);
+  } catch {
+    return url.includes('localhost') || url.includes('127.0.0.1');
+  }
+}
+
 export function getAppUrls(reqOrOrigin?: any): AppUrls {
   const isProduction = process.env.NODE_ENV === 'production';
   const rootDomain = process.env.ROOT_DOMAIN || 'whatboutme.com';
 
-  // Extract client origin or host if available from Request object or string
+  // 1. Extract host & origin from parameter
   let clientHost: string | null = null;
-  if (typeof reqOrOrigin === 'string') {
+  let clientOrigin: string | null = null;
+  let clientProtocol = 'https:';
+
+  if (typeof reqOrOrigin === 'string' && reqOrOrigin.trim()) {
     try {
-      clientHost = reqOrOrigin.includes('://') ? new URL(reqOrOrigin).hostname : reqOrOrigin;
+      const parsed = new URL(reqOrOrigin.includes('://') ? reqOrOrigin : `https://${reqOrOrigin}`);
+      clientHost = parsed.hostname;
+      clientOrigin = parsed.origin;
+      clientProtocol = parsed.protocol;
     } catch {
-      clientHost = reqOrOrigin;
+      clientHost = reqOrOrigin.split(':')[0];
     }
   } else if (reqOrOrigin?.headers) {
     const rawOrigin = reqOrOrigin.headers['origin'] || reqOrOrigin.headers['referer'];
     const forwardedHost = reqOrOrigin.headers['x-forwarded-host'] || reqOrOrigin.headers['host'];
+    const forwardedProto = reqOrOrigin.headers['x-forwarded-proto'] || 'https';
     if (rawOrigin) {
       try {
-        clientHost = new URL(rawOrigin).hostname;
+        const parsed = new URL(rawOrigin);
+        clientHost = parsed.hostname;
+        clientOrigin = parsed.origin;
+        clientProtocol = parsed.protocol;
       } catch {}
     }
     if (!clientHost && forwardedHost) {
       clientHost = String(forwardedHost).split(':')[0];
+      clientProtocol = `${forwardedProto}:`;
+      clientOrigin = `${clientProtocol}//${forwardedHost}`;
     }
   }
 
@@ -50,6 +83,7 @@ export function getAppUrls(reqOrOrigin?: any): AppUrls {
     Boolean(clientHost?.endsWith('testfox.in')) ||
     Boolean(process.env.VERCEL_GIT_COMMIT_REF?.includes('staging'));
 
+  // 2. Determine environment-specific safe defaults
   let defaultAdmin: string;
   let defaultLms: string;
   let defaultMarketing: string;
@@ -82,10 +116,7 @@ export function getAppUrls(reqOrOrigin?: any): AppUrls {
     }
   } else if (
     isProduction ||
-    (clientHost &&
-      !clientHost.includes('localhost') &&
-      !clientHost.includes('127.0.0.1') &&
-      !/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(clientHost))
+    (clientHost && !isLocalHost(clientHost))
   ) {
     const activeDomain =
       clientHost && clientHost.split('.').length >= 2
@@ -95,10 +126,7 @@ export function getAppUrls(reqOrOrigin?: any): AppUrls {
     defaultLms = `https://learn.${activeDomain}`;
     defaultMarketing = `https://${activeDomain}`;
     defaultApi = `https://api.${activeDomain}`;
-  } else if (
-    clientHost &&
-    /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(clientHost)
-  ) {
+  } else if (clientHost && /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(clientHost)) {
     defaultAdmin = `http://${clientHost}:3002`;
     defaultLms = `http://${clientHost}:3003`;
     defaultMarketing = `http://${clientHost}:3000`;
@@ -110,32 +138,64 @@ export function getAppUrls(reqOrOrigin?: any): AppUrls {
     defaultApi = 'http://localhost:4000';
   }
 
-  const adminUrl = (
-    process.env.NEXT_PUBLIC_ADMIN_URL ||
-    process.env.NEXT_PUBLIC_ADMIN_URl ||
-    process.env.ADMIN_URL ||
-    defaultAdmin
+  // Sanitize helper: in production/staging or when client is on a live domain,
+  // NEVER allow accidental localhost environment variables to override production domains!
+  const isLive = isProduction || isStaging || (clientHost && !isLocalHost(clientHost));
+  const pickUrl = (envVal: string | undefined, fallback: string): string => {
+    if (!envVal || !envVal.trim()) return fallback;
+    if (isLive && isLocalUrl(envVal)) {
+      // In live environment, disregard any leftover localhost env var
+      return fallback;
+    }
+    return envVal;
+  };
+
+  let adminUrl = pickUrl(
+    process.env.NEXT_PUBLIC_ADMIN_URL || process.env.NEXT_PUBLIC_ADMIN_URl || process.env.ADMIN_URL,
+    defaultAdmin,
   ).replace(/\/+$/, '');
 
-  const lmsUrl = (
-    process.env.NEXT_PUBLIC_LMS_URL ||
-    process.env.LMS_URL ||
-    defaultLms
+  let lmsUrl = pickUrl(
+    process.env.NEXT_PUBLIC_LMS_URL || process.env.LMS_URL,
+    defaultLms,
   ).replace(/\/+$/, '');
 
-  const marketingUrl = (
-    process.env.NEXT_PUBLIC_MARKETING_URL ||
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.MARKETING_URL ||
-    process.env.SITE_URL ||
-    defaultMarketing
+  let marketingUrl = pickUrl(
+    process.env.NEXT_PUBLIC_MARKETING_URL || process.env.NEXT_PUBLIC_SITE_URL || process.env.MARKETING_URL || process.env.SITE_URL,
+    defaultMarketing,
   ).replace(/\/+$/, '');
 
-  const apiUrl = (
-    process.env.NEXT_PUBLIC_API_URL ||
-    process.env.API_URL ||
-    defaultApi
+  let apiUrl = pickUrl(
+    process.env.NEXT_PUBLIC_API_URL || process.env.API_URL,
+    defaultApi,
   ).replace(/\/+$/, '');
+
+  // 3. Dynamic client origin context:
+  // If the request originated from a specific client app, align that specific app's URL
+  // (e.g. if LMS runs on port 3004 because 3003 was occupied, or a custom preview domain)
+  if (clientOrigin) {
+    const isClientLocal = isLocalUrl(clientOrigin);
+    // If not live, allow local client origin; if live, allow only non-local client origin
+    if (!isLive || !isClientLocal) {
+      if (clientHost?.startsWith('admin.') || clientOrigin.includes(':3002')) {
+        adminUrl = clientOrigin.replace(/\/+$/, '');
+      } else if (
+        clientHost?.startsWith('learn.') ||
+        clientHost?.startsWith('lms.') ||
+        clientOrigin.includes(':3003') ||
+        clientOrigin.includes(':3004')
+      ) {
+        lmsUrl = clientOrigin.replace(/\/+$/, '');
+      } else if (
+        clientOrigin.includes(':3000') ||
+        clientOrigin.includes(':3001') ||
+        clientHost === rootDomain ||
+        clientHost === `www.${rootDomain}`
+      ) {
+        marketingUrl = clientOrigin.replace(/\/+$/, '');
+      }
+    }
+  }
 
   return {
     adminUrl,

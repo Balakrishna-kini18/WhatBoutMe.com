@@ -209,7 +209,7 @@ export class EventsService {
       return mapEvent(event, { isStaff: false, registeredByMe, showSecretLink });
     }
 
-  async checkout(idOrSlug: string, dto: CheckoutEventDto, userId ?: string) {
+  async checkout(idOrSlug: string, dto: CheckoutEventDto, userId?: string, req?: any) {
       const event = await this.prisma.event.findFirst({
         where: {
           OR: [{ id: idOrSlug }, { slug: idOrSlug }],
@@ -365,7 +365,8 @@ export class EventsService {
       if (isStripeActive) {
         try {
           const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-          const { marketingUrl } = getAppUrls();
+          const requestOrigin = (dto as any)?.origin || req?.headers?.origin || req?.headers?.referer;
+          const { marketingUrl } = getAppUrls(requestOrigin);
           const session = await stripe.checkout.sessions.create({
             mode: 'payment',
             customer_email: attendeeEmail,

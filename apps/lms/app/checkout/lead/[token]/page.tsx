@@ -154,6 +154,9 @@ export default function LeadCheckoutPage({
           amount: data.pricing?.amount || data.amount,
           currency: data.pricing?.currency || data.currency || "USD",
           idempotencyKey: `lead_chk_${Date.now()}_${(targetEnrolId || '').slice(0, 8)}`,
+          origin: typeof window !== "undefined" ? window.location.origin : undefined,
+          returnUrl: typeof window !== "undefined" ? `${window.location.origin}/checkout/success` : undefined,
+          cancelUrl: typeof window !== "undefined" ? `${window.location.origin}/checkout/lead/${token}?cancelled=1` : undefined,
         }),
       });
 

@@ -311,7 +311,11 @@ export class PaymentsService {
   /**
    * Initializes a checkout order session via Payment Provider abstraction
    */
-  async createCheckoutSession(dto: CreateCheckoutSessionDto, user?: any) {
+  async createCheckoutSession(dto: CreateCheckoutSessionDto, user?: any, req?: any) {
+    const rawOrigin =
+      dto.origin ||
+      (req?.headers ? (req.headers['origin'] || req.headers['referer']) : undefined);
+    const safeOrigin = typeof rawOrigin === 'string' ? rawOrigin : undefined;
     const pricing = await this.resolvePricing(dto.targetType, dto.targetId, dto.currency, dto.enrolmentId);
     let discountAmount = 0;
     let couponId: string | undefined = undefined;
@@ -484,14 +488,26 @@ export class PaymentsService {
         stripeSessionId: freeSessionId,
       });
 
-      const { lmsUrl } = getAppUrls();
+      const { lmsUrl, adminUrl, marketingUrl } = getAppUrls(safeOrigin || dto.returnUrl);
+      const isSeatPool = dto.targetType === 'SEAT_POOL';
+      const isEvent = dto.targetType === 'EVENT';
+      const freeCheckoutUrl = dto.returnUrl
+        ? (dto.returnUrl.includes('{CHECKOUT_SESSION_ID}')
+            ? dto.returnUrl.replace('{CHECKOUT_SESSION_ID}', freeSessionId)
+            : `${dto.returnUrl}${dto.returnUrl.includes('?') ? '&' : '?'}session_id=${freeSessionId}`)
+        : (isSeatPool
+            ? `${adminUrl}/users/organizations/${(pricing as any).organizationId || ''}?tab=pools&paid=1&session_id=${freeSessionId}&poolId=${dto.targetId}`
+            : isEvent
+            ? `${marketingUrl}/events/${dto.targetId}?session_id=${freeSessionId}&registered=1`
+            : `${lmsUrl}/checkout/success?session_id=${freeSessionId}`);
+
       return {
         provider: 'STRIPE',
         orderId: freeSessionId,
         amount: 0,
         currency: pricing.currency,
         status: 'PAID',
-        checkoutUrl: `${lmsUrl}/checkout/success?session_id=${freeSessionId}`,
+        checkoutUrl: freeCheckoutUrl,
         simulationBypass: true,
         title: pricing.title,
         currencySymbol: getCurrencySymbol(pricing.currency),
@@ -510,6 +526,9 @@ export class PaymentsService {
       customerName: dto.attendeeName || user?.name || '',
       customerPhone: dto.attendeePhone || user?.phone || '',
       idempotencyKey: dto.idempotencyKey,
+      origin: safeOrigin,
+      returnUrl: dto.returnUrl,
+      cancelUrl: dto.cancelUrl,
       metadata: {
         title: pricing.title,
         originalAmount: pricing.amount,

@@ -214,7 +214,7 @@ export default async function (req, res) {
     // If it somehow returned without ending the response (shouldn't happen, but
     // if Nest/Express leaks) wait up to 250ms for res.end; otherwise force-end.
     const waitForEndMs = 250;
-    const endWaitUntil = innerStart + 10500; // never wait past Vercel limit
+    const endWaitUntil = innerStart + OUTER_LIMIT_MS; // never wait past Vercel limit
     const pollEndDeadline = Math.min(Date.now() + waitForEndMs, endWaitUntil);
     while (Date.now() < pollEndDeadline && !(res.writableEnded || res.headersSent && res.finished)) {
       await new Promise(r => setTimeout(r, 10));

@@ -50,3 +50,4 @@ describe('Dynamic CORS Validator Security Spec', () => {
     expect(isAllowedCorsOrigin('https://random.com', ['*'])).toBe(true);
   });
 });
+

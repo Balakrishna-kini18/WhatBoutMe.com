@@ -1,4 +1,5 @@
 import { isAllowedCorsOrigin } from './common/config/cors.config.js';
+import { assertPaymentConfig } from './common/config/payment.config.js';
 let cachedServer: any = null;
 let bootstrapPromise: Promise<any> | null = null;
 
@@ -53,14 +54,7 @@ function writeJson(res: any, statusCode: number, payload: any): void {
 }
 
 async function bootstrapServer() {
-  if (process.env.NODE_ENV === 'production' && process.env.PAYMENT_MODE === 'mock') {
-    // Revert commit 2cb737d relaxation. The guard is intentional:
-    // if PAYMENT_MODE=mock deploys to production by accident, Stripe test-mode
-    // checkout means REAL customer PII is saved with ZERO payment captured
-    // (Stripe test tokens never charge). Fail boot loudly so the engineer
-    // deploying notices at build/preview time, not after 20 free enrollments.
-    throw new Error('FATAL: PAYMENT_MODE=mock refuses to start in production. Set real Stripe env vars or PAYMENT_MODE=live.');
-  }
+  assertPaymentConfig({ exitOnError: false });
 
   if (cachedServer) {
     return cachedServer;

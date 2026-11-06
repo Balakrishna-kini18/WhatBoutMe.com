@@ -598,10 +598,10 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
 
   const isManuallyUnlocked = (currentStepProg as any)?.overrideState === "MANUAL_UNLOCKED";
   const isQuizAlreadyPassed = Boolean(
-    lastQuizResult?.passed ||
-    (lastQuizResult && lastQuizResult.score !== undefined) ||
+    lastQuizResult?.passed === true ||
+    (lastQuizResult && typeof lastQuizResult.score === "number" && lastQuizResult.passed !== false && lastQuizResult.score >= (step?.quiz?.passMark ?? 70)) ||
     (currentStepProg as any)?.quiz?.isPassed ||
-    (currentStepProg?.isCompleted && lastQuizResult?.passed !== false)
+    Boolean((currentStepProg as any)?.quizPassed)
   );
 
   const stepMaterials = useMemo(() => {
@@ -1187,7 +1187,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
           (l: any) => updated[l.id]?.isCompleted || updated[l.id]?.viewed
         );
 
-        if (areAllVideosDone) {
+        const stepHasQuiz = Boolean(step?.quiz);
+        const quizDone = Boolean(lastQuizResult?.passed === true || (currentStepProg as any)?.quiz?.isPassed === true || (currentStepProg as any)?.quizPassed === true);
+        if (areAllVideosDone && (!stepHasQuiz || quizDone)) {
           // Immediately unlock next module in client state so it never shows locked
           setProgression((prevProg: any) => {
             if (!prevProg?.steps) return prevProg;
@@ -1288,9 +1290,9 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         const multiArray = rawAns ? rawAns.split(",").map((s) => s.trim()).filter(Boolean) : [];
         return {
           questionId: q.id,
-          optionId: !isMulti && !isText ? rawAns || undefined : undefined,
-          selectedOptionId: !isMulti && !isText ? rawAns || undefined : undefined,
-          selectedOptionIds: isMulti ? multiArray : undefined,
+          optionId: !isText && multiArray.length === 1 ? multiArray[0] : undefined,
+          selectedOptionId: !isText && multiArray.length === 1 ? multiArray[0] : undefined,
+          selectedOptionIds: !isText && (isMulti || multiArray.length > 0) ? multiArray : undefined,
           textResponse: isText ? rawAns.trim() : undefined,
           textAnswer: isText ? rawAns.trim() : undefined,
         };
@@ -1354,7 +1356,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         label: "Next Part",
         isUnlocked: isCurrentWatched,
         onClick: () => {
-          if (currentMedia?.id) {
+          if (currentMedia?.id && isCurrentWatched) {
             handleLessonComplete(currentMedia.id, false);
           }
           setSelectedMediaId(nextPart.id);
@@ -1367,7 +1369,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         label: "Materials",
         isUnlocked: Boolean(isCurrentWatched || isMaterialsUnlocked),
         onClick: () => {
-          if (currentMedia?.id) {
+          if (currentMedia?.id && isCurrentWatched) {
             handleLessonComplete(currentMedia.id, false);
           }
           if (isCurrentWatched || isMaterialsUnlocked) {
@@ -1382,7 +1384,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         label: "Module Quiz",
         isUnlocked: Boolean(isQuizUnlocked || isCurrentWatched),
         onClick: () => {
-          if (currentMedia?.id) {
+          if (currentMedia?.id && isCurrentWatched) {
             handleLessonComplete(currentMedia.id, false);
           }
           setActiveTab("quiz");
@@ -1399,7 +1401,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
         isUnlocked: isReadyForNextStep,
         onClick: () => {
           if (isReadyForNextStep) {
-            if (currentMedia?.id) {
+            if (currentMedia?.id && isCurrentWatched) {
               handleLessonComplete(currentMedia.id, false);
             }
             router.push(`/steps/${nextStepId}`);
@@ -2767,7 +2769,7 @@ export default function StepPage({ params }: { params: Promise<{ stepId: string 
                       n.noteText.toLowerCase().includes(notesSearch.toLowerCase())
                     )
                     .map((n) => (
-                      <div key={n.id} className={styles.savedNoteCard}>
+                      <div key={n.id} className={styles.savedNoteRowCard}>
                         <div className={styles.savedNoteLeft}>
                           <div className={styles.noteIconSquare}>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

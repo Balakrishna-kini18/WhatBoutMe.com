@@ -384,7 +384,7 @@ export function computeUnifiedJourneyProgress(params: {
         : allStepsDone
         ? "Ready for Exam"
         : "Locked",
-      detail: examPassed ? "Passed with certificate qualification" : "50-question comprehensive exam",
+      detail: examPassed ? "Passed with certificate qualification" : "Comprehensive final examination",
     },
     {
       id: "coaching",

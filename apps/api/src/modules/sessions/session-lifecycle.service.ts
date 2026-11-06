@@ -2,12 +2,12 @@ import { getAppUrls } from '../../common/config/app-urls.js';
 import {
   Injectable,
   Logger,
-  OnModuleInit,
-  OnModuleDestroy,
   Inject,
   Optional,
   forwardRef,
 } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import {
   SessionStatus,
   SessionType,
@@ -32,9 +32,8 @@ export interface SessionLifecycleStats {
 }
 
 @Injectable()
-export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
+export class SessionLifecycleService {
   private readonly logger = new Logger(SessionLifecycleService.name);
-  private timer: NodeJS.Timeout | null = null;
   private isProcessing = false;
 
   constructor(
@@ -44,29 +43,332 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
     @Optional() @Inject(MEETING_PROVIDER) private readonly meetingProvider: any,
     @Optional() @Inject(CALENDAR_PROVIDER) private readonly calendarProvider: any,
     @Optional() @Inject(forwardRef(() => StageGateService)) private readonly stageGateService?: StageGateService,
+    @Optional() @InjectQueue('lifecycle') private readonly lifecycleQueue?: Queue,
   ) {}
 
-  onModuleInit() {
-    // Run an initial sweep 5 seconds after startup
-    setTimeout(() => {
-      this.processLifecycleTransitions().catch((err) =>
-        this.logger.error(`Initial lifecycle transition sweep failed: ${err.message}`),
-      );
-    }, 5000);
-
-    // Run periodic lifecycle sweep every 60 seconds
-    this.timer = setInterval(() => {
-      this.processLifecycleTransitions().catch((err) =>
-        this.logger.error(`Periodic lifecycle transition sweep failed: ${err.message}`),
-      );
-    }, 60000);
+  onModuleDestroy() {
+    // Graceful teardown hook
   }
 
-  onModuleDestroy() {
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
+  /**
+   * Enqueues delayed BullMQ lifecycle jobs for a created or rescheduled session.
+   * Uses stable job IDs with version:
+   * - session-activate:{sessionId}:{version}
+   * - session-complete:{sessionId}:{version}
+   * - session-reminder-24h:{sessionId}:{version}
+   * - session-reminder-1h:{sessionId}:{version}
+   * - session-reminder-10m:{sessionId}:{version}
+   */
+  async scheduleSessionJobs(session: {
+    id: string;
+    startTime: Date;
+    endTime: Date;
+    scheduleVersion?: number;
+    status?: SessionStatus;
+  }): Promise<void> {
+    if (!this.lifecycleQueue) {
+      return;
     }
+    const version = session.scheduleVersion || 1;
+    const now = Date.now();
+    const startMs = new Date(session.startTime).getTime();
+    const endMs = new Date(session.endTime).getTime();
+
+    // 1. Activation job at startTime
+    if (startMs > now) {
+      const delay = Math.max(0, startMs - now);
+      const jobId = `session-activate:${session.id}:${version}`;
+      try {
+        await this.lifecycleQueue.add(
+          'activate-session',
+          { sessionId: session.id, version },
+          { jobId, delay, removeOnComplete: { count: 100, age: 86400 }, removeOnFail: { count: 200, age: 7 * 86400 } },
+        );
+      } catch (err: any) {
+        this.logger.warn(`Failed scheduling session-activate for ${session.id}: ${err.message}`);
+      }
+    }
+
+    // 2. Completion job at endTime
+    if (endMs > now) {
+      const delay = Math.max(0, endMs - now);
+      const jobId = `session-complete:${session.id}:${version}`;
+      try {
+        await this.lifecycleQueue.add(
+          'complete-session',
+          { sessionId: session.id, version },
+          { jobId, delay, removeOnComplete: { count: 100, age: 86400 }, removeOnFail: { count: 200, age: 7 * 86400 } },
+        );
+      } catch (err: any) {
+        this.logger.warn(`Failed scheduling session-complete for ${session.id}: ${err.message}`);
+      }
+    }
+
+    // 3. 24-hour reminder
+    const time24h = startMs - 24 * 3600 * 1000;
+    if (time24h > now) {
+      const delay = Math.max(0, time24h - now);
+      const jobId = `session-reminder-24h:${session.id}:${version}`;
+      try {
+        await this.lifecycleQueue.add(
+          'session-reminder-24h',
+          { sessionId: session.id, version, timeframe: '24 hours' },
+          { jobId, delay, removeOnComplete: { count: 100, age: 86400 }, removeOnFail: { count: 200, age: 7 * 86400 } },
+        );
+      } catch (err: any) {
+        this.logger.warn(`Failed scheduling session-reminder-24h for ${session.id}: ${err.message}`);
+      }
+    }
+
+    // 4. 1-hour reminder
+    const time1h = startMs - 3600 * 1000;
+    if (time1h > now) {
+      const delay = Math.max(0, time1h - now);
+      const jobId = `session-reminder-1h:${session.id}:${version}`;
+      try {
+        await this.lifecycleQueue.add(
+          'session-reminder-1h',
+          { sessionId: session.id, version, timeframe: '1 hour' },
+          { jobId, delay, removeOnComplete: { count: 100, age: 86400 }, removeOnFail: { count: 200, age: 7 * 86400 } },
+        );
+      } catch (err: any) {
+        this.logger.warn(`Failed scheduling session-reminder-1h for ${session.id}: ${err.message}`);
+      }
+    }
+
+    // 5. 10-minute reminder
+    const time10m = startMs - 10 * 60 * 1000;
+    if (time10m > now) {
+      const delay = Math.max(0, time10m - now);
+      const jobId = `session-reminder-10m:${session.id}:${version}`;
+      try {
+        await this.lifecycleQueue.add(
+          'session-reminder-10m',
+          { sessionId: session.id, version, timeframe: '10 minutes' },
+          { jobId, delay, removeOnComplete: { count: 100, age: 86400 }, removeOnFail: { count: 200, age: 7 * 86400 } },
+        );
+      } catch (err: any) {
+        this.logger.warn(`Failed scheduling session-reminder-10m for ${session.id}: ${err.message}`);
+      }
+    }
+  }
+
+  /**
+   * Activates a session upon its start time arriving via delayed BullMQ job.
+   * Multi-worker safe: uses conditional database update matching status and scheduleVersion.
+   */
+  async activateSession(sessionId: string, version?: number): Promise<boolean> {
+    const now = new Date();
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { id: true, title: true, startTime: true, endTime: true, status: true, scheduleVersion: true },
+    });
+
+    if (!session) {
+      this.logger.warn(`activateSession: Session ${sessionId} not found, skipping.`);
+      return false;
+    }
+
+    if (session.status !== SessionStatus.SCHEDULED) {
+      this.logger.log(`activateSession: Session ${sessionId} is already ${session.status}, no-op.`);
+      return false;
+    }
+
+    if (version !== undefined && session.scheduleVersion !== version) {
+      this.logger.log(
+        `activateSession: Session ${sessionId} scheduleVersion mismatch (${session.scheduleVersion} vs ${version}), superseded, no-op.`,
+      );
+      return false;
+    }
+
+    const whereClause: any = {
+      id: sessionId,
+      status: SessionStatus.SCHEDULED,
+    };
+    if (version !== undefined) {
+      whereClause.scheduleVersion = version;
+    }
+
+    try {
+      const result = await this.prisma.session.updateMany({
+        where: whereClause,
+        data: { status: SessionStatus.ACTIVE },
+      });
+
+      if (result.count === 0) {
+        this.logger.log(`activateSession: 0 rows updated for session ${sessionId} (concurrent worker claimed), no-op.`);
+        return false;
+      }
+
+      await this.prisma.auditLog.create({
+        data: {
+          actorId: null,
+          action: 'SESSION_ACTIVATED',
+          entity: 'Session',
+          entityId: sessionId,
+          meta: {
+            title: session.title,
+            startTime: session.startTime.toISOString(),
+            activatedAt: now.toISOString(),
+          },
+        },
+      });
+
+      this.logger.log(`Session [${sessionId}] "${session.title}" automatically transitioned to ACTIVE`);
+      return true;
+    } catch (err: any) {
+      this.logger.warn(`Failed to activate session ${sessionId}: ${err.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Completes a session upon its end time arriving via delayed BullMQ job.
+   * Respects live Zoom overtime grace (up to 2h) before finalizing.
+   */
+  async completeSession(sessionId: string, version?: number): Promise<boolean> {
+    const now = new Date();
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      include: {
+        hostTrainer: { select: { id: true, email: true, name: true } },
+      },
+    });
+
+    if (!session) {
+      this.logger.warn(`completeSession: Session ${sessionId} not found, skipping.`);
+      return false;
+    }
+
+    if (session.status !== SessionStatus.ACTIVE && session.status !== SessionStatus.SCHEDULED) {
+      this.logger.log(`completeSession: Session ${sessionId} is in ${session.status} state, not eligible for completion, no-op.`);
+      return false;
+    }
+
+    if (version !== undefined && session.scheduleVersion !== version) {
+      this.logger.log(
+        `completeSession: Session ${sessionId} scheduleVersion mismatch (${session.scheduleVersion} vs ${version}), superseded, no-op.`,
+      );
+      return false;
+    }
+
+    // Check Zoom live status during overtime grace window
+    const hardOvertimeCutoff = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+    const meetingId = (session as any).providerMeetingId || (session as any).zoomMeetingId;
+    const isWithinOvertimeGrace = new Date(session.endTime).getTime() > hardOvertimeCutoff.getTime();
+
+    if (isWithinOvertimeGrace && meetingId && this.meetingProvider && typeof this.meetingProvider.getMeetingStatus === 'function') {
+      try {
+        const liveStatus = await this.meetingProvider.getMeetingStatus(meetingId);
+        if (liveStatus === 'started') {
+          this.logger.log(`completeSession: Session ${sessionId} is still live on Zoom. Delaying completion check by 5 minutes.`);
+          if (this.lifecycleQueue) {
+            await this.lifecycleQueue.add(
+              'complete-session',
+              { sessionId: session.id, version: session.scheduleVersion },
+              { delay: 5 * 60 * 1000, removeOnComplete: true },
+            );
+          }
+          return false;
+        }
+      } catch (err: any) {
+        this.logger.warn(`Could not check live meeting status for session ${sessionId}: ${err.message}`);
+      }
+    }
+
+    // Atomic conditional update
+    const whereClause: any = {
+      id: sessionId,
+      status: { in: [SessionStatus.ACTIVE, SessionStatus.SCHEDULED] },
+    };
+    if (version !== undefined) {
+      whereClause.scheduleVersion = version;
+    }
+
+    try {
+      const result = await this.prisma.session.updateMany({
+        where: whereClause,
+        data: { status: SessionStatus.COMPLETED },
+      });
+
+      if (result.count === 0) {
+        this.logger.log(`completeSession: 0 rows updated for session ${sessionId} (concurrent worker claimed), no-op.`);
+        return false;
+      }
+
+      await this.prisma.auditLog.create({
+        data: {
+          actorId: null,
+          action: 'SESSION_COMPLETED',
+          entity: 'Session',
+          entityId: sessionId,
+          meta: {
+            title: session.title,
+            endTime: session.endTime.toISOString(),
+            completedAt: now.toISOString(),
+          },
+        },
+      });
+
+      this.logger.log(`Session [${sessionId}] "${session.title}" automatically transitioned to COMPLETED`);
+
+      // Post-session integrations (participant reports, recordings & progression)
+      await this.handlePostSessionProcessing(session);
+      return true;
+    } catch (err: any) {
+      this.logger.warn(`Failed to complete session ${sessionId}: ${err.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Sends a targeted session reminder via delayed BullMQ job.
+   * Multi-worker safe: uses Notification.dedupeKey unique constraint.
+   */
+  async sendSessionReminder(
+    sessionId: string,
+    version: number,
+    timeframe: '24 hours' | '1 hour' | '10 minutes',
+  ): Promise<number> {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      include: {
+        learner: { select: { id: true, email: true, name: true, timezone: true } },
+        user: { select: { id: true, email: true, name: true, timezone: true } },
+        bookings: {
+          where: { status: { in: ['BOOKED', 'CONFIRMED'] } },
+          include: { user: { select: { id: true, email: true, name: true, timezone: true } } },
+        },
+        batch: {
+          include: {
+            enrolments: {
+              where: { status: 'ACTIVE' },
+              include: { user: { select: { id: true, email: true, name: true, timezone: true } } },
+            },
+          },
+        },
+      },
+    });
+
+    if (!session || session.status !== SessionStatus.SCHEDULED) {
+      this.logger.log(`sendSessionReminder: Session ${sessionId} not found or not in SCHEDULED state, skipping.`);
+      return 0;
+    }
+
+    if (session.scheduleVersion !== version) {
+      this.logger.log(
+        `sendSessionReminder: Session ${sessionId} version mismatch (${session.scheduleVersion} vs ${version}), superseded, skipping.`,
+      );
+      return 0;
+    }
+
+    const recipients = this.extractSessionRecipients(session);
+    let sentCount = 0;
+    for (const recipient of recipients) {
+      const sent = await this.sendReminderNotification(session, recipient, timeframe);
+      if (sent) sentCount++;
+    }
+    return sentCount;
   }
 
   /**
@@ -491,28 +793,33 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Sends a 24-hour, 1-hour, or 10-minute session reminder email, deduplicated by Notification record.
+   * Multi-worker safe: uses unique Notification.dedupeKey constraint as the authoritative guarantee.
    */
   private async sendReminderNotification(
     session: any,
     recipient: { id: string; email: string; name: string | null; timezone: string | null },
     timeframe: '24 hours' | '1 hour' | '10 minutes',
   ): Promise<boolean> {
-    const notificationType = timeframe === '24 hours'
-      ? `SESSION_REMINDER_24H:${session.id}`
-      : timeframe === '1 hour'
-      ? `SESSION_REMINDER_1H:${session.id}`
-      : `SESSION_REMINDER_10M:${session.id}`;
+    const timeframeSlug = timeframe === '24 hours' ? '24h' : timeframe === '1 hour' ? '1h' : '10m';
+    const notificationType = `SESSION_REMINDER_${timeframeSlug.toUpperCase()}:${session.id}`;
+    const scheduleVer = session.scheduleVersion || 1;
+    const dedupeKey = `session:${session.id}:reminder:${timeframeSlug}:user:${recipient.id}:v${scheduleVer}`;
 
-    // Deduplication check
+    // 1. Check if a reminder for THIS EXACT scheduleVersion has already succeeded
+    // If a previous notification exists and is NOT in FAILED status, it was already handled.
+    // FAILED reminders remain eligible for recovery retry.
     const existing = await this.prisma.notification.findFirst({
       where: {
-        userId: recipient.id,
-        type: notificationType,
+        OR: [
+          { dedupeKey },
+          { userId: recipient.id, type: notificationType },
+        ],
       },
+      select: { id: true, deliveryStatus: true, dedupeKey: true },
     });
 
-    if (existing) {
-      return false; // Already sent
+    if (existing && existing.deliveryStatus !== DeliveryStatus.FAILED && (!existing.dedupeKey || existing.dedupeKey === dedupeKey)) {
+      return false; // Already sent or handled
     }
 
     // Format wall-clock time in recipient's preferred timezone
@@ -521,35 +828,60 @@ export class SessionLifecycleService implements OnModuleInit, OnModuleDestroy {
 
     const firstName = recipient.name?.split(' ')[0] || 'Learner';
     const { lmsUrl } = getAppUrls();
-    const joinUrl = `${lmsUrl}/live?autoJoin=${session.id}`;
+    const joinUrl = session.joinUrl || session.meetingLink || `${lmsUrl}/live?autoJoin=${session.id}`;
+    const subject = `Reminder: ${session.title} starts in ${timeframe}`;
+    const message = `Your live session "${session.title}" starts in ${timeframe}. Click here to join on time.`;
 
-    try {
-      // Production email policy: 24h & 1h reminders are stripped from email to prevent spam.
-      // Learners rely on 1-click 'Add to Google Calendar' from SessionScheduledEmail (#6).
-      // In-app notifications continue to be stored for the dashboard notification bell.
-      await this.prisma.notification.create({
-        data: {
-          userId: recipient.id,
-          type: notificationType,
-          title: `Reminder: ${session.title} starts in ${timeframe}`,
-          message: `Your live session "${session.title}" starts in ${timeframe}. Click here to join on time.`,
-          link: joinUrl,
-          template: 'SessionReminderNotification',
-          channel: NotificationChannel.IN_APP,
-          deliveryStatus: DeliveryStatus.DELIVERED,
-          sentAt: new Date(),
-        },
-      });
-
-      this.logger.log(
-        `Recorded ${timeframe} in-app reminder for session "${session.title}" to ${recipient.email} in timezone ${userTz}`,
-      );
-      return true;
-    } catch (err: any) {
-      this.logger.warn(
-        `Failed to record ${timeframe} in-app reminder for session ${session.id}: ${err.message}`,
-      );
-      return false;
+    // 2. ATOMIC INSERT GUARANTEE: create Notification row with dedupeKey
+    let notifId: string | null = null;
+    if (existing) {
+      notifId = existing.id;
+      if (this.prisma.notification?.update) {
+        await this.prisma.notification.update({
+          where: { id: notifId },
+          data: {
+            deliveryStatus: DeliveryStatus.DELIVERED,
+            sentAt: new Date(),
+            title: subject,
+            message,
+            link: joinUrl,
+          },
+        }).catch(() => null);
+      }
+    } else {
+      try {
+        const createdNotif = await this.prisma.notification.create({
+          data: {
+            userId: recipient.id,
+            type: notificationType,
+            title: subject,
+            message,
+            link: joinUrl,
+            template: 'SessionReminderNotification',
+            channel: NotificationChannel.IN_APP,
+            deliveryStatus: DeliveryStatus.DELIVERED,
+            sentAt: new Date(),
+            dedupeKey,
+          },
+        });
+        notifId = createdNotif?.id || null;
+      } catch (err: any) {
+        if (err?.code === 'P2002') {
+          // Concurrent worker won race
+          this.logger.log(`Reminder already queued/sent (dedupe: ${dedupeKey}), skipping.`);
+          return false;
+        }
+        this.logger.warn(`Failed to create notification row for ${recipient.email}: ${err.message}`);
+        return false;
+      }
     }
+
+    // 3. Production email policy: 24h & 1h reminders are stripped from email to prevent spam.
+    // Learners rely on 1-click 'Add to Google Calendar' from SessionScheduledEmail (#6).
+    // In-app notifications continue to be stored for the dashboard notification bell.
+    this.logger.log(
+      `Recorded ${timeframe} in-app reminder for session "${session.title}" to ${recipient.email} in timezone ${userTz}`,
+    );
+    return true;
   }
 }

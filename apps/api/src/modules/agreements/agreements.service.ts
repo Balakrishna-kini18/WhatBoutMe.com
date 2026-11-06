@@ -12,6 +12,7 @@ import { AgreementStatus, BatchStatus, ContentStatus, EnrolmentStatus, Role } fr
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { EmailService } from '../email/email.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
+import { getDashboardKey, getProgressKey } from '../../common/cache/cache-keys.constant.js';
 import {
   isRegistrationDeadlinePassed,
   getRegistrationDeadlineCutoff,
@@ -1368,9 +1369,15 @@ export class AgreementsService {
     }, { timeout: 20000, maxWait: 10000 });
 
     if (this.cacheHelper) {
-      await this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`).catch(() => {});
-      await this.cacheHelper.invalidateNamespace('batches').catch(() => {});
-      await this.cacheHelper.invalidateNamespace('enrolments').catch(() => {});
+      await Promise.allSettled([
+        this.cacheHelper.invalidate(getDashboardKey(enrolment.userId)),
+        this.cacheHelper.invalidate(getProgressKey(enrolment.userId, enrolment.id)),
+        this.cacheHelper.invalidateTag(`dashboard:${enrolment.userId}`),
+        this.cacheHelper.invalidateTag(`progress:${enrolment.userId}:${enrolment.id}`),
+        this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`),
+        this.cacheHelper.invalidateNamespace('batches'),
+        this.cacheHelper.invalidateNamespace('enrolments'),
+      ]);
     }
 
     // Production email policy: AgreementSignedConfirmationEmail is stripped out.

@@ -601,7 +601,31 @@ export async function cachedFetch(
           ? (window as any).__rawOriginalFetch
           : fetch;
 
-      let res = await rawFetch(url, { ...init, headers: requestHeaders, signal: abortController.signal });
+      let res: any;
+      try {
+        res = await rawFetch(url, { ...init, headers: requestHeaders, signal: abortController.signal });
+      } catch (fetchErr: any) {
+        if (typeof window !== "undefined" && !abortController.signal.aborted) {
+          let succeeded = false;
+          let retryRes: any;
+          for (const delay of [400, 1000]) {
+            await new Promise((r) => setTimeout(r, delay));
+            if (abortController.signal.aborted) break;
+            try {
+              retryRes = await rawFetch(url, { ...init, headers: requestHeaders, signal: abortController.signal });
+              succeeded = true;
+              break;
+            } catch { }
+          }
+          if (succeeded) {
+            res = retryRes;
+          } else {
+            throw fetchErr;
+          }
+        } else {
+          throw fetchErr;
+        }
+      }
       clearTimeout(timeoutTimer);
 
       // Handle transparent 401 token refresh for authenticated requests

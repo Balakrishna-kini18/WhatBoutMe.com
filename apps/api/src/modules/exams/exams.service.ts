@@ -4,9 +4,10 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  OnModuleDestroy,
-  OnModuleInit,
+  Optional,
 } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import {
   AttemptStatus,
   ContentStatus,
@@ -29,9 +30,8 @@ import {
 } from './dto/index.js';
 
 @Injectable()
-export class ExamsService implements OnModuleInit, OnModuleDestroy {
+export class ExamsService {
   private readonly logger = new Logger(ExamsService.name);
-  private sweepTimer: NodeJS.Timeout | null = null;
   private examConfigCache = new Map<string, { expiresAt: number; data: any }>();
   private activeAttemptCache = new Map<string, { expiresAt: number; data: any }>();
   private inflightActiveAttempt = new Map<string, Promise<any>>();
@@ -40,20 +40,62 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly cacheHelper: CacheHelperService,
     private readonly progressionService: ProgressionService,
+    @Optional() @InjectQueue('lifecycle') private readonly lifecycleQueue?: Queue,
   ) {}
 
-  onModuleInit() {
-    this.sweepTimer = setInterval(() => {
-      this.finalizeExpiredAttempts().catch((err) => {
-        this.logger.error(`Expired exam attempts sweep failed: ${err.message}`);
-      });
-    }, 60000);
-  }
+  /**
+   * Finalizes a single expired exam attempt via delayed BullMQ job.
+   * Multi-worker safe: submitExam performs atomic conditional transaction.
+   */
+  async finalizeExpiredAttempt(attemptId: string): Promise<boolean> {
+    const attempt = await this.prisma.examAttempt.findUnique({
+      where: { id: attemptId },
+      select: {
+        id: true,
+        status: true,
+        expiresAt: true,
+        examId: true,
+        enrolmentId: true,
+        answers: true,
+      },
+    });
 
-  onModuleDestroy() {
-    if (this.sweepTimer) {
-      clearInterval(this.sweepTimer);
-      this.sweepTimer = null;
+    if (!attempt) {
+      this.logger.warn(`Delayed finalize job: attempt ${attemptId} not found, skipping.`);
+      return false;
+    }
+
+    if (attempt.status !== AttemptStatus.IN_PROGRESS) {
+      this.logger.log(`Delayed finalize job: attempt ${attemptId} is already ${attempt.status}, no-op.`);
+      return false;
+    }
+
+    const now = new Date();
+    if (attempt.expiresAt && attempt.expiresAt.getTime() > now.getTime()) {
+      this.logger.log(
+        `Delayed finalize job: attempt ${attemptId} has not yet expired (expires at ${attempt.expiresAt.toISOString()}), skipping.`,
+      );
+      return false;
+    }
+
+    try {
+      const answersJson = (attempt.answers as any) || {};
+      const savedAnswers = Array.isArray(answersJson.savedAnswers) ? answersJson.savedAnswers : [];
+      await this.submitExam(
+        attempt.examId,
+        { attemptId: attempt.id, answers: savedAnswers },
+        { id: 'system', sub: 'system', role: Role.SUPER_ADMIN },
+        { isAutoFinalize: true, enrolmentId: attempt.enrolmentId },
+      );
+      this.logger.log(`Attempt ${attempt.id} auto-finalized successfully via delayed BullMQ job`);
+      return true;
+    } catch (err: any) {
+      if (err?.message?.includes('already finalized')) {
+        this.logger.log(`Attempt ${attempt.id} was already finalized concurrently.`);
+        return false;
+      }
+      this.logger.error(`Failed to auto-finalize attempt ${attempt.id}: ${err.message}`);
+      throw err;
     }
   }
 
@@ -85,9 +127,8 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
           data: {
             programId: program.id,
             title: `${program.title} — Final Comprehensive Examination`,
-            description:
-              '50-Mark Final Certification Exam (50 questions randomly shuffled from a 70-question pool).',
-            questionCount: 50,
+            description: 'Final Certification Examination.',
+            questionCount: 0,
             passMark: 80,
             timeLimitMin: 90,
             maxAttempts: 3,
@@ -347,23 +388,7 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    let distinctCandidates = Array.from(questionMap.values());
-    const requiredQuestionCount = exam.questionCount || 50;
-
-    if (
-      distinctCandidates.length < requiredQuestionCount &&
-      typeof (this.prisma as any).program?.findUnique === 'function' &&
-      typeof (this.prisma as any).questionBank?.create === 'function' &&
-      typeof (this.prisma as any).question?.create === 'function'
-    ) {
-      const seededQuestions = await this.autoSeed70QuestionPool(exam, distinctCandidates.length);
-      for (const sq of seededQuestions) {
-        if (!questionMap.has(sq.id)) {
-          questionMap.set(sq.id, sq);
-        }
-      }
-      distinctCandidates = Array.from(questionMap.values());
-    }
+    const distinctCandidates = Array.from(questionMap.values());
 
     if (distinctCandidates.length === 0) {
       throw new BadRequestException(
@@ -371,20 +396,15 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    if (distinctCandidates.length < requiredQuestionCount) {
-      throw new BadRequestException(
-        `Insufficient question pool for final exam: Exam requires at least ${requiredQuestionCount} questions, but only ${distinctCandidates.length} are available.`,
-      );
-    }
-
-    // Sample questions: if exam specifies questionCount smaller than available pool, slice; otherwise use all questions
+    // Sample questions: use all configured questions unless a valid smaller questionCount was explicitly requested
     const poolToUse = exam.shuffleQuestions
       ? this.shuffleArray([...distinctCandidates])
       : [...distinctCandidates];
-    const sampledQuestions =
-      exam.questionCount && exam.questionCount < poolToUse.length
-        ? poolToUse.slice(0, exam.questionCount)
-        : poolToUse;
+    const targetCount =
+      exam.questionCount && exam.questionCount > 0
+        ? Math.min(exam.questionCount, poolToUse.length)
+        : poolToUse.length;
+    const sampledQuestions = poolToUse.slice(0, targetCount);
 
     const nextAttemptNumber = (allAttempts[0]?.attemptNumber ?? 0) + 1;
     const newAttemptId = crypto.randomUUID();
@@ -434,6 +454,37 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
           } as any,
         },
       });
+
+      // Enqueue delayed finalization job via BullMQ
+      if (this.lifecycleQueue && expiresAt) {
+        const delayMs = Math.max(0, expiresAt.getTime() - Date.now());
+        const expiresAtUnix = Math.floor(expiresAt.getTime() / 1000);
+        const jobId = `exam-finalize:${createdAttempt.id}:${expiresAtUnix}`;
+        try {
+          await this.lifecycleQueue.add(
+            'finalize-exam',
+            {
+              attemptId: createdAttempt.id,
+              expiresAt: expiresAt.toISOString(),
+              version: createdAttempt.attemptNumber,
+            },
+            {
+              jobId,
+              delay: delayMs,
+              removeOnComplete: { count: 100, age: 86400 },
+              removeOnFail: { count: 200, age: 7 * 86400 },
+            },
+          );
+          this.logger.log(
+            `Enqueued delayed finalize job for attempt ${createdAttempt.id} in ${Math.round(delayMs / 1000)}s (jobId: ${jobId})`,
+          );
+        } catch (queueErr: any) {
+          // Fail-open: Redis outage must never crash student exam start; attempt is safe in PostgreSQL
+          this.logger.warn(
+            `Failed to enqueue delayed finalize job for attempt ${createdAttempt.id} (recoverable via sweep): ${queueErr?.message}`,
+          );
+        }
+      }
 
       return this.formatExamAttemptResponse(createdAttempt, exam);
     } catch (error: any) {
@@ -541,6 +592,9 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
     }
 
     // ── Validate Submitted Questions ──────────────────────────────────────────
+    const savedAnswersList: any[] = Array.isArray(answersJson?.savedAnswers)
+      ? answersJson.savedAnswers
+      : [];
     const submittedAnswers = dto.answers || [];
     for (const sub of submittedAnswers) {
       if (!boundQuestionMap.has(sub.questionId)) {
@@ -550,7 +604,18 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    const submittedMap = new Map(submittedAnswers.map((a) => [a.questionId, a]));
+    const submittedMap = new Map<string, any>();
+    for (const saved of savedAnswersList) {
+      if (saved?.questionId && boundQuestionMap.has(saved.questionId)) {
+        submittedMap.set(saved.questionId, saved);
+      }
+    }
+    for (const sub of submittedAnswers) {
+      submittedMap.set(sub.questionId, {
+        ...(submittedMap.get(sub.questionId) || {}),
+        ...sub,
+      });
+    }
 
     // Query database questions with correct answers for authoritative server evaluation
     const dbQuestions = await this.prisma.question.findMany({
@@ -632,10 +697,25 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
         }
       } else {
         const selectedOptId =
-          submission?.selectedOptionId || submission?.optionId;
+          submission?.selectedOptionId ||
+          submission?.optionId ||
+          (Array.isArray(submission?.selectedOptionIds) &&
+          submission.selectedOptionIds.length > 0
+            ? submission.selectedOptionIds[0]
+            : undefined) ||
+          (Array.isArray(submission?.optionIds) &&
+          submission.optionIds.length > 0
+            ? submission.optionIds[0]
+            : undefined);
         if (selectedOptId) {
-          const correctOpt = dbQ.options.find((o) => o.isCorrect);
-          if (correctOpt && correctOpt.id === selectedOptId) {
+          const matchedOpt =
+            dbQ.options.find((o) => o.id === selectedOptId) ||
+            dbQ.options.find(
+              (o) =>
+                o.text.trim().toLowerCase() ===
+                String(selectedOptId).trim().toLowerCase(),
+            );
+          if (matchedOpt && matchedOpt.isCorrect) {
             isCorrect = true;
           }
         }
@@ -1228,102 +1308,9 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private async autoSeed70QuestionPool(exam: any, existingCount: number): Promise<any[]> {
-    try {
-      let bank = this.prisma.questionBank?.findFirst
-        ? await this.prisma.questionBank.findFirst({ where: { examId: exam.id } })
-        : null;
-
-      if (!bank) {
-        bank = await this.prisma.questionBank.create({
-          data: {
-            title: `${exam.title} — Dedicated 70-Question Pool`,
-            description:
-              'Dedicated Final Exam Question Bank (70 questions pool -> 50 randomly shuffled per attempt)',
-            programId: exam.programId,
-            examId: exam.id,
-          },
-        });
-      }
-
-      const steps = Array.isArray(exam.program?.steps) ? exam.program.steps : [];
-      const needed = Math.max(0, 70 - existingCount);
-      if (needed <= 0) return [];
-
-      const newQuestionIds: string[] = [];
-      const questionData: any[] = [];
-      const optionData: any[] = [];
-
-      for (let i = 0; i < needed; i++) {
-        const qId = crypto.randomUUID();
-        newQuestionIds.push(qId);
-        const qNum = existingCount + i + 1;
-        const stepObj = steps.length > 0 ? steps[i % steps.length] : null;
-        const stepLabel = stepObj ? `Step ${stepObj.sequence} (${stepObj.title})` : 'Core Curriculum';
-
-        questionData.push({
-          id: qId,
-          questionBankId: bank.id,
-          stepId: stepObj?.id ?? null,
-          text: `Final Certification Q${qNum}: Which principle best demonstrates mastery of ${stepLabel}?`,
-          type: 'MULTIPLE_CHOICE' as any,
-          points: 1,
-        });
-
-        optionData.push(
-          {
-            id: crypto.randomUUID(),
-            questionId: qId,
-            text: `Applying structured self-awareness and intentional action from ${stepLabel}`,
-            isCorrect: true,
-            order: 1,
-          },
-          {
-            id: crypto.randomUUID(),
-            questionId: qId,
-            text: 'Reacting impulsively without reflection or milestone alignment',
-            isCorrect: false,
-            order: 2,
-          },
-          {
-            id: crypto.randomUUID(),
-            questionId: qId,
-            text: 'Skipping foundational exercises and avoiding accountability',
-            isCorrect: false,
-            order: 3,
-          },
-          {
-            id: crypto.randomUUID(),
-            questionId: qId,
-            text: 'Relying solely on external validation rather than internal clarity',
-            isCorrect: false,
-            order: 4,
-          },
-        );
-      }
-
-      // Fast batch insert with single transaction (down from 70 sequential DB round-trips to 1 batch)
-      await this.prisma.$transaction([
-        this.prisma.question.createMany({ data: questionData }),
-        this.prisma.option.createMany({ data: optionData }),
-      ]);
-
-      const created = await this.prisma.question.findMany({
-        where: { id: { in: newQuestionIds } },
-        include: {
-          options: {
-            select: { id: true, text: true, imageUrl: true, order: true },
-            orderBy: { order: 'asc' },
-          },
-          step: { select: { id: true, sequence: true, title: true } },
-        },
-      });
-
-      return created;
-    } catch (err) {
-      console.error('autoSeed70QuestionPool batch error:', err);
-      return [];
-    }
+  private async autoSeed70QuestionPool(_exam: any, _existingCount: number): Promise<any[]> {
+    // Disabled: Never auto-seed random or synthetic questions. Only instructor-created questions are used.
+    return [];
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1338,7 +1325,29 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
         })
       : await this.prisma.exam.findUnique({
           where: { id: programIdOrExamId },
-          include: { program: { include: { steps: { orderBy: { sequence: 'asc' } } } } },
+          select: {
+            id: true,
+            programId: true,
+            title: true,
+            description: true,
+            questionCount: true,
+            passMark: true,
+            timeLimitMin: true,
+            maxAttempts: true,
+            cooldownHours: true,
+            shuffleQuestions: true,
+            status: true,
+            program: {
+              select: {
+                id: true,
+                title: true,
+                steps: {
+                  select: { id: true },
+                  orderBy: { sequence: 'asc' },
+                },
+              },
+            },
+          },
         });
 
     if (!exam && byProgram) {
@@ -1353,8 +1362,8 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
         data: {
           programId: program.id,
           title: `${program.title} — Final Comprehensive Examination`,
-          description: '50-Mark Final Certification Exam (50 questions randomly shuffled from a 70-question pool).',
-          questionCount: 50,
+          description: 'Final Certification Examination.',
+          questionCount: 0,
           passMark: 80,
           timeLimitMin: 90,
           maxAttempts: 3,
@@ -1377,8 +1386,8 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
     if (!bank) {
       bank = await this.prisma.questionBank.create({
         data: {
-          title: `${exam.title} — Dedicated 70-Question Pool`,
-          description: 'Dedicated Final Exam Question Bank (70 questions pool -> 50 randomly shuffled per attempt)',
+          title: `${exam.title} — Exam Question Bank`,
+          description: 'Dedicated Final Exam Question Bank',
           programId: exam.programId,
           examId: exam.id,
         },
@@ -1440,10 +1449,10 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
           })
         : 0;
 
-    const totalPoolCount =
-      dedicatedQuestions.length >= (exam.questionCount || 50)
-        ? dedicatedQuestions.length
-        : dedicatedQuestions.length + fallbackStepCount;
+    const questionsPerAttempt =
+      exam.questionCount && exam.questionCount > 0
+        ? Math.min(exam.questionCount, dedicatedQuestions.length)
+        : dedicatedQuestions.length;
 
     return {
       exam: {
@@ -1462,10 +1471,10 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
       questionBankId: bank.id,
       dedicatedPoolCount: dedicatedQuestions.length,
       fallbackStepPoolCount: fallbackStepCount,
-      totalPoolCount,
-      recommendedPoolSize: 70,
-      questionsPerAttempt: exam.questionCount || 50,
-      totalMarks: exam.questionCount || 50,
+      totalPoolCount: dedicatedQuestions.length,
+      recommendedPoolSize: dedicatedQuestions.length,
+      questionsPerAttempt,
+      totalMarks: questionsPerAttempt,
       questions: dedicatedQuestions,
     };
   }
@@ -1580,8 +1589,68 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
 
     const created: any[] = [];
 
-    for (const item of questionsInput) {
-      const q = await this.createExamQuestion(exam.id, item, actor);
+    for (const dto of questionsInput) {
+      const text = (dto.text || '').trim();
+      if (!text) continue;
+
+      const type: QuestionType =
+        dto.type === 'MULTI_SELECT'
+          ? QuestionType.MULTI_SELECT
+          : dto.type === 'SHORT_ANSWER' || dto.type === 'TEXT_BOX'
+            ? QuestionType.SHORT_ANSWER
+            : QuestionType.MULTIPLE_CHOICE;
+
+      const rawOptions = Array.isArray(dto.options) ? dto.options : [];
+      const optionsToCreate =
+        type === QuestionType.SHORT_ANSWER
+          ? []
+          : (rawOptions.length > 0
+              ? rawOptions
+              : [
+                  { text: 'Option A', isCorrect: true, order: 1 },
+                  { text: 'Option B', isCorrect: false, order: 2 },
+                  { text: 'Option C', isCorrect: false, order: 3 },
+                  { text: 'Option D', isCorrect: false, order: 4 },
+                ]
+            ).map((opt: any, idx: number) => ({
+              text:
+                rawOptions.length > 0
+                  ? String(opt?.text ?? '').trim()
+                  : (opt.text || `Option ${idx + 1}`).trim(),
+              imageUrl: opt?.imageUrl || null,
+              isCorrect: Boolean(opt?.isCorrect),
+              order: typeof opt?.order === 'number' ? opt.order : idx + 1,
+            }));
+
+      const rawPoints = Number(dto.points);
+      const points =
+        Number.isFinite(rawPoints) && rawPoints > 0
+          ? Math.min(100, Math.max(1, Math.round(rawPoints)))
+          : 1;
+
+      const q = await this.prisma.question.create({
+        data: {
+          questionBankId: bank.id,
+          stepId: dto.stepId || null,
+          text,
+          type,
+          points,
+          imageUrl: dto.imageUrl || null,
+          explanation: dto.explanation || null,
+          gradingMode: dto.gradingMode || 'SELF_REFLECTION_AUTO_PASS',
+          minCharacters: dto.minCharacters ?? 10,
+          options:
+            optionsToCreate.length > 0
+              ? {
+                  create: optionsToCreate,
+                }
+              : undefined,
+        },
+        include: {
+          options: { orderBy: { order: 'asc' } },
+          step: { select: { id: true, sequence: true, title: true } },
+        },
+      });
       created.push(q);
     }
 
@@ -1784,14 +1853,14 @@ export class ExamsService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async finalizeExpiredAttempts(): Promise<number> {
+  async finalizeExpiredAttempts(limit = 50): Promise<number> {
     const now = new Date();
     const expiredAttempts = await this.prisma.examAttempt.findMany({
       where: {
         status: AttemptStatus.IN_PROGRESS,
         expiresAt: { lte: now },
       },
-      take: 50,
+      take: limit,
     });
 
     let count = 0;

@@ -9,6 +9,7 @@ import {
 import { AgreementStatus, BatchStatus, EnrolmentStatus, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
+import { getDashboardKey, LMS_CACHE_TTLS } from '../../common/cache/cache-keys.constant.js';
 import {
   isRegistrationDeadlinePassed,
   getRegistrationDeadlineCutoff,
@@ -1051,57 +1052,64 @@ export class EnrollmentsService {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async findForLearner(userId: string) {
-    return this.prisma.enrolment.findMany({
-      where: {
-        userId,
-        batch: { status: { not: 'ARCHIVED' } },
-      },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        program: {
-          select: {
-            id: true,
-            title: true,
-            slug: true,
-            description: true,
-            price: true,
-            status: true,
+    const cacheKey = getDashboardKey(userId);
+    return this.cacheHelper.getOrSet(
+      cacheKey,
+      () =>
+        this.prisma.enrolment.findMany({
+          where: {
+            userId,
+            batch: { status: { not: 'ARCHIVED' } },
           },
-        },
-        batch: {
-          select: {
-            id: true,
-            name: true,
-            startDate: true,
-            endDate: true,
-            status: true,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            program: {
+              select: {
+                id: true,
+                title: true,
+                slug: true,
+                description: true,
+                price: true,
+                status: true,
+              },
+            },
+            batch: {
+              select: {
+                id: true,
+                name: true,
+                startDate: true,
+                endDate: true,
+                status: true,
+              },
+            },
+            signedAgreement: {
+              select: {
+                id: true,
+                status: true,
+                signedAt: true,
+              },
+            },
+            payments: {
+              select: {
+                id: true,
+                amount: true,
+                currency: true,
+                status: true,
+                createdAt: true,
+              },
+            },
+            _count: {
+              select: {
+                stepProgress: true,
+                lessonProgress: true,
+                attendance: true,
+              },
+            },
           },
-        },
-        signedAgreement: {
-          select: {
-            id: true,
-            status: true,
-            signedAt: true,
-          },
-        },
-        payments: {
-          select: {
-            id: true,
-            amount: true,
-            currency: true,
-            status: true,
-            createdAt: true,
-          },
-        },
-        _count: {
-          select: {
-            stepProgress: true,
-            lessonProgress: true,
-            attendance: true,
-          },
-        },
-      },
-    });
+        }),
+      LMS_CACHE_TTLS.DASHBOARD_SECONDS,
+      [`dashboard:${userId}`, `enrollments:${userId}`],
+    );
   }
 
   async findOneForLearner(id: string, userId: string) {
@@ -1219,6 +1227,8 @@ export class EnrollmentsService {
     await this.cacheHelper.invalidateNamespace('enrollments');
     await this.cacheHelper.invalidateNamespace('batches');
     if (userId) {
+      await this.cacheHelper.invalidate(getDashboardKey(userId));
+      await this.cacheHelper.invalidateTag(`dashboard:${userId}`);
       await this.cacheHelper.invalidateNamespace(`auth_user:${userId}`);
     }
   }

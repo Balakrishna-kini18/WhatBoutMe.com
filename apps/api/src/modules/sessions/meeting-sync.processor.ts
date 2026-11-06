@@ -42,10 +42,14 @@ export class MeetingSyncProcessor extends WorkerHost {
       return;
     }
 
-    // 2. Mark Processing
+    // 2. Mark Processing with 5-minute lease lock
     await this.prisma.outboxEvent.update({
       where: { id: outboxId },
-      data: { status: 'PROCESSING', attempts: { increment: 1 } },
+      data: {
+        status: 'PROCESSING',
+        leasedUntil: new Date(Date.now() + 5 * 60 * 1000),
+        attempts: { increment: 1 },
+      },
     });
 
     try {
@@ -61,20 +65,44 @@ export class MeetingSyncProcessor extends WorkerHost {
           break;
         default:
           this.logger.warn(`Unknown meeting sync type: ${type}`);
-          return; // Don't throw, just ignore unknown types
+          // Terminal failure: unknown job type must not stay permanently stuck in PROCESSING
+          await this.prisma.outboxEvent.update({
+            where: { id: outboxId },
+            data: {
+              status: 'FAILED',
+              lastError: `Unknown meeting sync type: ${type}`,
+              error: `Unknown meeting sync type: ${type}`,
+              leasedUntil: null,
+              attempts: 999,
+            },
+          });
+          return;
       }
 
-      // 3. Mark Completed
+      // 3. Mark Completed with completion timestamp and cleared lease
       await this.prisma.outboxEvent.update({
         where: { id: outboxId },
-        data: { status: 'COMPLETED' },
+        data: {
+          status: 'COMPLETED',
+          completedAt: new Date(),
+          leasedUntil: null,
+        },
       });
     } catch (error: any) {
-      // 4. Mark Failed for retry
+      // 4. Mark Failed for retry with exponential backoff nextAttemptAt and cleared lease
+      const currentAttempts = (outbox.attempts || 0) + 1;
+      const isTerminal = currentAttempts >= 5;
+      const backoffMs = Math.min(15000 * Math.pow(2, currentAttempts), 3600000); // Max 1hr backoff
       this.logger.error(`Meeting sync failed for outbox ${outboxId}: ${error.message}`);
       await this.prisma.outboxEvent.update({
         where: { id: outboxId },
-        data: { status: 'FAILED', error: error.message || 'Unknown error' },
+        data: {
+          status: 'FAILED',
+          error: error.message || 'Unknown error',
+          lastError: error.message || 'Unknown error',
+          leasedUntil: null,
+          nextAttemptAt: isTerminal ? null : new Date(Date.now() + backoffMs),
+        },
       });
       throw error; // Let BullMQ handle retry schedule
     }

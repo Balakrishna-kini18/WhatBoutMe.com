@@ -299,6 +299,32 @@ export class AssignSeatDto {
   orgInternalNotes?: string;
 }
 
+export class ReassignSeatDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+
+  @IsString()
+  @IsOptional()
+  fullName?: string;
+
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
+  @IsString()
+  @IsOptional()
+  department?: string;
+
+  @IsString()
+  @IsOptional()
+  externalOrderRef?: string;
+
+  @IsString()
+  @IsOptional()
+  orgInternalNotes?: string;
+}
+
 export class InviteItemDto {
   @IsEmail()
   @IsNotEmpty()

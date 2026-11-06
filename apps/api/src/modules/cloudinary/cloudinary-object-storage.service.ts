@@ -19,14 +19,33 @@ export class CloudinaryObjectStorageProvider implements IObjectStorageProvider {
     return 'raw'; // Used for PDFs, documents, JSON, CSVs, etc.
   }
 
+  private getCleanKeyAndFormat(key: string, resourceType: 'image' | 'video' | 'raw'): { cleanKey: string; format?: string } {
+    const extMatch = key.match(/\.([a-zA-Z0-9]+)$/);
+    const extension = extMatch ? extMatch[1].toLowerCase() : '';
+    if (resourceType === 'image') {
+      const cleanKey = extension ? key.slice(0, -(extension.length + 1)) : key;
+      const format = extension || 'png';
+      return { cleanKey, format };
+    }
+    if (resourceType === 'video') {
+      const cleanKey = extension ? key.slice(0, -(extension.length + 1)) : key;
+      const format = extension || 'mp4';
+      return { cleanKey, format };
+    }
+    // raw resources (PDF, docs) retain their full key with extension
+    return { cleanKey: key };
+  }
+
   // D2-014: Implement getPresignedGetUrl
   async getPresignedGetUrl(key: string, expiresInSeconds: number = 60): Promise<string> {
     const resourceType = this.getResourceTypeFromKey(key);
-    return cloudinary.url(key, {
+    const { cleanKey, format } = this.getCleanKeyAndFormat(key, resourceType);
+    return cloudinary.url(cleanKey, {
       resource_type: resourceType,
       type: 'authenticated',
+      ...(format ? { format } : {}),
       secure: true,
-      sign_url: true
+      sign_url: true,
     });
   }
 
@@ -34,28 +53,30 @@ export class CloudinaryObjectStorageProvider implements IObjectStorageProvider {
   async getPresignedPutUrl(key: string, contentType: string, expiresInSeconds: number = 300): Promise<string> {
     const timestamp = Math.round(Date.now() / 1000);
     const resourceType = this.getResourceTypeFromKey(key);
+    const { cleanKey } = this.getCleanKeyAndFormat(key, resourceType);
     
     const signature = cloudinary.utils.api_sign_request({
       timestamp,
-      public_id: key,
+      public_id: cleanKey,
       type: 'authenticated',
     }, process.env.CLOUDINARY_API_SECRET || '');
 
     // Return a URL that acts as the upload endpoint with all required signature params
-    return `https://api.cloudinary.com/v1_1/${process.env.CLOUDINARY_CLOUD_NAME}/${resourceType}/upload?api_key=${process.env.CLOUDINARY_API_KEY}&timestamp=${timestamp}&signature=${signature}&public_id=${key}&type=authenticated`;
+    return `https://api.cloudinary.com/v1_1/${process.env.CLOUDINARY_CLOUD_NAME}/${resourceType}/upload?api_key=${process.env.CLOUDINARY_API_KEY}&timestamp=${timestamp}&signature=${signature}&public_id=${cleanKey}&type=authenticated`;
   }
 
   // D2-016: Implement uploadBuffer
   async uploadBuffer(key: string, buffer: Buffer, contentType: string): Promise<string> {
     const resourceType = this.getResourceTypeFromKey(key);
+    const { cleanKey, format } = this.getCleanKeyAndFormat(key, resourceType);
     
     return new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
         {
-          public_id: key,
+          public_id: cleanKey,
           resource_type: resourceType,
           type: 'authenticated',
-          // Optionally hint Cloudinary on the format if it's raw
+          ...(format ? { format } : {}),
         },
         (error, result) => {
           if (error) return reject(error);
@@ -71,22 +92,41 @@ export class CloudinaryObjectStorageProvider implements IObjectStorageProvider {
 
   async deleteObject(key: string): Promise<void> {
     const resourceType = this.getResourceTypeFromKey(key);
-    await cloudinary.uploader.destroy(key, { 
-      resource_type: resourceType, 
-      type: 'authenticated' 
-    });
+    const { cleanKey } = this.getCleanKeyAndFormat(key, resourceType);
+    try {
+      await cloudinary.uploader.destroy(cleanKey, { 
+        resource_type: resourceType, 
+        type: 'authenticated' 
+      });
+    } catch {
+      if (cleanKey !== key) {
+        await cloudinary.uploader.destroy(key, { 
+          resource_type: resourceType, 
+          type: 'authenticated' 
+        });
+      }
+    }
   }
 
   async objectExists(key: string): Promise<boolean> {
     const resourceType = this.getResourceTypeFromKey(key);
+    const { cleanKey } = this.getCleanKeyAndFormat(key, resourceType);
     try {
-      await cloudinary.api.resource(key, { 
+      await cloudinary.api.resource(cleanKey, { 
         resource_type: resourceType, 
         type: 'authenticated' 
       });
       return true;
     } catch (e: any) {
-      if (e.http_code === 404) return false;
+      if (e.http_code === 404) {
+        if (cleanKey !== key) {
+          try {
+            await cloudinary.api.resource(key, { resource_type: resourceType, type: 'authenticated' });
+            return true;
+          } catch {}
+        }
+        return false;
+      }
       throw e;
     }
   }

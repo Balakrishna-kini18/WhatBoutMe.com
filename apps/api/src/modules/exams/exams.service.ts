@@ -19,6 +19,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
 import { ProgressionService } from '../progression/progression.service.js';
+import { AttendanceComplianceService } from '../sessions/attendance-compliance.service.js';
 import { isManagerAssignedToBatch } from '../../common/guards/batch-access.guard.js';
 import {
   StartExamDto,
@@ -41,7 +42,91 @@ export class ExamsService {
     private readonly cacheHelper: CacheHelperService,
     private readonly progressionService: ProgressionService,
     @Optional() @InjectQueue('lifecycle') private readonly lifecycleQueue?: Queue,
+    @Optional() private readonly attendanceComplianceService?: AttendanceComplianceService,
   ) { }
+
+  /**
+   * Evaluates batch live-session attendance eligibility for taking the Final Exam.
+   * Respects dynamic program/batch attendanceThreshold (default 80%), attendanceRequired toggle,
+   * and administrative STAGE_UNLOCK_OVERRIDE records.
+   */
+  private async evaluateExamAttendanceGate(enrolment: any, program: any) {
+    const isAttendanceRequired = program?.attendanceRequired !== false;
+    const configuredThreshold =
+      typeof enrolment?.batch?.attendanceThreshold === 'number'
+        ? enrolment.batch.attendanceThreshold
+        : typeof program?.attendanceThreshold === 'number'
+          ? program.attendanceThreshold
+          : typeof program?.minAttendancePercentage === 'number'
+            ? program.minAttendancePercentage
+            : 80;
+
+    if (!this.attendanceComplianceService || !isAttendanceRequired) {
+      return {
+        isAttendanceRequired,
+        isOverridden: false,
+        isEligible: true,
+        attendancePercentage: 100,
+        requiredThreshold: configuredThreshold,
+        attendedSessions: 0,
+        totalSessions: 0,
+        batchId: enrolment?.batchId || null,
+        batchName: enrolment?.batch?.name || null,
+      };
+    }
+
+    // Check if an administrator unlocked Stage 2 (Exam) or Stage 3 (Attendance) for this enrolment
+    let isOverridden = false;
+    if (this.prisma.auditLog?.findMany) {
+      const stageOverrides = await this.prisma.auditLog
+        .findMany({
+          where: {
+            entity: 'Enrolment',
+            entityId: enrolment.id,
+            action: 'STAGE_UNLOCK_OVERRIDE',
+          },
+          select: { meta: true },
+        })
+        .catch(() => []);
+
+      for (const log of stageOverrides) {
+        const stage = (log?.meta as any)?.stage;
+        if (
+          stage === LearnerStage.STAGE_2_EXAM ||
+          stage === LearnerStage.STAGE_3_ATTENDANCE
+        ) {
+          isOverridden = true;
+          break;
+        }
+      }
+    }
+
+    const compliance = await this.attendanceComplianceService.calculateCompliance(
+      enrolment.id,
+    );
+    const effectivePercentage =
+      compliance.requiredSessionCount === 0
+        ? 0
+        : Math.round(compliance.attendancePercentage * 100) / 100;
+
+    const isEligible =
+      isOverridden ||
+      (compliance.requiredSessionCount > 0 &&
+        (compliance.status === 'COMPLIANT' ||
+          effectivePercentage >= compliance.thresholdUsed));
+
+    return {
+      isAttendanceRequired: true,
+      isOverridden,
+      isEligible,
+      attendancePercentage: effectivePercentage,
+      requiredThreshold: compliance.thresholdUsed,
+      attendedSessions: compliance.attendedSessionCount,
+      totalSessions: compliance.requiredSessionCount,
+      batchId: enrolment?.batchId || null,
+      batchName: enrolment?.batch?.name || null,
+    };
+  }
 
   /**
    * Finalizes a single expired exam attempt via delayed BullMQ job.
@@ -110,57 +195,94 @@ export class ExamsService {
     }
 
     const cached = this.examConfigCache.get(programId);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.data;
+    let baseResult: any = cached && cached.expiresAt > Date.now() ? cached.data : null;
+
+    if (!baseResult) {
+      let exam = await this.prisma.exam.findFirst({
+        where: { programId },
+      });
+
+      if (!exam && this.prisma.program?.findUnique && this.prisma.exam?.create) {
+        const program = await this.prisma.program.findUnique({
+          where: { id: programId },
+        });
+        if (program) {
+          exam = await this.prisma.exam.create({
+            data: {
+              programId: program.id,
+              title: `${program.title} — Final Comprehensive Examination`,
+              description: 'Final Certification Examination.',
+              questionCount: 0,
+              passMark: 80,
+              timeLimitMin: 90,
+              maxAttempts: 3,
+              cooldownHours: 24,
+              shuffleQuestions: true,
+              status: ContentStatus.PUBLISHED,
+            },
+          });
+        }
+      }
+
+      if (!exam) {
+        throw new NotFoundException('Final exam not found for this program');
+      }
+
+      baseResult = {
+        id: exam.id,
+        programId: exam.programId,
+        title: exam.title,
+        description: exam.description,
+        questionCount: exam.questionCount,
+        passMark: exam.passMark,
+        timeLimitMin: exam.timeLimitMin,
+        maxAttempts: exam.maxAttempts,
+        cooldownHours: exam.cooldownHours,
+        status: exam.status,
+      };
+      this.examConfigCache.set(programId, {
+        expiresAt: Date.now() + 60000,
+        data: baseResult,
+      });
     }
 
-    let exam = await this.prisma.exam.findFirst({
-      where: { programId },
-    });
-
-    if (!exam && this.prisma.program?.findUnique && this.prisma.exam?.create) {
-      const program = await this.prisma.program.findUnique({
-        where: { id: programId },
-      });
-      if (program) {
-        exam = await this.prisma.exam.create({
-          data: {
-            programId: program.id,
-            title: `${program.title} — Final Comprehensive Examination`,
-            description: 'Final Certification Examination.',
-            questionCount: 0,
-            passMark: 80,
-            timeLimitMin: 90,
-            maxAttempts: 3,
-            cooldownHours: 24,
-            shuffleQuestions: true,
-            status: ContentStatus.PUBLISHED,
+    if (this.attendanceComplianceService && this.prisma.enrolment?.findFirst) {
+      try {
+        const enrolment = await this.prisma.enrolment.findFirst({
+          where: {
+            userId: actorId,
+            programId: baseResult.programId,
+            status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.COMPLETED] },
+          },
+          include: {
+            batch: true,
+            program: {
+              select: {
+                id: true,
+                title: true,
+                attendanceRequired: true,
+                attendanceThreshold: true,
+                minAttendancePercentage: true,
+              },
+            },
           },
         });
+        if (enrolment) {
+          const attendanceGate = await this.evaluateExamAttendanceGate(
+            enrolment,
+            enrolment.program,
+          );
+          return {
+            ...baseResult,
+            attendanceGate,
+          };
+        }
+      } catch {
+        // Non-fatal fallback to baseResult
       }
     }
 
-    if (!exam) {
-      throw new NotFoundException('Final exam not found for this program');
-    }
-
-    const result = {
-      id: exam.id,
-      programId: exam.programId,
-      title: exam.title,
-      description: exam.description,
-      questionCount: exam.questionCount,
-      passMark: exam.passMark,
-      timeLimitMin: exam.timeLimitMin,
-      maxAttempts: exam.maxAttempts,
-      cooldownHours: exam.cooldownHours,
-      status: exam.status,
-    };
-    this.examConfigCache.set(programId, {
-      expiresAt: Date.now() + 60000,
-      data: result,
-    });
-    return result;
+    return baseResult;
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -241,6 +363,33 @@ export class ExamsService {
       throw new BadRequestException(
         'Prerequisite incomplete: You must complete all program steps and step quizzes before taking the final exam',
       );
+    }
+
+    // ── Live-Session Batch Attendance Gate ────────────────────────────────────
+    if (this.attendanceComplianceService) {
+      const attendanceGate = await this.evaluateExamAttendanceGate(
+        enrolment,
+        exam.program,
+      );
+      if (!attendanceGate.isEligible) {
+        const batchLabel = attendanceGate.batchName || 'your enrolled batch';
+        const message =
+          attendanceGate.totalSessions === 0
+            ? `Minimum ${attendanceGate.requiredThreshold}% live session attendance in ${batchLabel} is required to take the Final Examination. No live sessions have been conducted for your batch yet (Current: 0% / Required: ${attendanceGate.requiredThreshold}%).`
+            : `Minimum ${attendanceGate.requiredThreshold}% live session attendance in ${batchLabel} is required to take the Final Examination. Your current batch attendance is ${Math.round(attendanceGate.attendancePercentage)}% (${attendanceGate.attendedSessions} of ${attendanceGate.totalSessions} live sessions attended).`;
+
+        throw new ForbiddenException({
+          statusCode: 403,
+          error: 'ATTENDANCE_THRESHOLD_NOT_MET',
+          message,
+          attendancePercentage: Math.round(attendanceGate.attendancePercentage),
+          requiredThreshold: attendanceGate.requiredThreshold,
+          attendedSessions: attendanceGate.attendedSessions,
+          totalSessions: attendanceGate.totalSessions,
+          batchId: attendanceGate.batchId,
+          batchName: attendanceGate.batchName,
+        });
+      }
     }
 
     // ── Check Attempts & Cooldown Throttling ──────────────────────────────────

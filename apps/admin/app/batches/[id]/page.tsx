@@ -3171,51 +3171,67 @@ export default function BatchManagementHubPage({ params }: { params: Promise<{ i
               </div>
             ) : missionSubmission ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px", fontSize: "0.82rem", background: "#fdfbf7", border: "1px solid #ebdccb", padding: "8px 12px", borderRadius: "6px" }}>
-                  <div>
-                    <strong>Version:</strong> v{missionSubmission.version} • <strong>Uploaded:</strong> {new Date(missionSubmission.createdAt).toLocaleString()}
-                    {missionSubmission.sizeBytes ? ` • ${(missionSubmission.sizeBytes / (1024 * 1024)).toFixed(2)} MB` : ""}
-                  </div>
-                  <div style={{ display: "flex", gap: "10px" }}>
-                    <a
-                      href={missionSubmission.fileUrl.startsWith("http") ? missionSubmission.fileUrl : `${API_URL}/mission-statements/${missionSubmission.id}/file`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ color: "var(--accent-primary)", fontWeight: 600, textDecoration: "underline" }}
-                    >
-                      Open Full Tab ↗
-                    </a>
-                  </div>
-                </div>
+                {(() => {
+                  const isDataUri = missionSubmission.fileUrl?.startsWith("data:");
+                  const docFileUrl = isDataUri
+                    ? missionSubmission.fileUrl
+                    : `${API_URL}/mission-statements/${missionSubmission.id}/file`;
+                  const isImg =
+                    (missionSubmission.mimeType || "").includes("image") ||
+                    (isDataUri && missionSubmission.fileUrl.startsWith("data:image/")) ||
+                    /\.(jpg|jpeg|png|webp|svg)(\?.*)?$/i.test(missionSubmission.fileName || "") ||
+                    /\.(jpg|jpeg|png|webp|svg)(\?.*)?$/i.test(missionSubmission.fileUrl || "");
 
-                {/* In-Modal Visual Document Viewer */}
-                <div
-                  style={{
-                    width: "100%",
-                    minHeight: "350px",
-                    maxHeight: "55vh",
-                    overflow: "auto",
-                    background: "#22201e",
-                    borderRadius: "8px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  {(missionSubmission.mimeType || "").includes("image") || missionSubmission.fileUrl.match(/\.(jpg|jpeg|png|webp|svg)(\?.*)?$/i) ? (
-                    <img
-                      src={missionSubmission.fileUrl.startsWith("http") ? missionSubmission.fileUrl : `${API_URL}/mission-statements/${missionSubmission.id}/file`}
-                      alt="Mission Statement Preview"
-                      style={{ maxWidth: "100%", maxHeight: "52vh", objectFit: "contain", borderRadius: 4 }}
-                    />
-                  ) : (
-                    <iframe
-                      src={missionSubmission.fileUrl.startsWith("http") ? missionSubmission.fileUrl : `${API_URL}/mission-statements/${missionSubmission.id}/file`}
-                      title="Mission Statement Document Preview"
-                      style={{ width: "100%", height: "420px", border: "none", borderRadius: 4 }}
-                    />
-                  )}
-                </div>
+                  return (
+                    <>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px", fontSize: "0.82rem", background: "#fdfbf7", border: "1px solid #ebdccb", padding: "8px 12px", borderRadius: "6px" }}>
+                        <div>
+                          <strong>Version:</strong> v{missionSubmission.version} • <strong>Uploaded:</strong> {new Date(missionSubmission.createdAt).toLocaleString()}
+                          {missionSubmission.sizeBytes ? ` • ${(missionSubmission.sizeBytes / (1024 * 1024)).toFixed(2)} MB` : ""}
+                        </div>
+                        <div style={{ display: "flex", gap: "10px" }}>
+                          <a
+                            href={docFileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ color: "var(--accent-primary)", fontWeight: 600, textDecoration: "underline" }}
+                          >
+                            Open Full Tab ↗
+                          </a>
+                        </div>
+                      </div>
+
+                      {/* In-Modal Visual Document Viewer */}
+                      <div
+                        style={{
+                          width: "100%",
+                          minHeight: "350px",
+                          maxHeight: "55vh",
+                          overflow: "auto",
+                          background: "#22201e",
+                          borderRadius: "8px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        {isImg ? (
+                          <img
+                            src={docFileUrl}
+                            alt="Mission Statement Preview"
+                            style={{ maxWidth: "100%", maxHeight: "52vh", objectFit: "contain", borderRadius: 4 }}
+                          />
+                        ) : (
+                          <iframe
+                            src={docFileUrl}
+                            title="Mission Statement Document Preview"
+                            style={{ width: "100%", height: "420px", border: "none", borderRadius: 4 }}
+                          />
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             ) : (
               <div

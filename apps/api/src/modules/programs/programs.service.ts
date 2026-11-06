@@ -177,6 +177,7 @@ export class ProgramsService {
         sequentialProgressionEnabled: data.sequentialProgressionEnabled !== undefined ? data.sequentialProgressionEnabled : true,
         attendanceRequired: data.attendanceRequired !== undefined ? data.attendanceRequired : true,
         attendanceThreshold: data.attendanceThreshold !== undefined ? Number(data.attendanceThreshold) : 80,
+        minAttendancePercentage: data.attendanceThreshold !== undefined ? Number(data.attendanceThreshold) : 80,
         faqs: data.faqs ? (data.faqs as any) : [],
       },
     });
@@ -216,7 +217,10 @@ export class ProgramsService {
     if (data.requireMissionStatement !== undefined) updateData.requireMissionStatement = Boolean(data.requireMissionStatement);
     if (data.sequentialProgressionEnabled !== undefined) updateData.sequentialProgressionEnabled = Boolean(data.sequentialProgressionEnabled);
     if (data.attendanceRequired !== undefined) updateData.attendanceRequired = Boolean(data.attendanceRequired);
-    if (data.attendanceThreshold !== undefined) updateData.attendanceThreshold = Number(data.attendanceThreshold);
+    if (data.attendanceThreshold !== undefined) {
+      updateData.attendanceThreshold = Number(data.attendanceThreshold);
+      updateData.minAttendancePercentage = Number(data.attendanceThreshold);
+    }
     if (data.faqs !== undefined) updateData.faqs = data.faqs as any;
 
     const pricingChanged =

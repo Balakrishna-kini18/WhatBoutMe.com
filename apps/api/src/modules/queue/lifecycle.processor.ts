@@ -1,10 +1,15 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { ExamsService } from '../exams/exams.service.js';
 import { SessionLifecycleService } from '../sessions/session-lifecycle.service.js';
 
-@Processor('lifecycle')
+@Processor('lifecycle', {
+  concurrency: 5,
+  lockDuration: 30000,
+  stalledInterval: 30000,
+  maxStalledCount: 2,
+})
 export class LifecycleProcessor extends WorkerHost {
   private readonly logger = new Logger(LifecycleProcessor.name);
 
@@ -64,15 +69,19 @@ export class LifecycleProcessor extends WorkerHost {
           jobName === 'session-reminder-24h'
             ? '24 hours'
             : jobName === 'session-reminder-1h'
-            ? '1 hour'
-            : '10 minutes';
+              ? '1 hour'
+              : '10 minutes';
 
         if (!sessionId) {
           this.logger.warn(`${jobName} job [${job.id}] missing sessionId, skipping.`);
           return { skipped: true, reason: 'missing sessionId' };
         }
 
-        const sentCount = await this.sessionLifecycleService.sendSessionReminder(sessionId, version, timeframe);
+        const sentCount = await this.sessionLifecycleService.sendSessionReminder(
+          sessionId,
+          version,
+          timeframe,
+        );
         return { sentCount, sessionId, timeframe };
       }
 
@@ -82,5 +91,16 @@ export class LifecycleProcessor extends WorkerHost {
       }
     }
   }
-}
 
+  @OnWorkerEvent('failed')
+  onFailed(job: Job | undefined, error: Error) {
+    this.logger.error(
+      `[LifecycleProcessor] Job ${job?.id} (${job?.name}) failed on attempt ${job?.attemptsMade}: ${error.message}`,
+    );
+  }
+
+  @OnWorkerEvent('stalled')
+  onStalled(jobId: string) {
+    this.logger.warn(`[LifecycleProcessor] Job ${jobId} stalled and will be re-evaluated.`);
+  }
+}

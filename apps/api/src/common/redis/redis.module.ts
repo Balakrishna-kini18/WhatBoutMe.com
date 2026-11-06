@@ -1,7 +1,9 @@
-import { Global, Module } from '@nestjs/common';
+import { Global, Logger, Module } from '@nestjs/common';
 import { CacheModule } from '@nestjs/cache-manager';
 import { redisStore } from 'cache-manager-redis-yet';
-import { RedisService } from './redis.service.js';
+import { RedisService, resolveRedisTlsOptions } from './redis.service.js';
+
+const logger = new Logger('RedisGlobalModule');
 
 @Global()
 @Module({
@@ -9,53 +11,66 @@ import { RedisService } from './redis.service.js';
     CacheModule.registerAsync({
       isGlobal: true,
       useFactory: async () => {
-        const url = process.env.REDIS_URL || (process.env.REDIS_HOST ? `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT || '6379'}` : undefined);
+        const url =
+          process.env.REDIS_URL ||
+          (process.env.REDIS_HOST
+            ? `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT || '6379'}`
+            : undefined);
         if (!url) {
           return { ttl: 60 * 1000 };
         }
-        const isRediss = url.startsWith('rediss://');
+        const tlsOpts = resolveRedisTlsOptions(url);
         const isWorkerMode = process.env.WORKER_MODE === 'true';
-        const isServerless = !isWorkerMode;
+        const isServerlessRuntime =
+          !isWorkerMode &&
+          (process.env.VERCEL === '1' || Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME));
 
-        // In serverless mode, connect to Redis quickly or fall back to memory
-        // cache immediately so the Vercel invocation never stalls.
-        const connectTimeout = isServerless ? 1500 : 10000;
+        const connectTimeout = isServerlessRuntime ? 1500 : 5000;
         const reconnectStrategy = (retries: number) =>
-          isServerless ? false : retries > 5 ? false : Math.min(retries * 100, 2000);
+          isServerlessRuntime ? false : Math.min(retries * 250, 5000);
 
+        let timer: NodeJS.Timeout | undefined;
         try {
           const storeP = redisStore({
             url,
             socket: {
-              tls: isRediss ? true : undefined,
-              rejectUnauthorized: false,
+              tls: tlsOpts ? true : undefined,
+              rejectUnauthorized: tlsOpts ? tlsOpts.rejectUnauthorized : undefined,
               connectTimeout,
               reconnectStrategy,
             },
-            ttl: 60 * 1000, // Default 60 seconds caching globally
+            ttl: 60 * 1000,
           });
 
-          // Fail fast in serverless mode: don't let redisStore() hang bootstrap
-          // indefinitely when Redis is unreachable (DNS, auth, rate-limit).
-          const store = isServerless
-            ? await Promise.race([
-                storeP,
-                new Promise<never>((_, reject) =>
-                  setTimeout(() => reject(new Error(`redisStore init timed out after ${connectTimeout}ms`)), connectTimeout),
-                ),
-              ])
-            : await storeP;
+          const store = await Promise.race([
+            storeP,
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () => reject(new Error(`redisStore init timed out after ${connectTimeout}ms`)),
+                connectTimeout,
+              );
+              if (typeof timer.unref === 'function') {
+                timer.unref();
+              }
+            }),
+          ]);
 
           if (store && store.client) {
             store.client.on('error', (err: any) => {
-              console.warn('[CacheModule Redis] client notice:', err?.message || err);
+              logger.warn(`Cache Redis client notice: ${err?.message || err}`);
             });
           }
 
           return { store };
         } catch (err: any) {
-          console.warn('[CacheModule Redis] Initialization warning, falling back to memory cache:', err?.message || err);
+          logger.warn(
+            `Cache Redis initialization warning, falling back to in-memory cache: ${err?.message || err}`,
+          );
           return { ttl: 60 * 1000 };
+        } finally {
+          if (timer) {
+            clearTimeout(timer);
+          }
         }
       },
     }),

@@ -1,138 +1,104 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
-import { Redis } from 'ioredis';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Redis, RedisOptions } from 'ioredis';
+
+export function resolveRedisTlsOptions(url?: string): { rejectUnauthorized: boolean } | undefined {
+  if (!url || !url.startsWith('rediss://')) {
+    return undefined;
+  }
+  const allowInsecureTls =
+    process.env.REDIS_TLS_INSECURE === 'true' && process.env.NODE_ENV !== 'production';
+  return { rejectUnauthorized: !allowInsecureTls };
+}
 
 @Injectable()
 export class RedisService implements OnModuleDestroy {
+  private readonly logger = new Logger(RedisService.name);
   private readonly client: Redis;
+  private readonly configured: boolean;
 
   constructor() {
-    // Determine the exact connection configuration for Redis / Valkey (TCP) or local Docker
-    const isRediss = process.env.REDIS_URL?.startsWith('rediss://');
-    const isWorkerMode = process.env.WORKER_MODE === 'true';
-    const isServerless = !isWorkerMode;
+    const redisUrl = process.env.REDIS_URL;
+    const redisHost = process.env.REDIS_HOST;
+    this.configured = Boolean(redisUrl || redisHost);
 
-    // In serverless mode, fail Redis fast (1.5s connect, no retries) so the
-    // function invocation never stalls past Vercel's timeout budget.
-    // Long-lived workers get a tolerant retry policy.
-    const serverlessOpts = isServerless
+    const isWorkerMode = process.env.WORKER_MODE === 'true';
+    const isServerlessRuntime =
+      !isWorkerMode &&
+      (process.env.VERCEL === '1' || Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME));
+
+    const connectionOpts: Partial<RedisOptions> = isWorkerMode
       ? {
-          connectTimeout: 1500,
-          retryStrategy: () => null as any,
-          maxRetriesPerRequest: 1,
-          autoResendUnfulfilledCommands: false,
-          autoResubscribe: false,
-          reconnectOnError: () => false as any,
-          keepAlive: 0,
-          noDelay: true,
+          connectTimeout: 10000,
+          maxRetriesPerRequest: null,
+          enableReadyCheck: false,
+          retryStrategy: (times: number) => Math.min(times * 500, 10000),
+          reconnectOnError: (err: Error) =>
+            /READONLY|ETIMEDOUT|ECONNRESET/i.test(err.message),
         }
       : {
-          connectTimeout: 10000,
-          retryStrategy: (times: number) => (times > 5 ? null : Math.min(times * 200, 3000)),
-          maxRetriesPerRequest: 3,
+          connectTimeout: isServerlessRuntime ? 1500 : 5000,
+          maxRetriesPerRequest: isServerlessRuntime ? 1 : 2,
+          enableReadyCheck: false,
+          retryStrategy: this.configured
+            ? (times: number) => Math.min(times * 500, 5000)
+            : () => null,
+          reconnectOnError: (err: Error) =>
+            /READONLY|ETIMEDOUT|ECONNRESET/i.test(err.message),
+          noDelay: true,
         };
 
-    // NOTE: `new Redis(<malformed url>)` throws SYNCHRONOUSLY during URL
-    // parsing (before any socket is opened, before lazyConnect even has a
-    // chance to engage).  Wrap the entire constructor in try/catch so a
-    // wrong/invalid REDIS_URL (the classic "I entered wrong env var" case
-    // the user reported) degrades gracefully to a no-op disconnected client
-    // + warning instead of crashing Nest DI → generic FUNCTION_INVOCATION_FAILED.
-    let clientAttempted: Redis | undefined;
     try {
-      if (process.env.REDIS_URL) {
-        clientAttempted = new Redis(process.env.REDIS_URL, {
-          tls: isRediss ? { rejectUnauthorized: false } : undefined,
+      if (redisUrl) {
+        this.client = new Redis(redisUrl, {
+          tls: resolveRedisTlsOptions(redisUrl),
           lazyConnect: true,
-          ...serverlessOpts,
-        } as any);
+          ...connectionOpts,
+        } as RedisOptions);
       } else {
-        clientAttempted = new Redis({
-          host: process.env.REDIS_HOST || 'localhost',
+        this.client = new Redis({
+          host: redisHost || 'localhost',
           port: parseInt(process.env.REDIS_PORT || '6379', 10),
           password: process.env.REDIS_PASSWORD || undefined,
           lazyConnect: true,
-          ...serverlessOpts,
-        } as any);
+          ...connectionOpts,
+        } as RedisOptions);
       }
-      this.client = clientAttempted;
     } catch (err: any) {
-      console.warn('[RedisService] Constructor warning (falling back to disconnected no-op client):', err?.message || err);
-      // Fully valid ioredis client with lazyConnect + connectTimeout 1 +
-      // retryStrategy null.  All .get()/.set() calls will reject fast with a
-      // clean connection error instead of crashing bootstrap.  Downstream
-      // consumers already have their own try/catch for Redis failures.
+      this.logger.warn(
+        `Redis client initialization warning (falling back to disconnected client): ${err?.message || err}`,
+      );
       this.client = new Redis({
         host: '127.0.0.1',
         port: 1,
         lazyConnect: true,
-        connectTimeout: 1,
-        retryStrategy: () => null as any,
+        connectTimeout: 100,
+        retryStrategy: () => null,
         maxRetriesPerRequest: 0,
         autoResendUnfulfilledCommands: false,
         autoResubscribe: false,
-        reconnectOnError: () => false as any,
+        reconnectOnError: () => false,
         keepAlive: 0,
-      } as any);
-      // Serverless kill-socket path still applies to our fallback client so
-      // even this 127.0.0.1:1 dead-end doesn't stall the event loop.
-      if (isServerless) {
-        try {
-          let killed = false;
-          const kill = () => {
-            if (killed) return; killed = true;
-            try { (this.client as any).removeAllListeners(); this.client.on('error', () => undefined); (this.client as any).disconnect(false); } catch {}
-            try { const s = (this.client as any).stream || (this.client as any).socket; if (s && typeof s.destroy === 'function') s.destroy(); } catch {}
-          };
-          const t = setTimeout(kill, 200); try { t.unref(); } catch {}
-          this.client.once('ready', () => { try { clearTimeout(t); } catch {} });
-          this.client.once('error', kill);
-          this.client.once('close', kill);
-        } catch {}
-      }
-      return; // Skip the post-constructor registration block below
+      } as RedisOptions);
     }
 
-    if (isServerless) {
-      // Kill TCP socket immediately on any connection-level failure so the
-      // Vercel event loop goes idle instead of hanging.
-      const SERVERLESS_CONNECT_WALLCLOCK_MS = 1500;
-      let killed = false;
-      const kill = (err?: any) => {
-        if (killed) return;
-        killed = true;
-        try { clearTimeout(killTimer); } catch {/* noop */}
-        try {
-          this.client.removeAllListeners();
-          this.client.on('error', () => undefined);
-          (this.client as any).disconnect(false);
-        } catch {
-          /* noop */
-        }
-        try {
-          const sock = (this.client as any).stream || (this.client as any).socket;
-          if (sock && typeof sock.destroy === 'function') sock.destroy();
-        } catch {
-          /* noop */
-        }
-        if (err) console.warn('[RedisService serverless] redis error (socket released):', err?.message || String(err).slice(0, 120));
-      };
-      // WALLCLOCK GUARANTEE: DNS + TLS handshakes on Vercel Lambda's network
-      // sometimes hang past ioredis's connectTimeout without emitting any
-      // event. Only arm this wallclock timer once an actual connection attempt begins.
-      let killTimer: any;
-      this.client.on('connecting', () => {
-        killTimer = setTimeout(() => kill(new Error(`wallclock ${SERVERLESS_CONNECT_WALLCLOCK_MS}ms connect limit exceeded`)), SERVERLESS_CONNECT_WALLCLOCK_MS);
-        try { killTimer.unref(); } catch {/* noop */}
+    if (typeof this.client.on === 'function') {
+      this.client.on('error', (err: any) => {
+        this.logger.warn(`Redis client notice: ${err?.message || err}`);
       });
-      this.client.once?.('ready', () => { try { clearTimeout(killTimer); } catch {/* noop */} });
-      this.client.once?.('connect', () => { try { clearTimeout(killTimer); } catch {/* noop */} });
-      this.client.once?.('error', kill);
-      this.client.once?.('close', () => kill());
-      this.client.once?.('connectTimeout', () => kill(new Error('connectTimeout')));
-    } else {
-      this.client.on('error', (err) => console.warn('Redis Client notice (non-fatal):', err?.message || err));
-      this.client.on('connect', () => console.log('Redis Client Connected Successfully'));
+      this.client.on('connect', () => {
+        this.logger.log('Redis client connected');
+      });
+      this.client.on('reconnecting', (delay: number) => {
+        this.logger.warn(`Redis client reconnecting in ${delay}ms`);
+      });
     }
+  }
+
+  /**
+   * Whether REDIS_URL or REDIS_HOST was explicitly configured in environment
+   */
+  isConfigured(): boolean {
+    return this.configured;
   }
 
   /**
@@ -168,10 +134,50 @@ export class RedisService implements OnModuleDestroy {
   }
 
   /**
-   * Graceful shutdown of the connection
+   * Check whether the Redis connection is currently in a ready/connected state
    */
   isReady(): boolean {
-    return this.client ? (this.client.status === 'ready' || this.client.status === 'connect') : false;
+    return this.client
+      ? this.client.status === 'ready' || this.client.status === 'connect'
+      : false;
+  }
+
+  /**
+   * Active health check ping with bounded timeout.
+   * Connects lazily if needed and verifies PONG response.
+   */
+  async ping(timeoutMs = 1500): Promise<boolean> {
+    if (!this.configured || !this.client) {
+      return false;
+    }
+
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const status = this.client.status;
+      if (status === 'wait' || status === 'close' || status === 'end') {
+        if (typeof (this.client as any).connect === 'function') {
+          await (this.client as any).connect().catch(() => undefined);
+        }
+      }
+
+      const pong = await Promise.race([
+        this.client.ping(),
+        new Promise<string>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Redis ping timeout')), timeoutMs);
+          if (typeof timer.unref === 'function') {
+            timer.unref();
+          }
+        }),
+      ]);
+      return pong === 'PONG';
+    } catch (err: any) {
+      this.logger.warn(`Redis ping failed: ${err?.message || err}`);
+      return false;
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    }
   }
 
   async onModuleDestroy() {
@@ -179,12 +185,16 @@ export class RedisService implements OnModuleDestroy {
       if (this.client) {
         if (this.client.status === 'ready' || this.client.status === 'connect') {
           await this.client.quit();
-        } else {
+        } else if (typeof this.client.disconnect === 'function') {
           this.client.disconnect();
         }
       }
     } catch {
-      try { this.client?.disconnect(); } catch {}
+      try {
+        this.client?.disconnect?.();
+      } catch {
+        // noop
+      }
     }
   }
 }

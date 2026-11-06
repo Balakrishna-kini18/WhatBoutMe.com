@@ -183,9 +183,10 @@ describe('Stripe Payment Gateway & Security Hardening Specs', () => {
         price: 1200,
         currency: 'USD',
       };
+      const activeLeadEnrolmentId = '11111111-1111-4111-8111-111111111111';
       prismaMock.program.findUnique.mockResolvedValue(mockProgram);
       prismaMock.enrolment.findUnique.mockResolvedValue({
-        id: 'enrol-active-lead',
+        id: activeLeadEnrolmentId,
         programId: 'prog-200',
         program: mockProgram,
       });
@@ -202,7 +203,7 @@ describe('Stripe Payment Gateway & Security Hardening Specs', () => {
       await paymentsService.createCheckoutSession(
         {
           targetType: 'ENROLMENT',
-          targetId: 'enrol-active-lead',
+          targetId: activeLeadEnrolmentId,
           currency: 'USD',
           amount: 1200,
         },

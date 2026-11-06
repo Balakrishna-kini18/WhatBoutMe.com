@@ -23,6 +23,7 @@ import {
 } from '../../common/interfaces/object-storage-provider.interface.js';
 import { EmailService } from '../email/email.service.js';
 import { CacheHelperService } from '../../common/cache/cache-helper.service.js';
+import { generateDeterministicJobId } from '../../common/utils/queue.util.js';
 
 @Injectable()
 export class CertificatesService {
@@ -448,9 +449,17 @@ export class CertificatesService {
 
     try {
       await Promise.race([
-        this.certificatesQueue.add('generate-certificate', {
-          certificateId: id,
-        }),
+        this.certificatesQueue.add(
+          'generate-certificate',
+          {
+            certificateId: id,
+          },
+          {
+            jobId: generateDeterministicJobId('certificate-gen', id),
+            removeOnComplete: { count: 100, age: 86400 },
+            removeOnFail: { count: 200, age: 7 * 86400 },
+          },
+        ),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Queue timeout (2s)')), 2000),
         ),
@@ -765,9 +774,17 @@ export class CertificatesService {
 
       try {
         await Promise.race([
-          this.certificatesQueue.add('generate-certificate', {
-            certificateId: cert.id,
-          }),
+          this.certificatesQueue.add(
+            'generate-certificate',
+            {
+              certificateId: cert.id,
+            },
+            {
+              jobId: generateDeterministicJobId('certificate-gen', cert.id),
+              removeOnComplete: { count: 100, age: 86400 },
+              removeOnFail: { count: 200, age: 7 * 86400 },
+            },
+          ),
           new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Queue timeout (2s)')), 2000),
           ),

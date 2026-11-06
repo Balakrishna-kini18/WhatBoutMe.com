@@ -30,6 +30,7 @@ export interface SendTemplateEmailOptions {
   props: any;
   replyTo?: string;
   from?: string;
+  idempotencyKey?: string;
 }
 
 @Injectable()
@@ -105,29 +106,53 @@ export class EmailService {
   }
 
   /**
-   * Send a template email. Queues via BullMQ if worker mode is active,
-   * or directly renders and delivers as fallback (e.g. dev/serverless).
+   * Send a template email. Queues via BullMQ when the email queue is configured/available
+   * (from both API producer and worker processes), or falls back to direct render & delivery
+   * if Redis/BullMQ is unavailable or disabled.
    */
   async sendTemplateEmail(options: SendTemplateEmailOptions): Promise<{ id?: string; jobId?: string }> {
-    const isWorkerMode = process.env.WORKER_MODE === 'true';
+    const isQueueDisabled = process.env.DISABLE_EMAIL_QUEUE === 'true';
+    const isRedisConfigured = Boolean(
+      process.env.REDIS_URL ||
+        process.env.REDIS_HOST ||
+        process.env.WORKER_MODE === 'true' ||
+        (this.emailQueue && !(this.emailQueue as any).opts),
+    );
 
-    // In worker mode and when email queue is active, dispatch to BullMQ
-    if (isWorkerMode && this.emailQueue) {
+    if (!isQueueDisabled && this.emailQueue && isRedisConfigured) {
       try {
-        const job = await this.emailQueue.add('send-email', {
-          to: options.to,
-          subject: options.subject,
-          template: options.template,
-          props: options.props,
-        });
-        this.logger.log(`Enqueued email job ${job.id} for ${options.to} (${options.template})`);
+        const jobOptions: Record<string, any> = {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 2000 },
+          removeOnComplete: { count: 100, age: 86400 },
+          removeOnFail: { count: 500, age: 7 * 86400 },
+        };
+        if (options.idempotencyKey) {
+          jobOptions.jobId = `email:${options.idempotencyKey}`;
+        }
+
+        const job = await this.emailQueue.add(
+          'send-email',
+          {
+            to: options.to,
+            subject: options.subject,
+            template: options.template,
+            props: options.props,
+            replyTo: options.replyTo,
+            from: options.from,
+          },
+          jobOptions,
+        );
+        this.logger.log(`Enqueued email job ${job.id} (${options.template})`);
         return { jobId: job.id };
       } catch (err: any) {
-        this.logger.warn(`Failed to enqueue email to BullMQ, falling back to direct delivery: ${err.message}`);
+        this.logger.warn(
+          `Failed to enqueue email (${options.template}) to BullMQ, falling back to direct delivery: ${err.message}`,
+        );
       }
     }
 
-    // Direct render & send
+    // Direct render & send fallback
     const html = await renderEmailTemplate(options.template, options.props);
     return this.sendEmail({
       to: options.to,
@@ -164,7 +189,7 @@ export class EmailService {
     try {
       if (this.isMockMode || !this.transporter) {
         // Fallback mock logger for local dev
-        this.logger.log(`[MOCK EMAIL] To: ${toAddress} | Subject: ${options.subject}`);
+        this.logger.log(`[MOCK EMAIL] Subject: ${options.subject}`);
         const debugDir = path.join(process.cwd(), '.email-debug');
         await fs.mkdir(debugDir, { recursive: true }).catch(() => {});
         const fileName = logRecord?.id ? `${logRecord.id}.html` : `mock-${Date.now()}.html`;
@@ -206,7 +231,9 @@ export class EmailService {
         if (isConnOrTimeout && host && user && pass) {
           const alternatePort = port === 465 ? 587 : 465;
           const alternateSecure = alternatePort === 465;
-          this.logger.warn(`Primary SMTP dispatch to ${toAddress} failed (${errMsg}) on port ${port}. Retrying via alternate port ${alternatePort}...`);
+          this.logger.warn(
+            `Primary SMTP dispatch failed (${errMsg}) on port ${port}. Retrying via alternate port ${alternatePort}...`,
+          );
           const fallbackTransporter = nodemailer.createTransport({
             host,
             port: alternatePort,
@@ -215,7 +242,9 @@ export class EmailService {
             connectionTimeout: 15000,
             greetingTimeout: 15000,
             socketTimeout: 20000,
-            tls: { rejectUnauthorized: false },
+            tls: {
+              rejectUnauthorized: process.env.NODE_ENV === 'production',
+            },
           });
           info = await fallbackTransporter.sendMail({
             from: options.from || this.defaultSender,
@@ -225,7 +254,7 @@ export class EmailService {
             text: options.text,
             replyTo: options.replyTo,
           });
-          this.logger.log(`Fallback port ${alternatePort} delivery succeeded for ${toAddress}`);
+          this.logger.log(`Fallback port ${alternatePort} delivery succeeded`);
         } else {
           throw firstErr;
         }
@@ -241,7 +270,7 @@ export class EmailService {
           .catch(() => {});
       }
 
-      this.logger.log(`Email dispatched successfully to ${toAddress}. Message ID: ${info.messageId}`);
+      this.logger.log(`Email dispatched successfully. Message ID: ${info.messageId}`);
       return { id: info.messageId };
     } catch (err: any) {
       if (logRecord?.id) {
@@ -252,7 +281,7 @@ export class EmailService {
           })
           .catch(() => {});
       }
-      this.logger.error(`Unhandled exception while sending email to ${toAddress}`, err);
+      this.logger.error(`Unhandled exception while sending email: ${err?.message || err}`);
       throw err;
     }
   }

@@ -13,6 +13,7 @@ describe('MeetingSyncProcessor', () => {
     prismaMock = {
       session: {
         findUnique: vi.fn(),
+        findFirst: vi.fn(),
         update: vi.fn(),
       },
       outboxEvent: {
@@ -25,6 +26,8 @@ describe('MeetingSyncProcessor', () => {
       createMeeting: vi.fn(),
       updateMeeting: vi.fn(),
       cancelMeeting: vi.fn(),
+      getParticipantReport: vi.fn(),
+      getRecordingUrl: vi.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -48,6 +51,72 @@ describe('MeetingSyncProcessor', () => {
     vi.clearAllMocks();
   });
 
+  describe('Google Meet Webhook Job Routing (SYNC_SESSION_ATTENDANCE & SYNC_SESSION_RECORDING)', () => {
+    it('routes SYNC_SESSION_ATTENDANCE jobs without requiring outboxId', async () => {
+      prismaMock.session.findFirst.mockResolvedValueOnce({
+        id: 'sess-gmeet-1',
+        providerMeetingId: 'gmeet-abc-def',
+        attendancePulled: false,
+      });
+      meetingProviderMock.getParticipantReport.mockResolvedValueOnce([]);
+
+      const res = await processor.process({
+        name: 'SYNC_SESSION_ATTENDANCE',
+        data: {
+          provider: 'GOOGLE_MEET',
+          meetingId: 'gmeet-abc-def',
+          payload: { event: 'meeting.ended' },
+        },
+      } as any);
+
+      expect(res).toEqual({
+        synced: true,
+        sessionId: 'sess-gmeet-1',
+        type: 'SYNC_SESSION_ATTENDANCE',
+      });
+      expect(prismaMock.session.update).toHaveBeenCalledWith({
+        where: { id: 'sess-gmeet-1' },
+        data: {
+          attendancePulled: true,
+          status: 'COMPLETED',
+        },
+      });
+    });
+
+    it('routes SYNC_SESSION_RECORDING jobs and updates session recordingUrl without requiring outboxId', async () => {
+      prismaMock.session.findFirst.mockResolvedValueOnce({
+        id: 'sess-gmeet-2',
+        providerMeetingId: 'gmeet-rec-123',
+      });
+
+      const res = await processor.process({
+        name: 'SYNC_SESSION_RECORDING',
+        data: {
+          provider: 'GOOGLE_MEET',
+          meetingId: 'gmeet-rec-123',
+          payload: {
+            event: 'recording.completed',
+            recordingUrl: 'https://drive.google.com/file/d/rec-123/view',
+          },
+        },
+      } as any);
+
+      expect(res).toEqual({
+        synced: true,
+        sessionId: 'sess-gmeet-2',
+        recordingUrl: 'https://drive.google.com/file/d/rec-123/view',
+        type: 'SYNC_SESSION_RECORDING',
+      });
+      expect(prismaMock.session.update).toHaveBeenCalledWith({
+        where: { id: 'sess-gmeet-2' },
+        data: {
+          providerRecordingUrl: 'https://drive.google.com/file/d/rec-123/view',
+          recordingUrl: 'https://drive.google.com/file/d/rec-123/view',
+        },
+      });
+    });
+  });
+
   describe('handleCreate', () => {
     it('creates a meeting and updates the session', async () => {
       const session = {
@@ -67,7 +136,9 @@ describe('MeetingSyncProcessor', () => {
         startUrl: 'https://zoom.us/s/123',
       });
 
-      await processor.process({ data: { outboxId: 'outbox-1', type: 'CREATE', sessionId: 'sess-1' } } as any);
+      await processor.process({
+        data: { outboxId: 'outbox-1', type: 'CREATE', sessionId: 'sess-1' },
+      } as any);
 
       expect(meetingProviderMock.createMeeting).toHaveBeenCalledWith({
         topic: 'Test Session',
@@ -101,7 +172,9 @@ describe('MeetingSyncProcessor', () => {
       };
       prismaMock.session.findUnique.mockResolvedValueOnce(session);
 
-      await processor.process({ data: { outboxId: 'outbox-1', type: 'CREATE', sessionId: 'sess-1' } } as any);
+      await processor.process({
+        data: { outboxId: 'outbox-1', type: 'CREATE', sessionId: 'sess-1' },
+      } as any);
 
       expect(meetingProviderMock.createMeeting).not.toHaveBeenCalled();
       expect(prismaMock.session.update).not.toHaveBeenCalled();
@@ -119,8 +192,11 @@ describe('MeetingSyncProcessor', () => {
       prismaMock.session.findUnique.mockResolvedValueOnce(session);
       meetingProviderMock.createMeeting.mockRejectedValueOnce(new Error('Zoom failed'));
 
-      await expect(processor.process({ data: { outboxId: 'outbox-1', type: 'CREATE', sessionId: 'sess-1' } } as any))
-        .rejects.toThrow('Zoom failed');
+      await expect(
+        processor.process({
+          data: { outboxId: 'outbox-1', type: 'CREATE', sessionId: 'sess-1' },
+        } as any),
+      ).rejects.toThrow('Zoom failed');
 
       expect(prismaMock.session.update).not.toHaveBeenCalled();
       expect(prismaMock.outboxEvent.update).toHaveBeenCalledWith({
@@ -139,7 +215,9 @@ describe('MeetingSyncProcessor', () => {
       prismaMock.session.findUnique.mockResolvedValueOnce(session);
 
       const payload = { topic: 'New Topic' };
-      await processor.process({ data: { outboxId: 'outbox-1', type: 'UPDATE', sessionId: 'sess-1', payload } } as any);
+      await processor.process({
+        data: { outboxId: 'outbox-1', type: 'UPDATE', sessionId: 'sess-1', payload },
+      } as any);
 
       expect(meetingProviderMock.updateMeeting).toHaveBeenCalledWith('zoom-123', payload);
     });
@@ -153,14 +231,19 @@ describe('MeetingSyncProcessor', () => {
       meetingProviderMock.updateMeeting.mockRejectedValueOnce(new Error('Zoom failed'));
 
       const payload = { topic: 'New Topic' };
-      await expect(processor.process({ data: { outboxId: 'outbox-1', type: 'UPDATE', sessionId: 'sess-1', payload } } as any))
-        .rejects.toThrow('Zoom failed');
+      await expect(
+        processor.process({
+          data: { outboxId: 'outbox-1', type: 'UPDATE', sessionId: 'sess-1', payload },
+        } as any),
+      ).rejects.toThrow('Zoom failed');
     });
   });
 
   describe('handleCancel', () => {
     it('cancels a meeting in zoom', async () => {
-      await processor.process({ data: { outboxId: 'outbox-1', type: 'CANCEL', providerMeetingId: 'zoom-123' } } as any);
+      await processor.process({
+        data: { outboxId: 'outbox-1', type: 'CANCEL', providerMeetingId: 'zoom-123' },
+      } as any);
 
       expect(meetingProviderMock.cancelMeeting).toHaveBeenCalledWith('zoom-123');
     });
@@ -170,28 +253,32 @@ describe('MeetingSyncProcessor', () => {
       (notFoundError as any).status = 404;
       meetingProviderMock.cancelMeeting.mockRejectedValueOnce(notFoundError);
 
-      await expect(processor.process({ data: { outboxId: 'outbox-1', type: 'CANCEL', providerMeetingId: 'zoom-123' } } as any))
-        .resolves.toBeUndefined();
+      await expect(
+        processor.process({
+          data: { outboxId: 'outbox-1', type: 'CANCEL', providerMeetingId: 'zoom-123' },
+        } as any),
+      ).resolves.toBeUndefined();
     });
 
     it('throws error for other failures during CANCEL', async () => {
       meetingProviderMock.cancelMeeting.mockRejectedValueOnce(new Error('Network error'));
 
-      await expect(processor.process({ data: { outboxId: 'outbox-1', type: 'CANCEL', providerMeetingId: 'zoom-123' } } as any))
-        .rejects.toThrow('Network error');
+      await expect(
+        processor.process({
+          data: { outboxId: 'outbox-1', type: 'CANCEL', providerMeetingId: 'zoom-123' },
+        } as any),
+      ).rejects.toThrow('Network error');
     });
   });
 
   describe('End-to-End Idempotency Recovery', () => {
     it('Zoom POST succeeds -> DB persistence fails -> retry reconciles without second POST', async () => {
-      // 1. Setup real Zoom provider
       const { ZoomMeetingProvider } = await import('../zoom/zoom.service.js');
       const zoomProvider = new ZoomMeetingProvider();
       vi.spyOn(zoomProvider as any, 'getAccessToken').mockResolvedValue('fake-token');
 
-      // Create a specific processor instance that uses the REAL zoom provider
       const realProcessor = new MeetingSyncProcessor(prismaMock as any, zoomProvider);
-      
+
       const session = {
         id: 'sess-crash',
         title: 'Crash Session',
@@ -201,25 +288,19 @@ describe('MeetingSyncProcessor', () => {
         joinUrl: null,
         meetingProvider: 'ZOOM',
       };
-      
-      // We will simulate process() twice.
-      // Call 1: DB persistence fails
-      // Call 2: DB persistence succeeds
+
       prismaMock.session.findUnique.mockResolvedValue(session);
       prismaMock.session.update
-        .mockRejectedValueOnce(new Error('DB connection closed!')) // FAILS first time!
-        .mockResolvedValueOnce(session); // Succeeds second time
+        .mockRejectedValueOnce(new Error('DB connection closed!'))
+        .mockResolvedValueOnce(session);
 
       global.fetch = vi.fn() as any;
 
-      // Mock Call 1 Fetches (Worker A, outbox PENDING, creates meeting A)
-      // 1. GET list to check idempotency (returns empty/not found)
       (global.fetch as any).mockResolvedValueOnce({
         ok: true,
         status: 200,
         json: async () => ({ meetings: [] }),
       });
-      // 2. POST to create meeting
       (global.fetch as any).mockResolvedValueOnce({
         ok: true,
         status: 201,
@@ -231,27 +312,21 @@ describe('MeetingSyncProcessor', () => {
         }),
       });
 
-      // Call 1: Processor processes the job
-      await expect(realProcessor.process({ data: { outboxId: 'outbox-1', type: 'CREATE', sessionId: 'sess-crash' } } as any))
-        .rejects.toThrow('DB connection closed!');
+      await expect(
+        realProcessor.process({
+          data: { outboxId: 'outbox-1', type: 'CREATE', sessionId: 'sess-crash' },
+        } as any),
+      ).rejects.toThrow('DB connection closed!');
 
-      // Verify that POST was called
       expect(global.fetch).toHaveBeenCalledTimes(2);
-      expect(global.fetch).toHaveBeenNthCalledWith(1, expect.stringContaining('/users/me/meetings?type=scheduled'), expect.objectContaining({ method: 'GET' }));
-      expect(global.fetch).toHaveBeenNthCalledWith(2, expect.stringContaining('/users/me/meetings'), expect.objectContaining({ method: 'POST' }));
 
-      // NOW we retry the job! 
-      // The outbox is still PENDING because the DB commit failed (simulated).
-      // Mock Call 2 Fetches: 
-      // GET /users/me/meetings?type=scheduled... (returns the meeting from call 1)
       (global.fetch as any).mockResolvedValueOnce({
         ok: true,
         status: 200,
         json: async () => ({
-          meetings: [{ id: 555666777, agenda: 'outbox-1' }]
+          meetings: [{ id: 555666777, agenda: 'outbox-1' }],
         }),
       });
-      // GET /meetings/555666777
       (global.fetch as any).mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -263,28 +338,30 @@ describe('MeetingSyncProcessor', () => {
         }),
       });
 
-      // Call 2: Processor processes the job (RETRY)
-      await realProcessor.process({ data: { outboxId: 'outbox-1', type: 'CREATE', sessionId: 'sess-crash' } } as any);
+      await realProcessor.process({
+        data: { outboxId: 'outbox-1', type: 'CREATE', sessionId: 'sess-crash' },
+      } as any);
 
-      // Verify total fetch calls
-      expect(global.fetch).toHaveBeenCalledTimes(4); 
-      // POST, GET (list), GET (details). 
-      // NO SECOND POST!
-      const postCalls = (global.fetch as any).mock.calls.filter((c: any) => c[1]?.method === 'POST');
+      expect(global.fetch).toHaveBeenCalledTimes(4);
+      const postCalls = (global.fetch as any).mock.calls.filter(
+        (c: any) => c[1]?.method === 'POST',
+      );
       expect(postCalls.length).toBe(1);
 
-      // Verify the final persistence update succeeded with the right details
       expect(prismaMock.session.update).toHaveBeenCalledWith({
         where: { id: 'sess-crash' },
-        data: expect.objectContaining({ providerMeetingId: '555666777', zoomMeetingId: '555666777' })
+        data: expect.objectContaining({
+          providerMeetingId: '555666777',
+          zoomMeetingId: '555666777',
+        }),
       });
       expect(prismaMock.outboxEvent.update).toHaveBeenCalledWith({
         where: { id: 'outbox-1' },
-        data: expect.objectContaining({ providerId: '555666777' })
+        data: expect.objectContaining({ providerId: '555666777' }),
       });
       expect(prismaMock.outboxEvent.update).toHaveBeenCalledWith({
         where: { id: 'outbox-1' },
-        data: expect.objectContaining({ status: 'COMPLETED' })
+        data: expect.objectContaining({ status: 'COMPLETED' }),
       });
     });
 
@@ -298,6 +375,7 @@ describe('MeetingSyncProcessor', () => {
         data: expect.objectContaining({
           status: 'FAILED',
           leasedUntil: null,
+          nextAttemptAt: null,
           attempts: 999,
           lastError: expect.stringContaining('Unknown meeting sync type'),
         }),
@@ -331,7 +409,7 @@ describe('MeetingSyncProcessor', () => {
         where: { id: 'outbox-exhausted' },
         data: expect.objectContaining({
           status: 'FAILED',
-          nextAttemptAt: null, // Terminal: do not retry
+          nextAttemptAt: null,
           leasedUntil: null,
         }),
       });

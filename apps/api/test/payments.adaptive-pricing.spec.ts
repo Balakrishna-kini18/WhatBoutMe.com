@@ -18,7 +18,7 @@ describe('Real-World End-to-End Suite: Unified USD Core with Stripe Native Adapt
   };
 
   const mockEnrolment = {
-    id: 'enr-realworld-1',
+    id: 'eeeeeeee-1111-4111-8111-111111111111',
     userId: 'user-indian-learner-1',
     programId: 'prog-delta-10',
     status: EnrolmentStatus.PENDING_PAYMENT,
@@ -50,7 +50,7 @@ describe('Real-World End-to-End Suite: Unified USD Core with Stripe Native Adapt
         payment: {
           findUnique: vi.fn().mockResolvedValue({
             id: 'pay-pending-1',
-            enrolmentId: 'enr-realworld-1',
+            enrolmentId: 'eeeeeeee-1111-4111-8111-111111111111',
             stripeSessionId: 'cs_test_india_adaptive_865',
             amount: 10,
             currency: 'USD',
@@ -93,7 +93,7 @@ describe('Real-World End-to-End Suite: Unified USD Core with Stripe Native Adapt
             },
             metadata: {
               targetType: 'ENROLMENT',
-              enrolmentId: 'enr-realworld-1',
+              enrolmentId: 'eeeeeeee-1111-4111-8111-111111111111',
               baseAmountUSD: '10',
               userId: 'user-indian-learner-1',
             },
@@ -167,7 +167,7 @@ describe('Real-World End-to-End Suite: Unified USD Core with Stripe Native Adapt
         payment: {
           findUnique: vi.fn().mockResolvedValue({
             id: 'pay-pending-uae',
-            enrolmentId: 'enr-realworld-1',
+            enrolmentId: 'eeeeeeee-1111-4111-8111-111111111111',
             stripeSessionId: 'cs_test_uae_adaptive_36',
             amount: 10,
             currency: 'USD',
@@ -209,7 +209,7 @@ describe('Real-World End-to-End Suite: Unified USD Core with Stripe Native Adapt
             },
             metadata: {
               targetType: 'ENROLMENT',
-              enrolmentId: 'enr-realworld-1',
+              enrolmentId: 'eeeeeeee-1111-4111-8111-111111111111',
               baseAmountUSD: '10',
               userId: 'user-uae-learner-2',
             },
@@ -250,7 +250,7 @@ describe('Real-World End-to-End Suite: Unified USD Core with Stripe Native Adapt
           findUnique: vi.fn().mockResolvedValue({
             id: 'pay-sync-1',
             stripeSessionId: 'cs_test_sync_adaptive_1',
-            enrolmentId: 'enr-realworld-1',
+            enrolmentId: 'eeeeeeee-1111-4111-8111-111111111111',
             status: 'pending', // Still pending when user lands on /checkout/success
             enrolment: mockEnrolment,
           }),
@@ -298,7 +298,7 @@ describe('Real-World End-to-End Suite: Unified USD Core with Stripe Native Adapt
           },
           metadata: {
             targetType: 'ENROLMENT',
-            enrolmentId: 'enr-realworld-1',
+            enrolmentId: 'eeeeeeee-1111-4111-8111-111111111111',
             baseAmountUSD: '10',
           },
         }),
@@ -373,7 +373,7 @@ describe('Real-World End-to-End Suite: Unified USD Core with Stripe Native Adapt
           amount_total: 86500,
           currency: 'inr',
           currency_conversion: { source_currency: 'usd', fx_rate: '86.50' },
-          metadata: { enrolmentId: 'enr-realworld-1', baseAmountUSD: '10' },
+          metadata: { enrolmentId: 'eeeeeeee-1111-4111-8111-111111111111', baseAmountUSD: '10' },
         }),
       };
 
@@ -388,7 +388,7 @@ describe('Real-World End-to-End Suite: Unified USD Core with Stripe Native Adapt
             amount_total: 86500,
             currency: 'inr',
             currency_conversion: { source_currency: 'usd', fx_rate: '86.50' },
-            metadata: { enrolmentId: 'enr-realworld-1', baseAmountUSD: '10' },
+            metadata: { enrolmentId: 'eeeeeeee-1111-4111-8111-111111111111', baseAmountUSD: '10' },
           },
         },
       };
@@ -513,7 +513,7 @@ describe('Real-World End-to-End Suite: Unified USD Core with Stripe Native Adapt
             currency: 'inr',
             currency_conversion: { source_currency: 'usd', fx_rate: '86.50' },
             metadata: {
-              enrolmentId: 'enr-realworld-1',
+              enrolmentId: 'eeeeeeee-1111-4111-8111-111111111111',
               baseAmountUSD: '4.62', // Tampered lower USD base
             },
           },

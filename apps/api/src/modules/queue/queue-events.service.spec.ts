@@ -4,16 +4,16 @@ import { QueueEvents } from 'bullmq';
 
 vi.mock('bullmq', () => {
   const QueueEventsMock = vi.fn();
-  
-  QueueEventsMock.prototype.on = vi.fn(function(this: any, event: string, callback: any) {
+
+  QueueEventsMock.prototype.on = vi.fn(function (this: any, event: string, callback: any) {
     if (!this.listeners) this.listeners = {};
     if (!this.listeners[event]) this.listeners[event] = [];
     this.listeners[event].push(callback);
   });
-  
+
   QueueEventsMock.prototype.close = vi.fn();
-  
-  QueueEventsMock.prototype.simulateEvent = function(event: string, payload: any) {
+
+  QueueEventsMock.prototype.simulateEvent = function (event: string, payload: any) {
     if (this.listeners && this.listeners[event]) {
       this.listeners[event].forEach((cb: any) => cb(payload));
     }
@@ -42,51 +42,64 @@ describe('QueueEventsService', () => {
     vi.clearAllMocks();
   });
 
-  describe('Dead-Letter Handling (Edge Cases)', () => {
-    it('should register listeners for all 8 standard queues', () => {
+  describe('Dead-Letter Handling & Prefix Alignment', () => {
+    it('registers listeners for all 8 standard queues with matching wbm:{env}:queue prefix', () => {
+      const expectedPrefix = `wbm:${process.env.NODE_ENV || 'development'}:queue`;
       service.onModuleInit();
+
       expect(QueueEvents).toHaveBeenCalledTimes(8);
-      expect(QueueEvents).toHaveBeenCalledWith('email', expect.any(Object));
-      expect(QueueEvents).toHaveBeenCalledWith('invoice-gen', expect.any(Object));
+      expect(QueueEvents).toHaveBeenCalledWith(
+        'email',
+        expect.objectContaining({
+          prefix: expectedPrefix,
+          connection: expect.objectContaining({
+            maxRetriesPerRequest: null,
+          }),
+        }),
+      );
+      expect(QueueEvents).toHaveBeenCalledWith(
+        'invoice-gen',
+        expect.objectContaining({
+          prefix: expectedPrefix,
+        }),
+      );
     });
 
-    it('should log a strict DEAD-LETTER error when a job fully fails', () => {
+    it('logs a strict DEAD-LETTER error when a job fully fails', () => {
       service.onModuleInit();
-      
-      // Get the mocked instance for the 'email' queue (the first one)
+
       const mockQueueEventsInstance = vi.mocked(QueueEvents).mock.results[0].value;
-      
-      // Simulate a failure event that BullMQ would emit when exponential backoff is exhausted
+
       mockQueueEventsInstance.simulateEvent('failed', {
         jobId: 'email:welcome:user-123',
         failedReason: 'SMTP server timed out after 3 retries',
       });
 
       expect(consoleErrorMock).toHaveBeenCalledWith(
-        `[DEAD-LETTER] Job email:welcome:user-123 in queue "email" completely failed: SMTP server timed out after 3 retries`
+        `[DEAD-LETTER] Job email:welcome:user-123 in queue "email" completely failed: SMTP server timed out after 3 retries`,
       );
     });
 
-    it('should properly log internal Queue errors (e.g. Redis disconnects)', () => {
+    it('properly logs internal Queue errors (e.g. Redis disconnects)', () => {
       service.onModuleInit();
       const mockQueueEventsInstance = vi.mocked(QueueEvents).mock.results[0].value;
-      
+
       const mockError = new Error('Redis connection lost');
       mockQueueEventsInstance.simulateEvent('error', mockError);
 
       expect(consoleErrorMock).toHaveBeenCalledWith(
         `[QUEUE-ERROR] Queue "email" encountered an internal error:`,
-        mockError
+        mockError,
       );
     });
 
-    it('should gracefully close all listeners on module destroy', async () => {
+    it('gracefully closes all listeners on module destroy', async () => {
       service.onModuleInit();
-      const mockInstances = vi.mocked(QueueEvents).mock.results.map(r => r.value);
-      
+      const mockInstances = vi.mocked(QueueEvents).mock.results.map((r) => r.value);
+
       await service.onModuleDestroy();
-      
-      mockInstances.forEach(instance => {
+
+      mockInstances.forEach((instance) => {
         expect(instance.close).toHaveBeenCalled();
       });
     });

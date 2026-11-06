@@ -1,4 +1,4 @@
-import { Module, Global, forwardRef } from '@nestjs/common';
+import { Module, Global, Logger, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { QueueEventsService } from './queue-events.service.js';
 import { OutboxDispatcherService } from './outbox-dispatcher.service.js';
@@ -8,14 +8,20 @@ import { MaintenanceController } from './maintenance.controller.js';
 import { ExamsModule } from '../exams/exams.module.js';
 import { SessionsModule } from '../sessions/sessions.module.js';
 import { Redis as IORedis, RedisOptions } from 'ioredis';
+import { resolveRedisTlsOptions } from '../../common/redis/redis.service.js';
 
+const logger = new Logger('QueueModule');
 const isWorkerMode = process.env.WORKER_MODE === 'true';
-const isServerless = !isWorkerMode;
+const isServerlessRuntime =
+  !isWorkerMode &&
+  (process.env.VERCEL === '1' || Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME));
 
-const defaultJobOptions = {
+export const QUEUE_PREFIX = `wbm:${process.env.NODE_ENV || 'development'}:queue`;
+
+export const DEFAULT_BULL_JOB_OPTIONS = {
   attempts: 3,
   backoff: {
-    type: 'exponential',
+    type: 'exponential' as const,
     delay: 1000,
   },
   removeOnComplete: {
@@ -28,119 +34,98 @@ const defaultJobOptions = {
   },
 };
 
-// In serverless mode we cannot tolerate hanging Redis connections past the
-// function timeout, so connect aggressively once then give up immediately
-// and DESTROY the client on any error so the TCP socket is released.
-// Workers/long-lived processes get standard retries.
-function buildBullRedisOptions(): RedisOptions & { createClient?: (type: string, opts: RedisOptions) => IORedis } {
-  const base = process.env.REDIS_URL
-    ? {
-        url: process.env.REDIS_URL,
-        tls: process.env.REDIS_URL.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
-      }
+/**
+ * Builds BullMQ-compatible ioredis options for both worker and API producer modes.
+ * - Worker mode: maxRetriesPerRequest: null (required for BullMQ blocking operations)
+ *   and resilient unbounded retryStrategy so workers recover after temporary Redis outages.
+ * - API producer mode: bounded per-request retries and automatic reconnection without
+ *   permanently destroying singleton Queue clients after transient network errors or idle closes.
+ */
+export function buildBullRedisOptions(
+  workerMode = process.env.WORKER_MODE === 'true',
+): RedisOptions & { createClient?: (type: string, opts: RedisOptions) => IORedis } {
+  const redisUrl = process.env.REDIS_URL;
+  const redisHost = process.env.REDIS_HOST;
+  const isConfigured = Boolean(redisUrl || redisHost);
+
+  const base: RedisOptions = redisUrl
+    ? ({
+        url: redisUrl,
+        tls: resolveRedisTlsOptions(redisUrl),
+      } as RedisOptions)
     : {
-        host: process.env.REDIS_HOST || 'localhost',
+        host: redisHost || 'localhost',
         port: parseInt(process.env.REDIS_PORT || '6379', 10),
         password: process.env.REDIS_PASSWORD || undefined,
       };
 
-  if (isServerless) {
-    const SERVERLESS_CONNECT_WALLCLOCK_MS = 1500;
-    const opts: RedisOptions = {
+  if (workerMode) {
+    return {
       ...base,
       lazyConnect: true,
-      maxRetriesPerRequest: 0,
+      maxRetriesPerRequest: null,
       enableReadyCheck: false,
-      connectTimeout: SERVERLESS_CONNECT_WALLCLOCK_MS,
-      retryStrategy: () => null,
-      autoResendUnfulfilledCommands: false,
-      autoResubscribe: false,
-      reconnectOnError: () => false,
-      keepAlive: 0,
-      noDelay: true,
-    };
-    return {
-      ...opts,
-      createClient: (_type: string, clientOpts: RedisOptions) => {
-        // Catch synchronous URL-parsing throws inside `new IORedis(opts)`
-        // (same path as redis.service.ts).  A malformed/wrong REDIS_URL
-        // env var would otherwise crash Nest DI → generic FUNCTION_INVOCATION_FAILED.
-        // On throw, fall back to a guaranteed-disconnected dead-end client
-        // that rejects all commands fast.  `.add()` to BullMQ queues will
-        // error cleanly; the application itself still boots.
-        let client: IORedis;
-        try {
-          client = new IORedis(clientOpts);
-        } catch (err: any) {
-          console.warn('[BullMQ serverless] createClient parse error (fallback to disconnected):', err?.message || String(err).slice(0, 120));
-          client = new IORedis({
-            host: '127.0.0.1',
-            port: 1,
-            lazyConnect: true,
-            connectTimeout: 1,
-            retryStrategy: () => null,
-            maxRetriesPerRequest: 0,
-            autoResendUnfulfilledCommands: false,
-            autoResubscribe: false,
-            reconnectOnError: () => false as any,
-            keepAlive: 0,
-          } as RedisOptions);
-          // Run the same idempotent kill flow below; skip wallclock timer since
-          // we already know this client is doomed.
-          try {
-            const sock = (client as any).stream || (client as any).socket;
-            if (sock && typeof sock.destroy === 'function') sock.destroy();
-          } catch {}
-          return client;
-        }
-        // Kill the TCP socket immediately on any connection-level error so
-        // the Vercel event loop goes idle and the function terminates.
-        let killed = false;
-        const kill = (err?: any) => {
-          if (killed) return;
-          killed = true;
-          try { clearTimeout(killTimer); } catch {/* noop */}
-          try {
-            client.removeAllListeners();
-            client.on('error', () => undefined);
-            (client as any).disconnect(false);
-          } catch {
-            /* noop */
-          }
-          try {
-            const sock = (client as any).stream || (client as any).socket;
-            if (sock && typeof sock.destroy === 'function') sock.destroy();
-          } catch {
-            /* noop */
-          }
-          if (err) console.warn('[BullMQ serverless] redis error (socket released):', err?.message || String(err).slice(0, 120));
-        };
-        // WALLCLOCK GUARANTEE: even if connectTimeout / DNS / TLS handshake never
-        // emit 'error' or 'connectTimeout' (can happen on some Lambda networks),
-        // this setTimeout will FORCE the socket closed after 1500ms.
-        const killTimer = setTimeout(() => kill(new Error(`wallclock ${SERVERLESS_CONNECT_WALLCLOCK_MS}ms connect limit exceeded`)), SERVERLESS_CONNECT_WALLCLOCK_MS);
-        try { killTimer.unref(); } catch {/* noop */}
-        client.once('ready', () => { try { clearTimeout(killTimer); } catch {/* noop */} });
-        client.once('connect', () => { try { clearTimeout(killTimer); } catch {/* noop */} });
-        client.once('error', kill);
-        client.once('close', () => kill());
-        client.once('connectTimeout', () => kill(new Error('connectTimeout')));
-        return client;
-      },
+      connectTimeout: 10000,
+      retryStrategy: (times: number) => Math.min(times * 500, 10000),
+      reconnectOnError: (err: Error) =>
+        /READONLY|ETIMEDOUT|ECONNRESET/i.test(err.message),
     };
   }
 
-  return {
+  const producerOpts: RedisOptions = {
     ...base,
     lazyConnect: true,
-    maxRetriesPerRequest: 3,
+    maxRetriesPerRequest: isServerlessRuntime ? 1 : 2,
     enableReadyCheck: false,
-    connectTimeout: 10000,
-    retryStrategy: (times: number) => (times > 5 ? null : Math.min(times * 200, 3000)),
+    connectTimeout: isServerlessRuntime ? 1500 : 5000,
+    retryStrategy: isConfigured
+      ? (times: number) => Math.min(times * 500, 5000)
+      : () => null,
+    reconnectOnError: (err: Error) =>
+      /READONLY|ETIMEDOUT|ECONNRESET/i.test(err.message),
+    noDelay: true,
+  };
+
+  return {
+    ...producerOpts,
+    createClient: (_type: string, clientOpts: RedisOptions) => {
+      let client: IORedis;
+      try {
+        const mergedOpts = { ...producerOpts, ...clientOpts };
+        if ((mergedOpts as any).url) {
+          client = new IORedis((mergedOpts as any).url, mergedOpts);
+        } else {
+          client = new IORedis(mergedOpts);
+        }
+      } catch (err: any) {
+        logger.warn(
+          `BullMQ producer client parse error (falling back to disconnected client): ${err?.message || String(err).slice(0, 120)}`,
+        );
+        client = new IORedis({
+          host: '127.0.0.1',
+          port: 1,
+          lazyConnect: true,
+          connectTimeout: 100,
+          retryStrategy: () => null,
+          maxRetriesPerRequest: 0,
+          autoResendUnfulfilledCommands: false,
+          autoResubscribe: false,
+          reconnectOnError: () => false,
+          keepAlive: 0,
+        } as RedisOptions);
+      }
+
+      if (typeof client.on === 'function') {
+        client.on('error', (err: any) => {
+          logger.warn(`BullMQ Redis client notice: ${err?.message || err}`);
+        });
+      }
+      return client;
+    },
   };
 }
 
-const bullRedisOpts = buildBullRedisOptions();
+const bullRedisOpts = buildBullRedisOptions(isWorkerMode);
 
 @Global()
 @Module({
@@ -149,8 +134,8 @@ const bullRedisOpts = buildBullRedisOptions();
     forwardRef(() => SessionsModule),
     BullModule.forRoot({
       connection: bullRedisOpts as any,
-      defaultJobOptions,
-      prefix: `wbm:${process.env.NODE_ENV || 'development'}:queue`,
+      defaultJobOptions: DEFAULT_BULL_JOB_OPTIONS,
+      prefix: QUEUE_PREFIX,
     }),
     // D2-019: Register all required queues with exponential backoff defaults
     BullModule.registerQueue(
@@ -169,17 +154,13 @@ const bullRedisOpts = buildBullRedisOptions();
   providers: [
     OutboxDispatcherService,
     RecoverySweepService,
-    ...(isWorkerMode
-      ? [QueueEventsService, LifecycleProcessor]
-      : []),
+    ...(isWorkerMode ? [QueueEventsService, LifecycleProcessor] : []),
   ],
   exports: [
     BullModule,
     OutboxDispatcherService,
     RecoverySweepService,
-    ...(isWorkerMode
-      ? [QueueEventsService, LifecycleProcessor]
-      : []),
+    ...(isWorkerMode ? [QueueEventsService, LifecycleProcessor] : []),
   ],
 })
 export class QueueModule {}

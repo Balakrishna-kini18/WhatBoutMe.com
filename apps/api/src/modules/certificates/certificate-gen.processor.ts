@@ -1,4 +1,4 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Inject, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
@@ -8,7 +8,12 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import * as QRCode from 'qrcode';
 import { CertificateStatus, CertificateType } from '@prisma/client';
 
-@Processor('certificates')
+@Processor('certificates', {
+  concurrency: 2,
+  lockDuration: 60000,
+  stalledInterval: 30000,
+  maxStalledCount: 2,
+})
 export class CertificateGenProcessor extends WorkerHost {
   private readonly logger = new Logger(CertificateGenProcessor.name);
 
@@ -446,5 +451,17 @@ export class CertificateGenProcessor extends WorkerHost {
     );
 
     return { pdfUrl: savedPdfRef, objectKey: key };
+  }
+
+  @OnWorkerEvent('failed')
+  onFailed(job: Job | undefined, error: Error) {
+    this.logger.error(
+      `[CertificateGenProcessor] Job ${job?.id} (cert: ${job?.data?.certificateId}) failed on attempt ${job?.attemptsMade}: ${error.message}`,
+    );
+  }
+
+  @OnWorkerEvent('stalled')
+  onStalled(jobId: string) {
+    this.logger.warn(`[CertificateGenProcessor] Job ${jobId} stalled and will be re-evaluated.`);
   }
 }

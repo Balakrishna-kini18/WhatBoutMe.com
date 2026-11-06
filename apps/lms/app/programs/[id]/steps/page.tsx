@@ -1312,7 +1312,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                             alignItems: "center",
                             flexWrap: "wrap",
                             gap: "8px",
-                            padding: "5px 10px",
+                            padding: "4px 10px",
                             borderRadius: "8px",
                             fontSize: "0.78rem",
                             fontWeight: 600,
@@ -1338,9 +1338,9 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                               </svg>
                             )}
                             <span>
-                              Live Attendance
-                              {progression?.batchName ? ` (${progression.batchName})` : ""}:{" "}
-                              <strong>{liveAttendancePercent}%</strong> ({attendedLiveSessions}/{requiredLiveSessions} live sessions) • Required: <strong>{attendanceThreshold}%</strong>
+                              {isAttendanceMetForExam
+                                ? `Attendance Met: ${liveAttendancePercent}%`
+                                : `Low Attendance: ${liveAttendancePercent}% (Min ${attendanceThreshold}%)`}
                             </span>
                           </span>
                           <Link
@@ -1362,18 +1362,12 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                           {InfoCircle}
                           <span>
                             {!allStepsCompleted
-                              ? `Requires completing all ${total} curriculum steps${
+                              ? `Complete all ${total} curriculum steps${
                                   isAttendanceRequired
-                                    ? ` and at least ${attendanceThreshold}% live session attendance`
+                                    ? ` and reach ${attendanceThreshold}% live attendance`
                                     : ""
-                                }`
-                              : requiredLiveSessions === 0
-                              ? `Requires at least ${attendanceThreshold}% live session attendance in ${
-                                  progression?.batchName || "your batch"
-                                } to unlock the Final Exam. No live sessions have been conducted yet (Current: 0% / Required: ${attendanceThreshold}%).`
-                              : `Requires at least ${attendanceThreshold}% live session attendance in ${
-                                  progression?.batchName || "your batch"
-                                } to unlock the Final Exam. Your current attendance is ${liveAttendancePercent}% (${attendedLiveSessions} of ${requiredLiveSessions} live sessions attended).`}
+                                } to unlock.`
+                              : `Requires minimum ${attendanceThreshold}% live attendance to unlock (Current: ${liveAttendancePercent}%).`}
                           </span>
                         </div>
                       )}

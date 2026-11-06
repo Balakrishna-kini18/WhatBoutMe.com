@@ -488,7 +488,6 @@ export class PaymentsService {
           stripeSessionId: freeSessionId,
         });
 
-        const { lmsUrl } = getAppUrls();
         const { lmsUrl, adminUrl, marketingUrl } = getAppUrls(safeOrigin || dto.returnUrl);
         const isSeatPool = dto.targetType === 'SEAT_POOL';
         const isEvent = dto.targetType === 'EVENT';
@@ -508,7 +507,6 @@ export class PaymentsService {
           amount: 0,
           currency: pricing.currency,
           status: 'PAID',
-          checkoutUrl: `${lmsUrl}/checkout/success?session_id=${freeSessionId}`,
           checkoutUrl: freeCheckoutUrl,
           simulationBypass: true,
           title: pricing.title,

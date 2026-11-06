@@ -286,6 +286,10 @@ export class CheckoutEventDto {
   @IsOptional()
   @IsString()
   returnUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  cancelUrl?: string;
 }
 
 export class VerifyEventPaymentDto {

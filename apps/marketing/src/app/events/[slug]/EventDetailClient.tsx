@@ -239,7 +239,9 @@ export default function EventDetailClient({ initialEvent }: { initialEvent: Even
         attendeeName: attendeeName.trim(),
         attendeeEmail: attendeeEmail.trim().toLowerCase(),
         attendeePhone: attendeePhone.trim(),
-      origin: typeof window !== "undefined" ? window.location.origin : undefined,
+        origin: typeof window !== "undefined" ? window.location.origin : undefined,
+        returnUrl: typeof window !== "undefined" ? `${window.location.origin}/events/${event.slug || event.id}` : undefined,
+        cancelUrl: typeof window !== "undefined" ? `${window.location.origin}/events/${event.slug || event.id}?cancelled=1` : undefined,
       } as any);
 
     // If user is already registered for this event

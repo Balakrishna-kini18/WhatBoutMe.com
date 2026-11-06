@@ -278,6 +278,14 @@ export class CheckoutEventDto {
   @IsOptional()
   @IsString()
   phone?: string;
+
+  @IsOptional()
+  @IsString()
+  origin?: string;
+
+  @IsOptional()
+  @IsString()
+  returnUrl?: string;
 }
 
 export class VerifyEventPaymentDto {

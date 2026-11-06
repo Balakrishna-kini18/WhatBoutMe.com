@@ -2,7 +2,7 @@ export type SupportedCurrency = 'USD' | 'AED' | 'INR';
 
 export type PaymentProviderType = 'MOCK_TEST' | 'RAZORPAY' | 'STRIPE';
 
-export type PaymentTargetType = 'ENROLMENT' | 'EVENT';
+export type PaymentTargetType = 'ENROLMENT' | 'EVENT' | 'SEAT_POOL';
 
 export interface CreateOrderParams {
   amount: number;
@@ -14,6 +14,9 @@ export interface CreateOrderParams {
   customerName?: string;
   customerPhone?: string;
   idempotencyKey?: string;
+  origin?: string;
+  returnUrl?: string;
+  cancelUrl?: string;
   metadata?: Record<string, any>;
 }
 

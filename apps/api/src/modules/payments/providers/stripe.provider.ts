@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import Stripe from 'stripe';
 import { getAppUrls } from '../../../common/config/app-urls.js';
 import {
@@ -50,149 +50,186 @@ export class StripePaymentProvider implements IPaymentProvider {
     const stripe = this.getStripe();
 
     if (!stripe) {
-      this.logger.warn(
-        '[StripeProvider] Stripe not initialized. Falling back to test emulation order.'
+      this.logger.error(
+        '[StripeProvider] Stripe SDK is not initialized. Ensure STRIPE_SECRET_KEY is configured in .env',
       );
-      const orderId = `cs_test_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
-      return {
-        provider: this.providerType,
-        orderId,
-        amount: params.amount,
-        currency: params.currency,
-        status: 'PENDING',
-        simulationBypass: true,
-        clientSecret: `mock_secret_${orderId}`,
-        metadata: {
-          ...params.metadata,
-          idempotencyKey: params.idempotencyKey,
-        },
-      };
+      throw new ServiceUnavailableException(
+        'Stripe payment gateway is currently unavailable. Please contact support or configure payment credentials.',
+      );
     }
 
     try {
-      const { lmsUrl, marketingUrl } = getAppUrls();
+      const { lmsUrl, marketingUrl, adminUrl } = getAppUrls(params.origin || params.returnUrl);
       const isEvent = params.targetType === 'EVENT';
-      const baseReturnUrl = isEvent ? marketingUrl : lmsUrl;
+      const isSeatPool = params.targetType === 'SEAT_POOL';
 
-      const successUrl = isEvent
-        ? `${baseReturnUrl}/events/${params.targetId}?session_id={CHECKOUT_SESSION_ID}&registered=1`
-        : `${lmsUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
+      let successUrl: string;
+      let cancelUrl: string;
 
-      const cancelUrl = isEvent
-        ? `${baseReturnUrl}/events/${params.targetId}?cancelled=1`
-        : `${lmsUrl}/checkout?programId=${params.targetId}&cancelled=1`;
+        if (params.returnUrl) {
+          successUrl = params.returnUrl.includes('{CHECKOUT_SESSION_ID}')
+            ? params.returnUrl
+            : `${params.returnUrl}${params.returnUrl.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`;
+        } else if (isSeatPool) {
+          const orgId = params.metadata?.organizationId || '';
+          successUrl = `${adminUrl}/users/organizations/${orgId}?tab=pools&paid=1&session_id={CHECKOUT_SESSION_ID}&poolId=${params.targetId}`;
+        } else if (isEvent) {
+          successUrl = `${marketingUrl}/events/${params.targetId}?session_id={CHECKOUT_SESSION_ID}&registered=1`;
+        } else {
+          successUrl = `${lmsUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
+        }
 
-      // Base currency is always USD for WhatBoutMe FZE core with Stripe Adaptive Pricing enabled
-      const unitAmountMinor = Math.round(Number(params.metadata?.baseAmountUSD || params.amount) * 100);
-      const currencyLower = 'usd';
+        if (params.cancelUrl) {
+          cancelUrl = params.cancelUrl;
+        } else if (isSeatPool) {
+          const orgId = params.metadata?.organizationId || '';
+          cancelUrl = `${adminUrl}/users/organizations/${orgId}?tab=pools&cancelled=1&poolId=${params.targetId}`;
+        } else if (isEvent) {
+          cancelUrl = `${marketingUrl}/events/${params.targetId}?cancelled=1`;
+        } else {
+          cancelUrl = `${lmsUrl}/checkout?programId=${params.targetId}&cancelled=1`;
+        }
 
-      // Clean metadata strings (Stripe metadata values must be strings <= 500 chars)
-      const sanitizedMetadata: Record<string, string> = {
-        targetType: String(params.targetType),
-        targetId: String(params.targetId),
-        enrolmentId: String(params.metadata?.enrolmentId || ''),
-        userId: String(params.userId || ''),
-        baseAmountUSD: String(params.metadata?.baseAmountUSD || params.amount),
-        requestedCurrency: String(params.currency || 'USD'),
-        couponCode: String(params.metadata?.couponCode || ''),
-        couponId: String(params.metadata?.couponId || ''),
-        idempotencyKey: String(params.idempotencyKey || ''),
-      };
+        const checkoutCurrency = (params.currency || 'USD').toLowerCase();
+        const isUSD = checkoutCurrency === 'usd';
+        // Stripe expects amount in minor units (cents, fils, paise)
+        const unitAmountMinor = Math.round(Number(params.amount) * 100);
 
-      const requestOptions: Stripe.RequestOptions | undefined = params.idempotencyKey
-        ? { idempotencyKey: String(params.idempotencyKey) }
-        : undefined;
+        // Clean metadata strings (Stripe metadata values must be strings <= 500 chars)
+        const sanitizedMetadata: Record<string, string> = {
+          targetType: String(params.targetType),
+          targetId: String(params.targetId),
+          enrolmentId: String(params.metadata?.enrolmentId || ''),
+          organizationId: String(params.metadata?.organizationId || ''),
+          poolId: String(params.metadata?.poolId || (isSeatPool ? params.targetId : '')),
+          poolCode: String(params.metadata?.poolCode || ''),
+          totalSeats: String(params.metadata?.totalSeats || ''),
+          userId: String(params.userId || ''),
+          baseAmountUSD: String(params.metadata?.baseAmountUSD || params.amount),
+          requestedCurrency: String(params.currency || 'USD'),
+          couponCode: String(params.metadata?.couponCode || ''),
+          couponId: String(params.metadata?.couponId || ''),
+          idempotencyKey: String(params.idempotencyKey || ''),
+        };
 
-      const session = await stripe.checkout.sessions.create(
-        {
-          mode: 'payment',
-          customer_email: params.customerEmail ? String(params.customerEmail).trim().toLowerCase() : undefined,
-          line_items: [
-            {
-              price_data: {
-                currency: currencyLower,
-                unit_amount: unitAmountMinor,
-                product_data: {
-                  name: params.metadata?.title || 'WhatBoutMe Learning Program',
-                  description: isEvent
-                    ? 'WhatBoutMe Masterclass / Workshop Entry Ticket'
-                    : 'WhatBoutMe FZE Online Professional Program Enrolment',
+        const requestOptions: Stripe.RequestOptions | undefined = params.idempotencyKey
+          ? { idempotencyKey: String(params.idempotencyKey) }
+          : undefined;
+
+        const productName = isSeatPool
+          ? `WhatBoutMe - ${params.metadata?.title || 'Corporate Seats'}`
+          : params.metadata?.title || (isEvent ? 'WhatBoutMe Masterclass / Workshop Entry Ticket' : 'WhatBoutMe Learning Program');
+
+        const productDescription = isSeatPool
+          ? `Organization Seat Booking (${params.metadata?.totalSeats || ''} seats) for Cohort: ${params.metadata?.batchName || 'Cohort Batch'}`
+          : isEvent
+            ? 'WhatBoutMe Masterclass / Workshop Entry Ticket'
+            : 'WhatBoutMe FZE Online Professional Program Enrolment';
+
+        const session = await stripe.checkout.sessions.create(
+          {
+            mode: 'payment',
+            customer_email: params.customerEmail ? String(params.customerEmail).trim().toLowerCase() : undefined,
+            line_items: [
+              {
+                price_data: {
+                  currency: checkoutCurrency,
+                  unit_amount: unitAmountMinor,
+                  product_data: {
+                    name: productName,
+                    description: productDescription,
+                  },
                 },
+                quantity: 1,
               },
-              quantity: 1,
-            },
-          ],
-          adaptive_pricing: {
-            enabled: true,
+            ],
+            ...(isUSD ? { adaptive_pricing: { enabled: true } } : {}),
+            metadata: sanitizedMetadata,
+            client_reference_id: params.metadata?.poolId || params.metadata?.enrolmentId || params.targetId,
+            expires_at: Math.floor(Date.now() / 1000) + 1800, // 30 minutes
+            success_url: successUrl,
+            cancel_url: cancelUrl,
           },
-          metadata: sanitizedMetadata,
-          client_reference_id: params.metadata?.enrolmentId || params.targetId,
-          expires_at: Math.floor(Date.now() / 1000) + 1800, // 30 minutes
-          success_url: successUrl,
-          cancel_url: cancelUrl,
-        },
-        requestOptions,
-      );
+          requestOptions,
+        );
 
-      this.logger.log(
-        `[StripeProvider] Created Stripe Checkout Session ${session.id} for ${params.targetType}:${params.targetId} (${params.amount} ${params.currency})`
-      );
+        this.logger.log(
+          `[StripeProvider] Created Stripe Checkout Session ${session.id} for ${params.targetType}:${params.targetId} (${params.amount} ${params.currency})`
+        );
 
-      return {
-        provider: this.providerType,
-        orderId: session.id,
-        amount: params.amount,
-        currency: params.currency,
-        status: 'PENDING',
-        checkoutUrl: session.url || undefined,
-        simulationBypass: false,
-        metadata: {
-          ...params.metadata,
-          stripeSessionUrl: session.url,
-          paymentIntentId: session.payment_intent,
-        },
-      };
-    } catch (err: any) {
-      this.logger.error(`[StripeProvider] Failed to create checkout session: ${err?.message}`, err?.stack);
-      throw err;
+        return {
+          provider: this.providerType,
+          orderId: session.id,
+          amount: params.amount,
+          currency: params.currency,
+          status: 'PENDING',
+          checkoutUrl: session.url || undefined,
+          simulationBypass: false,
+          metadata: {
+            ...params.metadata,
+            stripeSessionUrl: session.url,
+            paymentIntentId: session.payment_intent,
+          },
+        };
+      } catch (err: any) {
+        this.logger.error(`[StripeProvider] Failed to create checkout session: ${err?.message}`, err?.stack);
+        throw err;
+      }
     }
-  }
 
-  async verifyWebhook(params: VerifyWebhookParams): Promise<WebhookVerificationResult> {
-    const stripe = this.getStripe();
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  async verifyWebhook(params: VerifyWebhookParams): Promise < WebhookVerificationResult > {
+      const stripe = this.getStripe();
+      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
-    if (!stripe || !webhookSecret) {
-      this.logger.warn(
-        '[StripeProvider] Stripe SDK or webhook secret missing; performing standard JSON extraction.'
+      if(!stripe || !webhookSecret) {
+      this.logger.error(
+        '[StripeProvider] Stripe SDK or STRIPE_WEBHOOK_SECRET missing; refusing unverified webhook processing.'
       );
-      const dataObj = params.rawPayload?.data?.object || params.rawPayload || {};
-      const status = dataObj?.payment_status === 'paid' || dataObj?.status === 'succeeded' ? 'PAID' : 'FAILED';
       return {
-        isVerified: !process.env.NODE_ENV || process.env.NODE_ENV !== 'production',
-        eventType: params.rawPayload?.type || 'checkout.session.completed',
-        transactionId: dataObj?.id || `pi_${Date.now()}`,
-        orderId: dataObj?.id,
-        status,
-        amount: (dataObj?.amount_total || 0) / 100,
-        currency: (dataObj?.currency || 'USD').toUpperCase(),
-        metadata: dataObj?.metadata || {},
+        isVerified: false,
+        eventType: 'missing_credentials',
+        transactionId: '',
+        orderId: undefined,
+        status: 'FAILED',
+        amount: 0,
+        currency: 'USD',
+      };
+    }
+
+    if (!params.signature) {
+      this.logger.warn('[StripeProvider] Webhook request missing stripe-signature header.');
+      return {
+        isVerified: false,
+        eventType: 'missing_signature',
+        transactionId: '',
+        orderId: undefined,
+        status: 'FAILED',
+        amount: 0,
+        currency: 'USD',
+      };
+    }
+
+    if (!Buffer.isBuffer(params.rawPayload) && typeof params.rawPayload !== 'string') {
+      this.logger.warn(
+        '[StripeProvider] Webhook payload is not a Buffer or string; refusing to parse unverified payload.'
+      );
+      return {
+        isVerified: false,
+        eventType: 'invalid_payload_type',
+        transactionId: '',
+        orderId: undefined,
+        status: 'FAILED',
+        amount: 0,
+        currency: 'USD',
       };
     }
 
     try {
-      let event: Stripe.Event;
-
-      if (Buffer.isBuffer(params.rawPayload) || typeof params.rawPayload === 'string') {
-        event = stripe.webhooks.constructEvent(
-          params.rawPayload,
-          params.signature || '',
-          webhookSecret
-        );
-      } else {
-        // Fallback if payload was already parsed
-        event = params.rawPayload;
-      }
+      const event: Stripe.Event = stripe.webhooks.constructEvent(
+        params.rawPayload,
+        params.signature,
+        webhookSecret,
+      );
 
       const dataObj = event.data?.object as any;
       let status: 'PAID' | 'FAILED' | 'REFUNDED' = 'FAILED';
@@ -204,7 +241,7 @@ export class StripePaymentProvider implements IPaymentProvider {
         status = 'PAID';
       } else if (
         event.type === 'charge.refunded' ||
-          (event.type as string) === 'payment.refunded'
+        (event.type as string) === 'payment.refunded'
       ) {
         status = 'REFUNDED';
       }

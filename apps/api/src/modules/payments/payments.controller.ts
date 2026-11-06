@@ -4,9 +4,11 @@ import {
   Get,
   Post,
   Req,
+  Headers,
   HttpCode,
   HttpStatus,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { PaymentsService } from './payments.service.js';
@@ -19,7 +21,7 @@ const STATUS_RATE_LIMIT = { default: { limit: 40, ttl: 60000 } };
 
 @Controller(['payments', 'api/payments'])
 export class PaymentsController {
-  constructor(private readonly paymentsService: PaymentsService) {}
+  constructor(private readonly paymentsService: PaymentsService) { }
 
   @Public()
   @Get('active-provider')
@@ -40,25 +42,58 @@ export class PaymentsController {
   @Post('checkout-session')
   createCheckoutSession(@Body() dto: CreateCheckoutSessionDto, @Req() req: any) {
     const user = req.user;
-    return this.paymentsService.createCheckoutSession(dto, user);
+    return this.paymentsService.createCheckoutSession(dto, user, req);
+  }
+
+  /**
+   * LIVE STRIPE WEBHOOK ENDPOINT
+   * Receives server-to-server events from Stripe, verifies cryptographic signature,
+   * and fulfills orders idempotently.
+   */
+  @Public()
+  @Post('webhook')
+  @HttpCode(HttpStatus.OK)
+  async handleStripeWebhook(
+    @Req() req: any,
+    @Headers('stripe-signature') signature: string,
+  ) {
+    if (!signature) {
+      throw new BadRequestException('Missing stripe-signature header.');
+    }
+    const rawPayload = req.rawBody || (typeof req.body === 'string' ? Buffer.from(req.body, 'utf8') : null);
+    if (!rawPayload || !Buffer.isBuffer(rawPayload)) {
+      throw new BadRequestException(
+        'Raw buffer body is strictly required for cryptographic Stripe signature verification.',
+      );
+    }
+    return this.paymentsService.handleStripeWebhook(rawPayload, signature, req.headers);
   }
 
   /**
    * TEST_BYPASS WEBHOOK SIMULATION ENDPOINT
-   * Strictly restricted: Only accessible in non-production development/staging when
-   * running under TEST_BYPASS / MOCK_TEST mode, or by authenticated SUPER_ADMINs.
+   * Strictly restricted: Completely blocked in live production environments.
+   * In non-production, only permitted when PAYMENT_PROVIDER === 'MOCK_TEST' or by verified SUPER_ADMIN/ADMIN users.
+   * Never decodes or trusts unverified Authorization headers.
    */
   @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('webhook/test-simulate')
   @HttpCode(HttpStatus.OK)
   simulateTestWebhook(@Body() dto: TestSimulateWebhookDto, @Req() req: any) {
     const isProd = process.env.NODE_ENV === 'production';
-    const isLiveStripe = process.env.PAYMENT_PROVIDER === 'STRIPE' || this.paymentsService.getActiveProvider()?.providerType === 'STRIPE';
-    const isSuperAdmin = req?.user?.role === 'SUPER_ADMIN';
-
-    if ((isProd || isLiveStripe) && !isSuperAdmin) {
+    if (isProd) {
       throw new ForbiddenException(
-        'Webhook test simulation is disabled in live/production environments. Please use real Stripe checkout.',
+        'Webhook test simulation is strictly disabled in live production environments. Please use real Stripe checkout.',
+      );
+    }
+
+    const provider = (process.env.PAYMENT_PROVIDER || 'MOCK_TEST').toUpperCase();
+    const userRole = req?.user?.role;
+    const isStaff = userRole === 'SUPER_ADMIN' || userRole === 'ADMIN';
+
+    if (provider !== 'MOCK_TEST' && !isStaff) {
+      throw new ForbiddenException(
+        'Webhook test simulation is only permitted when PAYMENT_PROVIDER=MOCK_TEST or by authenticated administrators.',
       );
     }
 

@@ -252,105 +252,93 @@ export class LeadsController {
     return this.prisma.lead.delete({ where: { id } });
   }
 
+  private maskEmail(email: string): string {
+    if (!email || !email.includes('@')) return '***@***.com';
+    const [local, domain] = email.split('@');
+    if (local.length <= 2) return `${local[0]}***@${domain}`;
+    return `${local[0]}***${local[local.length - 1]}@${domain}`;
+  }
+
   /**
-   * Public: Decode and validate signed checkout token
-   * Returns lead info, program details, batch, enrolment ID, and temporary access token for instant session login.
+   * Public: Decode and validate checkout token (Pay-First Magic Link)
+   * Returns sanitized course, batch, pricing, and masked candidate identity.
+   * Never mints an unauthenticated session or returns raw access tokens.
    */
   @Public()
   @Get('checkout-token/:token')
   async getCheckoutTokenDetails(@Param('token') token: string) {
-    const payload = this.verifyLeadCheckoutToken(token);
+    let leadId: string;
+    let userId: string;
+    let programId: string;
+    let batchId: string | null = null;
+    let enrolmentId: string;
+    let currency: 'USD' | 'AED' | 'INR' = 'USD';
+    let amount: number | undefined = undefined;
 
-    const lead = await this.prisma.lead.findUnique({
-      where: { id: payload.leadId },
+    // First attempt: resolve via LeadCheckoutLink database record
+    const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
+    const link = await this.prisma.leadCheckoutLink.findUnique({
+      where: { tokenHash },
     });
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: payload.userId },
-      select: { id: true, name: true, email: true, role: true },
-    });
-
-    const program = await this.prisma.program.findUnique({
-      where: { id: payload.programId },
-    });
-
-    if (!lead || !user || !program) {
-      throw new NotFoundException('Lead, user, or course details for this checkout token could not be found');
-    }
-
-    const batch = payload.batchId
-      ? await this.prisma.batch.findUnique({
-        where: { id: payload.batchId },
-        select: { id: true, name: true, startDate: true, endDate: true },
-      })
-      : null;
-
-    let enrolment = payload.enrolmentId
-      ? await this.prisma.enrolment.findUnique({
-        where: { id: payload.enrolmentId },
-        select: { id: true, status: true },
-      })
-      : null;
-
-    if (!enrolment) {
-      enrolment = await this.prisma.enrolment.findFirst({
-        where: { userId: user.id, programId: program.id },
-        select: { id: true, status: true },
-      });
-    }
-
-    const currency: 'USD' | 'AED' | 'INR' = payload.currency || 'USD';
-    const amount = payload.amount !== undefined ? payload.amount : this.getProgramPrice(program, currency);
-
-    // Provision UserSession and JWT access token for seamless one-click learner checkout
-    let accessToken: string | null = null;
-    try {
-      const sessionId = crypto.randomUUID();
-      const sessionToken = crypto.randomBytes(32).toString('hex');
-      await this.prisma.userSession.create({
-        data: {
-          id: sessionId,
-          userId: user.id,
-          token: sessionToken,
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        },
-      });
-
-      if (this.jwtService) {
-        accessToken = this.jwtService.sign(
-          {
-            sub: user.id,
-            email: user.email,
-            role: user.role,
-            sessionId,
-          },
-          { expiresIn: '24h' },
-        );
+    if (link) {
+      if (link.revokedAt || link.usedAt) {
+        throw new BadRequestException('This checkout link has already been used or expired. Please contact support.');
       }
-    } catch (e: any) {
-      // In case session creation fails in isolated test runner
-      console.warn('[getCheckoutTokenDetails] Session creation note:', e?.message);
+      if (link.expiresAt < new Date()) {
+        throw new BadRequestException('This checkout link has expired (72h limit). Please request a new consultation link.');
+      }
+      leadId = link.leadId;
+      userId = link.userId;
+      programId = link.programId;
+      batchId = link.batchId;
+      enrolmentId = link.enrolmentId;
+    } else {
+      // Fallback for legacy HMAC tokens
+      const payload = this.verifyLeadCheckoutToken(token);
+      leadId = payload.leadId;
+      userId = payload.userId;
+      programId = payload.programId;
+      batchId = payload.batchId || null;
+      enrolmentId = payload.enrolmentId;
+      currency = payload.currency || 'USD';
+      amount = payload.amount;
     }
 
+    const [lead, program, batch, enrolment] = await Promise.all([
+      this.prisma.lead.findUnique({ where: { id: leadId } }),
+      this.prisma.program.findUnique({ where: { id: programId } }),
+      batchId ? this.prisma.batch.findUnique({ where: { id: batchId }, select: { id: true, name: true, startDate: true } }) : null,
+      this.prisma.enrolment.findUnique({ where: { id: enrolmentId }, select: { id: true, status: true } }),
+    ]);
+
+    if (!lead || !program) {
+      throw new NotFoundException('Course or registration details for this link could not be found.');
+    }
+
+    const resolvedAmount = amount !== undefined ? amount : this.getProgramPrice(program, currency);
+
+    // Pay-First Magic Link: Zero session tokens or raw PII returned before payment
     return {
       valid: true,
-      lead: { id: lead.id, name: lead.name, email: lead.email, phone: lead.phone },
-      user,
+      candidateName: lead.name,
+      maskedEmail: this.maskEmail(lead.email),
       program: {
         id: program.id,
         title: program.title,
+        slug: program.slug,
         description: program.description,
-        price: program.price,
-        priceUSD: program.priceUSD,
-        priceAED: program.priceAED,
-        priceINR: program.priceINR,
-        currency: program.currency,
       },
       batch,
       enrolment,
+      enrolmentId: enrolment?.id || enrolmentId,
       currency,
-      amount,
-      accessToken,
+      amount: resolvedAmount,
+      pricing: {
+        amount: resolvedAmount,
+        currency,
+        formatted: `${currency === 'INR' ? '₹' : currency === 'AED' ? 'AED ' : '$'}${resolvedAmount.toLocaleString()}`,
+      },
     };
   }
 
@@ -472,19 +460,26 @@ export class LeadsController {
     const currency: 'USD' | 'AED' | 'INR' = body.currency || (program.currency as any) || 'USD';
     const amount = this.getProgramPrice(program, currency);
 
-    // 5. Sign trackable Checkout Token
-    const payload = {
-      leadId: lead.id,
-      userId: user.id,
-      programId: program.id,
-      batchId: batch?.id || null,
-      enrolmentId: enrolment.id,
-      currency,
-      amount,
-      timestamp: Date.now(),
-      nonce: crypto.randomBytes(8).toString('hex'),
-    };
-    const token = this.generateLeadCheckoutToken(payload);
+    // 5. Generate secure LeadCheckoutLink record (72-hour TTL per D3)
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
+    const actorId = req?.user?.id || req?.user?.sub || 'system';
+
+    await this.prisma.leadCheckoutLink.create({
+      data: {
+        tokenHash,
+        leadId: lead.id,
+        userId: user.id,
+        enrolmentId: enrolment.id,
+        programId: program.id,
+        batchId: batch?.id || null,
+        expiresAt,
+        createdById: actorId !== 'system' ? actorId : null,
+      },
+    });
+
+    const token = rawToken;
 
     // 6. Generate Checkout URL
     const { lmsUrl } = getAppUrls();
@@ -493,7 +488,6 @@ export class LeadsController {
     // 7. Update Lead status to CONVERTED and log Audit concurrently
     const conversionNotice = `\n[Converted to Enrolment: ${enrolment.id} | Course: ${program.title} | Link: ${checkoutUrl}]`;
     const cleanBaseMessage = (lead.message || '').replace(/\n?\[Converted to Enrolment:[^\]]+\]/gi, '').trim();
-    const actorId = req?.user?.id || req?.user?.sub || 'system';
 
     const [updatedLead] = await Promise.all([
       this.prisma.lead.update({

@@ -240,6 +240,56 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
     }
   }, [tabParam]);
 
+  // Stripe Return & Dual-Path Payment Reconciliation Hook
+  useEffect(() => {
+    const isPaidParam = searchParams?.get("paid") === "1";
+    const sessionId = searchParams?.get("session_id");
+    const cancelledParam = searchParams?.get("cancelled") === "1";
+
+    if (cancelledParam) {
+      toast.info(
+        "Stripe checkout was cancelled. Your slot booking is preserved and awaiting payment.",
+        "Checkout Cancelled"
+      );
+      const url = new URL(window.location.href);
+      url.searchParams.delete("cancelled");
+      window.history.replaceState({}, "", url.pathname + url.search);
+      return;
+    }
+
+    if (isPaidParam && sessionId) {
+      (async () => {
+        try {
+          const res: any = await apiGet(`/payments/session-status/${sessionId}`);
+          if (res?.status === "PAID") {
+            toast.success(
+              `Stripe payment verified! ${res.totalSeats ? res.totalSeats + " " : ""}student seats are now unlocked and active for assignment.`,
+              "Payment Confirmed"
+            );
+          } else {
+            toast.info(
+              "Your payment was received and is finalizing. Student slots will activate momentarily.",
+              "Payment Processing"
+            );
+          }
+        } catch (err: any) {
+          toast.error(err?.message || "Could not reconcile payment status.", "Reconciliation Check");
+        } finally {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("paid");
+          url.searchParams.delete("session_id");
+          url.searchParams.delete("poolId");
+          window.history.replaceState({}, "", url.pathname + url.search);
+
+          fetchOrganizationDetails();
+          fetchLearners();
+          fetchAvailableBatches();
+          setActiveTab("students");
+        }
+      })();
+    }
+  }, [searchParams, orgId]);
+
   // Filters
   const [selectedBatchId, setSelectedBatchId] = useState<string>("ALL");
   const [studentSearch, setStudentSearch] = useState("");
@@ -344,7 +394,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
               localStorage.setItem("user", JSON.stringify(u));
             }
           }
-        } catch {}
+        } catch { }
       }
 
       if (isPlatformAdmin) {
@@ -440,6 +490,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
     department: "",
     externalOrderRef: "",
     orgInternalNotes: "",
+    resendEmail: true,
   });
   const [editResult, setEditResult] = useState<any>(null);
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
@@ -454,6 +505,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
       department: learner.department || "",
       externalOrderRef: learner.externalOrderRef || "",
       orgInternalNotes: "",
+      resendEmail: true,
     });
     setIsEditModalOpen(true);
   };
@@ -493,14 +545,15 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
           department: editForm.department.trim() || undefined,
           externalOrderRef: editForm.externalOrderRef.trim() || undefined,
           orgInternalNotes: editForm.orgInternalNotes.trim() || undefined,
+          resendEmail: editForm.resendEmail,
         }
       );
 
       setEditResult(res);
       toast.success(
         res.reassigned
-          ? `Slot successfully reassigned to ${editForm.email}. Welcome / setup email dispatched!`
-          : `Student details updated successfully.`,
+          ? `Slot successfully reassigned to ${editForm.email}. ${res.emailSent ? "Welcome / setup email dispatched!" : ""}`
+          : `Student details updated successfully. ${res.emailSent ? "Setup email dispatched!" : ""}`,
         "Slot Updated"
       );
       fetchOrganizationDetails();
@@ -528,7 +581,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
         .then((cfg) => {
           if (cfg && cfg.tiers) setPricingConfig(cfg);
         })
-        .catch(() => {});
+        .catch(() => { });
     } catch (e: any) {
       const msg = e?.message || "";
       const lower = msg.toLowerCase();
@@ -806,22 +859,51 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
     if (!selectedPoolForPayment) return;
     try {
       setIsSubmittingPayment(true);
-      await apiPost(`/admin/organizations/${orgId}/seat-pools/${selectedPoolForPayment.id}/pay`, {
-        paymentMethod: paymentForm.paymentMethod || "ONLINE",
-        notes: paymentForm.notes?.trim() || "Simulated payment completed via Test Bypass Mode",
-      });
 
-      toast.success(
-        `Payment confirmed! ${selectedPoolForPayment.totalSeats} student seats are now unlocked and active.`,
-        "Payment Successful"
-      );
+      if (paymentForm.paymentMethod === "ONLINE") {
+        // Step 1: Create Authoritative Stripe Checkout Session
+        const checkoutRes: any = await apiPost("/payments/checkout-session", {
+          targetType: "SEAT_POOL",
+          targetId: selectedPoolForPayment.id,
+          currency: selectedPoolForPayment.currency,
+          amount: selectedPoolForPayment.netAmount,
+          origin: typeof window !== "undefined" ? window.location.origin : undefined,
+          returnUrl: typeof window !== "undefined" ? `${window.location.origin}/users/organizations/${orgId}?tab=pools&paid=1&poolId=${selectedPoolForPayment.id}` : undefined,
+          cancelUrl: typeof window !== "undefined" ? `${window.location.origin}/users/organizations/${orgId}?tab=pools&cancelled=1&poolId=${selectedPoolForPayment.id}` : undefined,
+        });
+
+        // Step 2: Redirect to Authoritative Checkout (Stripe Hosted or Server-Side Simulation)
+        if (checkoutRes?.checkoutUrl) {
+          toast.info("Redirecting to secure checkout...", "Payment Gateway");
+          window.location.href = checkoutRes.checkoutUrl;
+          return;
+        }
+
+        toast.success(
+          `Payment confirmed! ${selectedPoolForPayment.totalSeats} student seats are now unlocked and active.`,
+          "Payment Successful"
+        );
+      } else {
+        // Institutional Wire Transfer (Net-30 Invoice)
+        await apiPost(`/admin/organizations/${orgId}/seat-pools/${selectedPoolForPayment.id}/pay`, {
+          paymentMethod: "INVOICE_OFFLINE",
+          notes: paymentForm.notes?.trim() || "Institutional Net-30 Wire Invoice requested by organization",
+        });
+
+        toast.success(
+          `Institutional Net-30 invoice recorded! WhatBoutMe finance will review and unlock student seats once wire payment is confirmed.`,
+          "Invoice Issued"
+        );
+      }
+
       setIsPaymentModalOpen(false);
       setSelectedPoolForPayment(null);
       fetchOrganizationDetails();
       fetchLearners();
-      setActiveTab("students");
+      fetchAvailableBatches();
+      setActiveTab(paymentForm.paymentMethod === "ONLINE" ? "students" : "pools");
     } catch (err: any) {
-      toast.error(err?.message || "Payment simulation failed", "Payment Error");
+      toast.error(err?.message || "Payment checkout failed", "Payment Error");
     } finally {
       setIsSubmittingPayment(false);
     }
@@ -1413,275 +1495,275 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                   <th style={{ textAlign: "right" }}>Actions</th>
                 </tr>
               </thead>
-                <tbody>
-                  {isLearnersLoading ? (
-                    <TableSkeleton rows={5} columns={11} />
-                  ) : learners.length === 0 ? (
-                    <tr>
-                      <td colSpan={11} style={{ padding: "3rem 1.5rem" }}>
-                        <EmptyState
-                          title="No slots or students allocated yet"
-                          description="Allocate a batch slot pool to pre-materialize numbered slots for this organization."
-                          actionLabel="+ Allocate Batch Slots"
-                          onAction={() => setIsAllocateModalOpen(true)}
-                        />
-                      </td>
-                    </tr>
-                  ) : (
-                    learners.map((learner) => {
-                      const isAvailable = learner.slotStatus === "AVAILABLE";
-                      const studentName = learner.student.name || (isAvailable ? "Unassigned Slot" : "Pending Claim");
-                      const studentEmail = learner.student.email || "";
+              <tbody>
+                {isLearnersLoading ? (
+                  <TableSkeleton rows={5} columns={11} />
+                ) : learners.length === 0 ? (
+                  <tr>
+                    <td colSpan={11} style={{ padding: "3rem 1.5rem" }}>
+                      <EmptyState
+                        title="No slots or students allocated yet"
+                        description="Allocate a batch slot pool to pre-materialize numbered slots for this organization."
+                        actionLabel="+ Allocate Batch Slots"
+                        onAction={() => setIsAllocateModalOpen(true)}
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  learners.map((learner) => {
+                    const isAvailable = learner.slotStatus === "AVAILABLE";
+                    const studentName = learner.student.name || (isAvailable ? "Unassigned Slot" : "Pending Claim");
+                    const studentEmail = learner.student.email || "";
 
-                      return (
-                        <tr
-                          key={learner.seatId}
-                          style={{
-                            borderBottom: "1px solid #f1f5f9",
-                            background: isAvailable ? "#fafafa" : "transparent",
-                          }}
-                        >
-                          {/* Slot # */}
-                          <td style={{ padding: "12px 14px", fontWeight: 700, color: "#0f172a" }}>
-                            {learner.slotLabel}
-                          </td>
+                    return (
+                      <tr
+                        key={learner.seatId}
+                        style={{
+                          borderBottom: "1px solid #f1f5f9",
+                          background: isAvailable ? "#fafafa" : "transparent",
+                        }}
+                      >
+                        {/* Slot # */}
+                        <td style={{ padding: "12px 14px", fontWeight: 700, color: "#0f172a" }}>
+                          {learner.slotLabel}
+                        </td>
 
-                          {/* Student */}
-                          <td style={{ padding: "12px 14px" }}>
-                            <div style={{ fontWeight: 600, color: isAvailable ? "#94a3b8" : "#0f172a" }}>
-                              {studentName}
-                            </div>
-                            {studentEmail && (
-                              <div style={{ fontSize: "0.75rem", color: "#64748b" }}>{studentEmail}</div>
-                            )}
-                          </td>
+                        {/* Student */}
+                        <td style={{ padding: "12px 14px" }}>
+                          <div style={{ fontWeight: 600, color: isAvailable ? "#94a3b8" : "#0f172a" }}>
+                            {studentName}
+                          </div>
+                          {studentEmail && (
+                            <div style={{ fontSize: "0.75rem", color: "#64748b" }}>{studentEmail}</div>
+                          )}
+                        </td>
 
-                          {/* Status */}
-                          <td style={{ padding: "12px 14px" }}>
-                            <span
-                              style={{
-                                fontSize: "0.72rem",
-                                fontWeight: 700,
-                                padding: "2px 7px",
-                                borderRadius: "4px",
-                                background:
-                                  learner.slotStatus === "CONSUMED"
-                                    ? "#dcfce7"
-                                    : learner.slotStatus === "ASSIGNED"
+                        {/* Status */}
+                        <td style={{ padding: "12px 14px" }}>
+                          <span
+                            style={{
+                              fontSize: "0.72rem",
+                              fontWeight: 700,
+                              padding: "2px 7px",
+                              borderRadius: "4px",
+                              background:
+                                learner.slotStatus === "CONSUMED"
+                                  ? "#dcfce7"
+                                  : learner.slotStatus === "ASSIGNED"
                                     ? "#e0e7ff"
                                     : learner.slotStatus === "INVITED"
-                                    ? "#fef3c7"
-                                    : "#f1f5f9",
-                                color:
-                                  learner.slotStatus === "CONSUMED"
-                                    ? "#15803d"
-                                    : learner.slotStatus === "ASSIGNED"
+                                      ? "#fef3c7"
+                                      : "#f1f5f9",
+                              color:
+                                learner.slotStatus === "CONSUMED"
+                                  ? "#15803d"
+                                  : learner.slotStatus === "ASSIGNED"
                                     ? "#4338ca"
                                     : learner.slotStatus === "INVITED"
-                                    ? "#b45309"
-                                    : "#64748b",
-                              }}
-                            >
-                              {learner.slotStatus}
+                                      ? "#b45309"
+                                      : "#64748b",
+                            }}
+                          >
+                            {learner.slotStatus}
+                          </span>
+                        </td>
+
+                        {/* Dept / Order Ref */}
+                        <td style={{ padding: "12px 14px" }}>
+                          <div style={{ color: "#334155" }}>{learner.department || "—"}</div>
+                          {learner.externalOrderRef && (
+                            <div style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                              Ref: {learner.externalOrderRef}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Gate 1: Agreement */}
+                        <td style={{ padding: "12px 14px" }}>
+                          {learner.gates.gate1Agreement.isSatisfied ? (
+                            <span style={{ color: "#16a34a", fontWeight: 600 }}>✓ Signed</span>
+                          ) : (
+                            <span style={{ color: "#94a3b8" }}>Pending</span>
+                          )}
+                        </td>
+
+                        {/* Gate 2: Curriculum Steps */}
+                        <td style={{ padding: "12px 14px" }}>
+                          {learner.gates.gate2Curriculum.isSatisfied ? (
+                            <span style={{ color: "#16a34a", fontWeight: 600 }}>✓ Complete (11/11)</span>
+                          ) : (
+                            <span style={{ color: "#475569" }}>
+                              {learner.gates.gate2Curriculum.completedLessonsCount} lessons done
                             </span>
-                          </td>
+                          )}
+                        </td>
 
-                          {/* Dept / Order Ref */}
-                          <td style={{ padding: "12px 14px" }}>
-                            <div style={{ color: "#334155" }}>{learner.department || "—"}</div>
-                            {learner.externalOrderRef && (
-                              <div style={{ fontSize: "0.72rem", color: "#64748b" }}>
-                                Ref: {learner.externalOrderRef}
-                              </div>
-                            )}
-                          </td>
+                        {/* Gate 3: Live Attendance */}
+                        <td style={{ padding: "12px 14px" }}>
+                          {learner.gates.gate3Attendance.isSatisfied ? (
+                            <span style={{ color: "#16a34a", fontWeight: 600 }}>✓ Satisfied</span>
+                          ) : (
+                            <span style={{ color: "#94a3b8" }}>Pending</span>
+                          )}
+                        </td>
 
-                          {/* Gate 1: Agreement */}
-                          <td style={{ padding: "12px 14px" }}>
-                            {learner.gates.gate1Agreement.isSatisfied ? (
-                              <span style={{ color: "#16a34a", fontWeight: 600 }}>✓ Signed</span>
-                            ) : (
-                              <span style={{ color: "#94a3b8" }}>Pending</span>
-                            )}
-                          </td>
-
-                          {/* Gate 2: Curriculum Steps */}
-                          <td style={{ padding: "12px 14px" }}>
-                            {learner.gates.gate2Curriculum.isSatisfied ? (
-                              <span style={{ color: "#16a34a", fontWeight: 600 }}>✓ Complete (11/11)</span>
-                            ) : (
-                              <span style={{ color: "#475569" }}>
-                                {learner.gates.gate2Curriculum.completedLessonsCount} lessons done
-                              </span>
-                            )}
-                          </td>
-
-                          {/* Gate 3: Live Attendance */}
-                          <td style={{ padding: "12px 14px" }}>
-                            {learner.gates.gate3Attendance.isSatisfied ? (
-                              <span style={{ color: "#16a34a", fontWeight: 600 }}>✓ Satisfied</span>
-                            ) : (
-                              <span style={{ color: "#94a3b8" }}>Pending</span>
-                            )}
-                          </td>
-
-                          {/* Gate 4: 1-on-1 Session */}
-                          <td style={{ padding: "12px 14px" }}>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenOneOnOneModal(learner)}
-                              disabled={!learner.enrolmentId}
-                              style={{
-                                background: "none",
-                                border: "none",
-                                padding: 0,
-                                textAlign: "left",
-                                cursor: learner.enrolmentId ? "pointer" : "default",
-                                textDecoration: learner.enrolmentId ? "underline" : "none",
-                                color:
-                                  learner.gates.gate4OneOnOne.status === "COMPLETED"
-                                    ? "#16a34a"
-                                    : learner.gates.gate4OneOnOne.status === "SCHEDULED"
+                        {/* Gate 4: 1-on-1 Session */}
+                        <td style={{ padding: "12px 14px" }}>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenOneOnOneModal(learner)}
+                            disabled={!learner.enrolmentId}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              padding: 0,
+                              textAlign: "left",
+                              cursor: learner.enrolmentId ? "pointer" : "default",
+                              textDecoration: learner.enrolmentId ? "underline" : "none",
+                              color:
+                                learner.gates.gate4OneOnOne.status === "COMPLETED"
+                                  ? "#16a34a"
+                                  : learner.gates.gate4OneOnOne.status === "SCHEDULED"
                                     ? "#0284c7"
                                     : "#64748b",
-                                fontWeight: 600,
-                                fontSize: "0.8rem",
-                              }}
-                            >
-                              {learner.gates.gate4OneOnOne.status === "COMPLETED"
-                                ? "✓ Completed"
-                                : learner.gates.gate4OneOnOne.status === "SCHEDULED"
+                              fontWeight: 600,
+                              fontSize: "0.8rem",
+                            }}
+                          >
+                            {learner.gates.gate4OneOnOne.status === "COMPLETED"
+                              ? "✓ Completed"
+                              : learner.gates.gate4OneOnOne.status === "SCHEDULED"
                                 ? "Scheduled"
                                 : "Not Booked"}
-                            </button>
-                          </td>
+                          </button>
+                        </td>
 
-                          {/* Gate 5: Exam */}
-                          <td style={{ padding: "12px 14px" }}>
-                            {learner.gates.gate5Exam.isSatisfied ? (
-                              <span style={{ color: "#16a34a", fontWeight: 600 }}>
-                                ✓ Passed {learner.gates.gate5Exam.score ? `(${learner.gates.gate5Exam.score} marks)` : ""}
-                              </span>
+                        {/* Gate 5: Exam */}
+                        <td style={{ padding: "12px 14px" }}>
+                          {learner.gates.gate5Exam.isSatisfied ? (
+                            <span style={{ color: "#16a34a", fontWeight: 600 }}>
+                              ✓ Passed {learner.gates.gate5Exam.score ? `(${learner.gates.gate5Exam.score} marks)` : ""}
+                            </span>
+                          ) : (
+                            <span style={{ color: "#94a3b8" }}>Pending</span>
+                          )}
+                        </td>
+
+                        {/* Gate 6: Certificate */}
+                        <td style={{ padding: "12px 14px" }}>
+                          {learner.gates.gate6Certificate.isIssued ? (
+                            <span style={{ color: "#16a34a", fontWeight: 700 }}>
+                              ✓ {learner.gates.gate6Certificate.certificateCode.slice(0, 8)}...
+                            </span>
+                          ) : (
+                            <span style={{ color: "#94a3b8" }}>In Progress</span>
+                          )}
+                        </td>
+
+                        {/* Actions */}
+                        <td style={{ padding: "12px 14px", textAlign: "right" }}>
+                          <div style={{ display: "inline-flex", gap: "6px", alignItems: "center" }}>
+                            {isAvailable ? (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenAssignModal(learner)}
+                                style={{
+                                  padding: "4px 10px",
+                                  fontSize: "0.75rem",
+                                  fontWeight: 600,
+                                  borderRadius: "4px",
+                                  border: "none",
+                                  background: "#c97a1e",
+                                  color: "#fff",
+                                  cursor: "pointer",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                Assign Student
+                              </button>
                             ) : (
-                              <span style={{ color: "#94a3b8" }}>Pending</span>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditModal(learner)}
+                                style={{
+                                  padding: "4px 9px",
+                                  fontSize: "0.74rem",
+                                  fontWeight: 600,
+                                  borderRadius: "4px",
+                                  border: "1px solid #cbd5e1",
+                                  background: "#ffffff",
+                                  color: "#0f172a",
+                                  cursor: "pointer",
+                                  whiteSpace: "nowrap",
+                                }}
+                                title="Edit student details or reassign this slot"
+                              >
+                                Edit
+                              </button>
                             )}
-                          </td>
 
-                          {/* Gate 6: Certificate */}
-                          <td style={{ padding: "12px 14px" }}>
-                            {learner.gates.gate6Certificate.isIssued ? (
-                              <span style={{ color: "#16a34a", fontWeight: 700 }}>
-                                ✓ {learner.gates.gate6Certificate.certificateCode.slice(0, 8)}...
+                            {learner.voucherCodeMasked && (
+                              <span
+                                style={{
+                                  fontSize: "0.72rem",
+                                  fontWeight: 600,
+                                  color: "#0369a1",
+                                  background: "#e0f2fe",
+                                  padding: "2px 6px",
+                                  borderRadius: "4px",
+                                  whiteSpace: "nowrap",
+                                }}
+                                title="Prepaid Voucher Code"
+                              >
+                                {learner.voucherCodeMasked}
                               </span>
-                            ) : (
-                              <span style={{ color: "#94a3b8" }}>In Progress</span>
                             )}
-                          </td>
 
-                          {/* Actions */}
-                          <td style={{ padding: "12px 14px", textAlign: "right" }}>
-                            <div style={{ display: "inline-flex", gap: "6px", alignItems: "center" }}>
-                              {isAvailable ? (
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenAssignModal(learner)}
-                                  style={{
-                                    padding: "4px 10px",
-                                    fontSize: "0.75rem",
-                                    fontWeight: 600,
-                                    borderRadius: "4px",
-                                    border: "none",
-                                    background: "#c97a1e",
-                                    color: "#fff",
-                                    cursor: "pointer",
-                                    whiteSpace: "nowrap",
-                                  }}
-                                >
-                                  Assign Student
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenEditModal(learner)}
-                                  style={{
-                                    padding: "4px 9px",
-                                    fontSize: "0.74rem",
-                                    fontWeight: 600,
-                                    borderRadius: "4px",
-                                    border: "1px solid #cbd5e1",
-                                    background: "#ffffff",
-                                    color: "#0f172a",
-                                    cursor: "pointer",
-                                    whiteSpace: "nowrap",
-                                  }}
-                                  title="Edit student details or reassign this slot"
-                                >
-                                  Edit
-                                </button>
-                              )}
+                            {learner.enrolmentId && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenOneOnOneModal(learner)}
+                                style={{
+                                  padding: "4px 8px",
+                                  fontSize: "0.74rem",
+                                  borderRadius: "4px",
+                                  border: "1px solid #cbd5e1",
+                                  background: "#fff",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                1-on-1
+                              </button>
+                            )}
 
-                              {learner.voucherCodeMasked && (
-                                <span
-                                  style={{
-                                    fontSize: "0.72rem",
-                                    fontWeight: 600,
-                                    color: "#0369a1",
-                                    background: "#e0f2fe",
-                                    padding: "2px 6px",
-                                    borderRadius: "4px",
-                                    whiteSpace: "nowrap",
-                                  }}
-                                  title="Prepaid Voucher Code"
-                                >
-                                  {learner.voucherCodeMasked}
-                                </span>
-                              )}
-
-                              {learner.enrolmentId && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenOneOnOneModal(learner)}
-                                  style={{
-                                    padding: "4px 8px",
-                                    fontSize: "0.74rem",
-                                    borderRadius: "4px",
-                                    border: "1px solid #cbd5e1",
-                                    background: "#fff",
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  1-on-1
-                                </button>
-                              )}
-
-                              {learner.slotStatus === "CONSUMED" && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenReclaimModal(learner)}
-                                  style={{
-                                    padding: "4px 8px",
-                                    fontSize: "0.74rem",
-                                    borderRadius: "4px",
-                                    border: "1px solid #fca5a5",
-                                    background: "#fef2f2",
-                                    color: "#b91c1c",
-                                    fontWeight: 600,
-                                    cursor: "pointer",
-                                  }}
-                                  title="Admin Goodwill Reclaim (Revokes dropped student and frees slot)"
-                                >
-                                  Reclaim
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                            {learner.slotStatus === "CONSUMED" && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenReclaimModal(learner)}
+                                style={{
+                                  padding: "4px 8px",
+                                  fontSize: "0.74rem",
+                                  borderRadius: "4px",
+                                  border: "1px solid #fca5a5",
+                                  background: "#fef2f2",
+                                  color: "#b91c1c",
+                                  fontWeight: 600,
+                                  cursor: "pointer",
+                                }}
+                                title="Admin Goodwill Reclaim (Revokes dropped student and frees slot)"
+                              >
+                                Reclaim
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 
@@ -1759,202 +1841,262 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                     <th style={{ textAlign: "right" }}>Actions</th>
                   </tr>
                 </thead>
-              <tbody>
-                {(!org.seatPools || org.seatPools.length === 0) ? (
-                  <tr>
-                    <td colSpan={6} style={{ padding: "3rem 1.5rem" }}>
-                      <EmptyState
-                        title="No course slots purchased yet"
-                        description="Book cohort batch slots for your organization learners. Once approved and paid, numbered slots are ready for immediate student assignment."
-                        actionLabel="+ Purchase / Request Course Slots"
-                        onAction={() => {
-                          const currentBatch = batches.find((b) => b.id === requestForm.batchId) || batches[0];
-                          if (currentBatch) {
-                            const avail = Math.max(0, Number(currentBatch.availableSeats) || 0);
-                            const safeSeats = avail > 0 ? Math.min(requestForm.totalSeats > 0 ? requestForm.totalSeats : 10, avail) : 0;
-                            setRequestForm((prev) => ({
-                              ...prev,
-                              batchId: currentBatch.id,
-                              totalSeats: safeSeats,
-                            }));
-                          }
-                          setIsRequestModalOpen(true);
-                        }}
-                      />
-                    </td>
-                  </tr>
-                ) : (
-                  org.seatPools.map((pool: any) => {
-                    const isPendingApproval = pool.status === "PENDING_APPROVAL";
-                    const isPendingPayment = pool.status === "PENDING_PAYMENT";
-                    const isActive = pool.status === "ACTIVE";
+                <tbody>
+                  {(!org.seatPools || org.seatPools.length === 0) ? (
+                    <tr>
+                      <td colSpan={6} style={{ padding: "3rem 1.5rem" }}>
+                        <EmptyState
+                          title="No course slots purchased yet"
+                          description="Book cohort batch slots for your organization learners. Once approved and paid, numbered slots are ready for immediate student assignment."
+                          actionLabel="+ Purchase / Request Course Slots"
+                          onAction={() => {
+                            const currentBatch = batches.find((b) => b.id === requestForm.batchId) || batches[0];
+                            if (currentBatch) {
+                              const avail = Math.max(0, Number(currentBatch.availableSeats) || 0);
+                              const safeSeats = avail > 0 ? Math.min(requestForm.totalSeats > 0 ? requestForm.totalSeats : 10, avail) : 0;
+                              setRequestForm((prev) => ({
+                                ...prev,
+                                batchId: currentBatch.id,
+                                totalSeats: safeSeats,
+                              }));
+                            }
+                            setIsRequestModalOpen(true);
+                          }}
+                        />
+                      </td>
+                    </tr>
+                  ) : (
+                    org.seatPools.map((pool: any) => {
+                      const isPendingApproval = pool.status === "PENDING_APPROVAL";
+                      const isPendingPayment = pool.status === "PENDING_PAYMENT";
+                      const isActive = pool.status === "ACTIVE";
 
-                    return (
-                      <tr key={pool.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                        <td style={{ padding: "12px 16px" }}>
-                          <div style={{ fontWeight: 700, color: "#0f172a" }}>{pool.poolCode}</div>
-                          <div style={{ fontSize: "0.72rem", color: "#94a3b8" }}>
-                            {new Date(pool.createdAt).toLocaleDateString()}
-                          </div>
-                        </td>
-                        <td style={{ padding: "12px 16px" }}>
-                          <div style={{ fontWeight: 600, color: "#0f172a" }}>{pool.batch?.name || "Batch"}</div>
-                          <div style={{ fontSize: "0.75rem", color: "#64748b" }}>{pool.program?.title}</div>
-                        </td>
-                        <td style={{ padding: "12px 16px" }}>
-                          <div style={{ fontWeight: 700, color: "#0f172a" }}>
-                            {pool.totalSeats} seats
-                          </div>
-                          {isActive ? (
-                            <div style={{ fontSize: "0.75rem", color: "#16a34a" }}>
-                              {pool.seatsAvailable} available &bull; {pool.seatsAssigned} assigned
+                      return (
+                        <tr key={pool.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                          <td style={{ padding: "12px 16px" }}>
+                            <div style={{ fontWeight: 700, color: "#0f172a" }}>{pool.poolCode}</div>
+                            <div style={{ fontSize: "0.72rem", color: "#94a3b8" }}>
+                              {new Date(pool.createdAt).toLocaleDateString()}
                             </div>
-                          ) : (
-                            <div style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
-                              Locked until payment
+                          </td>
+                          <td style={{ padding: "12px 16px" }}>
+                            <div style={{ fontWeight: 600, color: "#0f172a" }}>{pool.batch?.name || "Batch"}</div>
+                            <div style={{ fontSize: "0.75rem", color: "#64748b" }}>{pool.program?.title}</div>
+                          </td>
+                          <td style={{ padding: "12px 16px" }}>
+                            <div style={{ fontWeight: 700, color: "#0f172a" }}>
+                              {pool.totalSeats} seats
                             </div>
-                          )}
-                        </td>
-                        <td style={{ padding: "12px 16px" }}>
-                          <div style={{ fontWeight: 700, color: "#0f172a" }}>
-                            {pool.currency} {pool.netAmount?.toLocaleString()}
-                          </div>
-                          <div style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                            ({pool.currency} {pool.pricePerSeat} / seat)
-                            {pool.discountAmount > 0 && (
-                              <span style={{ color: "#16a34a", marginLeft: "4px" }}>
-                                &bull; Save {pool.currency} {pool.discountAmount?.toLocaleString()}
-                              </span>
+                            {isActive ? (
+                              <div style={{ fontSize: "0.75rem", color: "#16a34a" }}>
+                                {pool.seatsAvailable} available &bull; {pool.seatsAssigned} assigned
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
+                                Locked until payment
+                              </div>
                             )}
-                          </div>
-                        </td>
-                        <td style={{ padding: "12px 16px" }}>
-                          <StatusBadge status={pool.status} />
-                        </td>
-                        <td style={{ padding: "12px 16px", textAlign: "right" }}>
-                          <div style={{ display: "inline-flex", gap: "8px", alignItems: "center", justifyContent: "flex-end" }}>
-                            {/* State 1: PENDING_APPROVAL */}
-                            {isPendingApproval && (
-                              <>
-                                {isPlatformAdmin ? (
-                                  <>
+                          </td>
+                          <td style={{ padding: "12px 16px" }}>
+                            <div style={{ fontWeight: 700, color: "#0f172a" }}>
+                              {pool.currency} {pool.netAmount?.toLocaleString()}
+                            </div>
+                            <div style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                              ({pool.currency} {pool.pricePerSeat} / seat)
+                              {pool.discountAmount > 0 && (
+                                <span style={{ color: "#16a34a", marginLeft: "4px" }}>
+                                  &bull; Save {pool.currency} {pool.discountAmount?.toLocaleString()}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ padding: "12px 16px" }}>
+                            <StatusBadge status={pool.status} />
+                          </td>
+                          <td style={{ padding: "12px 16px", textAlign: "right" }}>
+                            <div style={{ display: "inline-flex", gap: "8px", alignItems: "center", justifyContent: "flex-end" }}>
+                              {/* State 1: PENDING_APPROVAL */}
+                              {isPendingApproval && (
+                                <>
+                                  {isPlatformAdmin ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleApprovePool(pool.id)}
+                                        style={{
+                                          padding: "6px 14px",
+                                          borderRadius: "6px",
+                                          border: "none",
+                                          background: "#16a34a",
+                                          color: "#fff",
+                                          fontWeight: 700,
+                                          fontSize: "0.8rem",
+                                          cursor: "pointer",
+                                        }}
+                                      >
+                                        ✓ Approve Request
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedPoolForReject(pool);
+                                          setRejectReason("");
+                                          setIsRejectModalOpen(true);
+                                        }}
+                                        style={{
+                                          padding: "6px 10px",
+                                          borderRadius: "6px",
+                                          border: "1px solid #fca5a5",
+                                          background: "#fff",
+                                          color: "#dc2626",
+                                          fontWeight: 600,
+                                          fontSize: "0.8rem",
+                                          cursor: "pointer",
+                                        }}
+                                      >
+                                        ✕ Reject
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <div style={{ display: "inline-flex", gap: "8px", alignItems: "center" }}>
+                                      <span style={{ color: "#b45309", fontSize: "0.8rem", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                                        <ClockIcon size={13} /> Awaiting Admin Approval
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCancelPool(pool.id, pool.poolCode)}
+                                        style={{
+                                          padding: "4px 8px",
+                                          borderRadius: "6px",
+                                          border: "1px solid #e2e8f0",
+                                          background: "#fff",
+                                          color: "#dc2626",
+                                          fontSize: "0.72rem",
+                                          fontWeight: 600,
+                                          cursor: "pointer",
+                                        }}
+                                        title="Cancel this slot request"
+                                      >
+                                        ✕ Cancel
+                                      </button>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+
+                              {/* State 2: PENDING_PAYMENT */}
+                              {isPendingPayment && (
+                                <div style={{ display: "inline-flex", gap: "8px", alignItems: "center" }}>
+                                  {isOrgUser ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenPaymentModal(pool)}
+                                        style={{
+                                          padding: "7px 16px",
+                                          borderRadius: "6px",
+                                          border: "none",
+                                          background: "linear-gradient(135deg, #c97a1e 0%, #b45309 100%)",
+                                          color: "#ffffff",
+                                          fontWeight: 700,
+                                          fontSize: "0.82rem",
+                                          cursor: "pointer",
+                                          boxShadow: "0 2px 4px rgba(201, 122, 30, 0.25)",
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: "6px",
+                                        }}
+                                      >
+                                        <CreditCardIcon size={14} />
+                                        Pay Now ({pool.currency} {pool.netAmount?.toLocaleString()}) &rarr;
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCancelPool(pool.id, pool.poolCode)}
+                                        style={{
+                                          padding: "7px 10px",
+                                          borderRadius: "6px",
+                                          border: "1px solid #e2e8f0",
+                                          background: "#ffffff",
+                                          color: "#dc2626",
+                                          fontWeight: 600,
+                                          fontSize: "0.78rem",
+                                          cursor: "pointer",
+                                        }}
+                                        title="Cancel this pending slot request"
+                                      >
+                                        ✕ Cancel
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span
+                                        style={{
+                                          color: "#b45309",
+                                          fontSize: "0.78rem",
+                                          fontWeight: 600,
+                                          background: "#fef3c7",
+                                          border: "1px solid #fde68a",
+                                          padding: "5px 10px",
+                                          borderRadius: "6px",
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: "5px",
+                                        }}
+                                      >
+                                        <ClockIcon size={12} />
+                                        Awaiting Org Payment
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCancelPool(pool.id, pool.poolCode)}
+                                        style={{
+                                          padding: "5px 9px",
+                                          borderRadius: "6px",
+                                          border: "1px solid #e2e8f0",
+                                          background: "#ffffff",
+                                          color: "#dc2626",
+                                          fontWeight: 600,
+                                          fontSize: "0.76rem",
+                                          cursor: "pointer",
+                                        }}
+                                        title="Cancel this slot request"
+                                      >
+                                        ✕ Cancel
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* State 2.5: INVOICE_ISSUED */}
+                              {pool.status === "INVOICE_ISSUED" && (
+                                <div style={{ display: "inline-flex", gap: "8px", alignItems: "center" }}>
+                                  {isPlatformAdmin ? (
                                     <button
                                       type="button"
-                                      onClick={() => handleApprovePool(pool.id)}
+                                      onClick={() => handleMarkPaid(pool.id)}
                                       style={{
                                         padding: "6px 14px",
                                         borderRadius: "6px",
                                         border: "none",
                                         background: "#16a34a",
-                                        color: "#fff",
-                                        fontWeight: 700,
-                                        fontSize: "0.8rem",
-                                        cursor: "pointer",
-                                      }}
-                                    >
-                                      ✓ Approve Request
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setSelectedPoolForReject(pool);
-                                        setRejectReason("");
-                                        setIsRejectModalOpen(true);
-                                      }}
-                                      style={{
-                                        padding: "6px 10px",
-                                        borderRadius: "6px",
-                                        border: "1px solid #fca5a5",
-                                        background: "#fff",
-                                        color: "#dc2626",
-                                        fontWeight: 600,
-                                        fontSize: "0.8rem",
-                                        cursor: "pointer",
-                                      }}
-                                    >
-                                      ✕ Reject
-                                    </button>
-                                  </>
-                                ) : (
-                                  <div style={{ display: "inline-flex", gap: "8px", alignItems: "center" }}>
-                                    <span style={{ color: "#b45309", fontSize: "0.8rem", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "5px" }}>
-                                      <ClockIcon size={13} /> Awaiting Admin Approval
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleCancelPool(pool.id, pool.poolCode)}
-                                      style={{
-                                        padding: "4px 8px",
-                                        borderRadius: "6px",
-                                        border: "1px solid #e2e8f0",
-                                        background: "#fff",
-                                        color: "#dc2626",
-                                        fontSize: "0.72rem",
-                                        fontWeight: 600,
-                                        cursor: "pointer",
-                                      }}
-                                      title="Cancel this slot request"
-                                    >
-                                      ✕ Cancel
-                                    </button>
-                                  </div>
-                                )}
-                              </>
-                            )}
-
-                            {/* State 2: PENDING_PAYMENT */}
-                            {isPendingPayment && (
-                              <div style={{ display: "inline-flex", gap: "8px", alignItems: "center" }}>
-                                {isOrgUser ? (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleOpenPaymentModal(pool)}
-                                      style={{
-                                        padding: "7px 16px",
-                                        borderRadius: "6px",
-                                        border: "none",
-                                        background: "linear-gradient(135deg, #c97a1e 0%, #b45309 100%)",
                                         color: "#ffffff",
                                         fontWeight: 700,
-                                        fontSize: "0.82rem",
-                                        cursor: "pointer",
-                                        boxShadow: "0 2px 4px rgba(201, 122, 30, 0.25)",
-                                        display: "inline-flex",
-                                        alignItems: "center",
-                                        gap: "6px",
-                                      }}
-                                    >
-                                      <CreditCardIcon size={14} />
-                                      Pay Now ({pool.currency} {pool.netAmount?.toLocaleString()}) &rarr;
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleCancelPool(pool.id, pool.poolCode)}
-                                      style={{
-                                        padding: "7px 10px",
-                                        borderRadius: "6px",
-                                        border: "1px solid #e2e8f0",
-                                        background: "#ffffff",
-                                        color: "#dc2626",
-                                        fontWeight: 600,
-                                        fontSize: "0.78rem",
+                                        fontSize: "0.8rem",
                                         cursor: "pointer",
                                       }}
-                                      title="Cancel this pending slot request"
                                     >
-                                      ✕ Cancel
+                                      ✓ Confirm Wire Receipt &amp; Activate
                                     </button>
-                                  </>
-                                ) : (
-                                  <>
+                                  ) : (
                                     <span
                                       style={{
-                                        color: "#b45309",
+                                        color: "#1e40af",
                                         fontSize: "0.78rem",
                                         fontWeight: 600,
-                                        background: "#fef3c7",
-                                        border: "1px solid #fde68a",
+                                        background: "#eff6ff",
+                                        border: "1px solid #bfdbfe",
                                         padding: "5px 10px",
                                         borderRadius: "6px",
                                         display: "inline-flex",
@@ -1962,82 +2104,63 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                                         gap: "5px",
                                       }}
                                     >
-                                      <ClockIcon size={12} />
-                                      Awaiting Org Payment
+                                      📄 Net-30 Invoice Issued (Awaiting Wire Receipt)
                                     </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleCancelPool(pool.id, pool.poolCode)}
-                                      style={{
-                                        padding: "5px 9px",
-                                        borderRadius: "6px",
-                                        border: "1px solid #e2e8f0",
-                                        background: "#ffffff",
-                                        color: "#dc2626",
-                                        fontWeight: 600,
-                                        fontSize: "0.76rem",
-                                        cursor: "pointer",
-                                      }}
-                                      title="Cancel this slot request"
-                                    >
-                                      ✕ Cancel
-                                    </button>
-                                  </>
-                                )}
-                              </div>
-                            )}
+                                  )}
+                                </div>
+                              )}
 
-                            {/* State 3: ACTIVE */}
-                            {isActive && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedBatchId(pool.batchId);
-                                  setActiveTab("students");
-                                }}
-                                style={{
-                                  padding: "6px 14px",
-                                  borderRadius: "6px",
-                                  border: "none",
-                                  background: "#0284c7",
-                                  color: "#ffffff",
-                                  fontWeight: 600,
-                                  fontSize: "0.82rem",
-                                  cursor: "pointer",
-                                }}
-                              >
-                                Assign Students &rarr;
-                              </button>
-                            )}
+                              {/* State 3: ACTIVE */}
+                              {isActive && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedBatchId(pool.batchId);
+                                    setActiveTab("students");
+                                  }}
+                                  style={{
+                                    padding: "6px 14px",
+                                    borderRadius: "6px",
+                                    border: "none",
+                                    background: "#0284c7",
+                                    color: "#ffffff",
+                                    fontWeight: 600,
+                                    fontSize: "0.82rem",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  Assign Students &rarr;
+                                </button>
+                              )}
 
-                            {/* Staff Fallback: Manual Bypass Unlock */}
-                            {isPlatformAdmin && !isActive && (
-                              <button
-                                type="button"
-                                onClick={() => handleMarkPaid(pool.id)}
-                                style={{
-                                  padding: "4px 8px",
-                                  borderRadius: "6px",
-                                  border: "1px solid #cbd5e1",
-                                  background: "#f8fafc",
-                                  color: "#64748b",
-                                  fontSize: "0.74rem",
-                                  cursor: "pointer",
-                                }}
-                                title="Admin manual bypass: mark as paid immediately"
-                              >
-                                Bypass Unlock
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                              {/* Staff Fallback: Manual Bypass Unlock */}
+                              {isPlatformAdmin && !isActive && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleMarkPaid(pool.id)}
+                                  style={{
+                                    padding: "4px 8px",
+                                    borderRadius: "6px",
+                                    border: "1px solid #cbd5e1",
+                                    background: "#f8fafc",
+                                    color: "#64748b",
+                                    fontSize: "0.74rem",
+                                    cursor: "pointer",
+                                  }}
+                                  title="Admin manual bypass: mark as paid immediately"
+                                >
+                                  Bypass Unlock
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </section>
         </div>
       )}
@@ -2859,10 +2982,12 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
             </h3>
             <p style={{ fontSize: "0.88rem", color: "#64748b", marginBottom: "1.2rem", lineHeight: 1.5 }}>
               {editResult.reassigned
-                ? editResult.isNewUser
+                ? editResult.emailSent
                   ? `An account setup email with LMS activation link has been dispatched to ${editResult.user?.email || editForm.email}.`
-                  : `Slot transferred to ${editResult.user?.email || editForm.email}. An enrollment notification has been dispatched.`
-                : `Student details for ${editForm.email} were updated in the academic registry.`}
+                  : `Slot transferred to ${editResult.user?.email || editForm.email}.`
+                : editResult.emailSent
+                  ? `Student details updated and account setup email re-dispatched to ${editResult.user?.email || editForm.email}.`
+                  : `Student details for ${editForm.email} were updated in the academic registry.`}
             </p>
 
             {/* Direct Setup or Login Link Card for Reassigned / Updated Slot */}
@@ -3148,6 +3273,33 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
               />
             </div>
 
+            {/* Email Dispatch Control */}
+            <div
+              style={{
+                background: editForm.resendEmail ? "#f0fdf4" : "#f8fafc",
+                border: editForm.resendEmail ? "1px solid #86efac" : "1px solid #e2e8f0",
+                borderRadius: "8px",
+                padding: "10px 14px",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+              onClick={() => setEditForm({ ...editForm, resendEmail: !editForm.resendEmail })}
+            >
+              <input
+                type="checkbox"
+                id="editResendEmail"
+                checked={editForm.resendEmail}
+                onChange={(e) => setEditForm({ ...editForm, resendEmail: e.target.checked })}
+                style={{ width: "16px", height: "16px", accentColor: "#16a34a", cursor: "pointer" }}
+              />
+              <label htmlFor="editResendEmail" style={{ fontSize: "0.84rem", color: editForm.resendEmail ? "#166534" : "#475569", fontWeight: 600, cursor: "pointer", margin: 0 }}>
+                ✉️ Send account setup &amp; password activation email to this Gmail address
+              </label>
+            </div>
+
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "12px" }}>
               <button
                 type="button"
@@ -3251,12 +3403,12 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                   {isSubmittingRequest
                     ? "Submitting Booking..."
                     : hasPending
-                    ? "Request Already Pending"
-                    : isRequestBatchSoldOut
-                    ? "Cohort Batch Sold Out (0 Seats)"
-                    : isRequestExceedingCapacity
-                    ? `Exceeds Capacity (Max ${availableSeatsForRequest} ${availableSeatsForRequest === 1 ? "seat" : "seats"})`
-                    : "Submit Booking Request to WhatBoutMe Admin →"}
+                      ? "Request Already Pending"
+                      : isRequestBatchSoldOut
+                        ? "Cohort Batch Sold Out (0 Seats)"
+                        : isRequestExceedingCapacity
+                          ? `Exceeds Capacity (Max ${availableSeatsForRequest} ${availableSeatsForRequest === 1 ? "seat" : "seats"})`
+                          : "Submit Booking Request to WhatBoutMe Admin →"}
                 </button>
               );
             })()}
@@ -3608,14 +3760,14 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                     background: "#f8fafc",
                     color:
                       isRequestBatchSoldOut ||
-                      (availableSeatsForRequest > 0 && Number(requestForm.totalSeats) >= availableSeatsForRequest)
+                        (availableSeatsForRequest > 0 && Number(requestForm.totalSeats) >= availableSeatsForRequest)
                         ? "#94a3b8"
                         : "#334155",
                     fontWeight: 700,
                     fontSize: "1.1rem",
                     cursor:
                       isRequestBatchSoldOut ||
-                      (availableSeatsForRequest > 0 && Number(requestForm.totalSeats) >= availableSeatsForRequest)
+                        (availableSeatsForRequest > 0 && Number(requestForm.totalSeats) >= availableSeatsForRequest)
                         ? "not-allowed"
                         : "pointer",
                     display: "flex",
@@ -4000,22 +4152,22 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
               </div>
             </div>
 
-            {/* Test Simulation Mode Badge */}
+            {/* Stripe Gateway Notice */}
             <div
               style={{
-                background: "linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)",
-                border: "1px solid #86efac",
+                background: "linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)",
+                border: "1px solid #a7f3d0",
                 borderRadius: "8px",
                 padding: "12px 16px",
-                color: "#166534",
+                color: "#065f46",
                 fontSize: "0.83rem",
-                lineHeight: 1.4,
+                lineHeight: 1.45,
               }}
             >
-              <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px" }}>
-                <span>⚡</span> Payment Simulation Active (TEST_BYPASS Mode)
+              <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
+                <span>🔒</span> Stripe Secure Payment Gateway
               </div>
-              Live card gateway (Stripe / Razorpay) will be enabled in production. Clicking below simulates a verified checkout transaction, transitions status to <strong>ACTIVE</strong>, materializes <strong>{selectedPoolForPayment.totalSeats} numbered slots</strong>, and generates a paid tax invoice.
+              Accepts <strong>Visa, Mastercard, AMEX, Apple Pay, and Google Pay</strong>. Upon payment completion, status transitions to <strong>ACTIVE</strong>, materializes <strong>{selectedPoolForPayment.totalSeats} numbered student seats</strong>, and issues a verified <strong>WhatBoutMe FZE Tax Invoice</strong>.
             </div>
 
             <div>
@@ -4032,20 +4184,22 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                   border: "1px solid #cbd5e1",
                   background: "#fff",
                   fontSize: "0.88rem",
+                  fontWeight: 600,
+                  color: "#0f172a",
                 }}
               >
-                <option value="ONLINE">Credit / Debit Card (Instant Simulation)</option>
-                <option value="INVOICE_OFFLINE">Institutional Wire Transfer (Net-30 Invoice)</option>
+                <option value="ONLINE">Credit / Debit Card (Stripe Checkout Gateway)</option>
+                <option value="INVOICE_OFFLINE">Institutional Wire Transfer (Net-30 Official Tax Invoice)</option>
               </select>
             </div>
 
             <div>
               <label style={{ display: "block", fontSize: "0.83rem", fontWeight: 600, color: "#1e293b", marginBottom: "6px" }}>
-                Billing Reference / Transaction Note (Optional)
+                Billing Reference / Purchase Order Note (Optional)
               </label>
               <input
                 type="text"
-                placeholder="e.g. Corporate Card Ending in 4242 or PO-8832"
+                placeholder="e.g. Corporate Card Ending in 4242 or PO-2026-8832"
                 value={paymentForm.notes}
                 onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
                 style={{
@@ -4056,6 +4210,24 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                   fontSize: "0.85rem",
                 }}
               />
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "8px 12px",
+                background: "#f8fafc",
+                borderRadius: "6px",
+                border: "1px solid #e2e8f0",
+                fontSize: "0.76rem",
+                color: "#64748b",
+              }}
+            >
+              <span>🛡️ 256-Bit SSL Encrypted</span>
+              <span>⚡ Powered by Stripe Gateway</span>
+              <span>✓ Instant Slot Provisioning</span>
             </div>
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "8px" }}>
@@ -4083,7 +4255,9 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                   padding: "10px 24px",
                   borderRadius: "6px",
                   border: "none",
-                  background: "linear-gradient(135deg, #16a34a 0%, #15803d 100%)",
+                  background: paymentForm.paymentMethod === "ONLINE"
+                    ? "linear-gradient(135deg, #16a34a 0%, #15803d 100%)"
+                    : "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)",
                   color: "#ffffff",
                   fontWeight: 700,
                   fontSize: "0.9rem",
@@ -4092,8 +4266,10 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                 }}
               >
                 {isSubmittingPayment
-                  ? "Processing Payment..."
-                  : `⚡ Pay ${selectedPoolForPayment.currency} ${selectedPoolForPayment.netAmount?.toLocaleString()} & Unlock Slots`}
+                  ? "Processing Payment Gateway..."
+                  : paymentForm.paymentMethod === "ONLINE"
+                    ? `🔒 Pay ${selectedPoolForPayment.currency} ${selectedPoolForPayment.netAmount?.toLocaleString()} via Stripe →`
+                    : `📄 Issue Net-30 Invoice & Activate Slots`}
               </button>
             </div>
           </form>
@@ -4268,7 +4444,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                 disabled={
                   isDeleting ||
                   (confirmDeleteEmail.trim().toLowerCase() !== (org.billingEmail || "").trim().toLowerCase() &&
-                   confirmDeleteEmail.trim().toLowerCase() !== (org.contactEmail || "").trim().toLowerCase())
+                    confirmDeleteEmail.trim().toLowerCase() !== (org.contactEmail || "").trim().toLowerCase())
                 }
                 style={{
                   padding: "8px 20px",
@@ -4280,14 +4456,14 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                   fontSize: "0.85rem",
                   cursor:
                     isDeleting ||
-                    (confirmDeleteEmail.trim().toLowerCase() !== (org.billingEmail || "").trim().toLowerCase() &&
-                     confirmDeleteEmail.trim().toLowerCase() !== (org.contactEmail || "").trim().toLowerCase())
+                      (confirmDeleteEmail.trim().toLowerCase() !== (org.billingEmail || "").trim().toLowerCase() &&
+                        confirmDeleteEmail.trim().toLowerCase() !== (org.contactEmail || "").trim().toLowerCase())
                       ? "not-allowed"
                       : "pointer",
                   opacity:
                     isDeleting ||
-                    (confirmDeleteEmail.trim().toLowerCase() !== (org.billingEmail || "").trim().toLowerCase() &&
-                     confirmDeleteEmail.trim().toLowerCase() !== (org.contactEmail || "").trim().toLowerCase())
+                      (confirmDeleteEmail.trim().toLowerCase() !== (org.billingEmail || "").trim().toLowerCase() &&
+                        confirmDeleteEmail.trim().toLowerCase() !== (org.contactEmail || "").trim().toLowerCase())
                       ? 0.5
                       : 1,
                   display: "inline-flex",

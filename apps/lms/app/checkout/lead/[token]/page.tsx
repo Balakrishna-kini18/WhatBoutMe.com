@@ -10,13 +10,15 @@ import { stripFormatting } from "../../../lib/courseInfo";
 
 interface TokenData {
   valid: boolean;
-  lead: {
+  candidateName?: string;
+  maskedEmail?: string;
+  lead?: {
     id: string;
     name: string;
     email: string;
     phone?: string;
   };
-  user: {
+  user?: {
     id: string;
     name: string;
     email: string;
@@ -26,11 +28,11 @@ interface TokenData {
     id: string;
     title: string;
     description?: string;
-    price: number;
+    price?: number;
     priceUSD?: number;
     priceAED?: number;
     priceINR?: number;
-    currency: string;
+    currency?: string;
   };
   batch?: {
     id: string;
@@ -38,12 +40,18 @@ interface TokenData {
     startDate?: string;
     endDate?: string;
   } | null;
-  enrolment: {
+  enrolment?: {
     id: string;
     status: string;
   };
+  enrolmentId?: string;
   currency: "USD" | "AED" | "INR";
   amount: number;
+  pricing?: {
+    amount: number;
+    currency: string;
+    formatted: string;
+  };
   accessToken?: string | null;
 }
 
@@ -78,7 +86,7 @@ export default function LeadCheckoutPage({
           setActiveProvider(info.activeProvider);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
 
     const fetchTokenDetails = async () => {
       setLoading(true);
@@ -93,24 +101,19 @@ export default function LeadCheckoutPage({
         if (isMounted) {
           setData(json);
 
-          // Authenticate learner session in browser seamlessly
-          if (json.accessToken) {
-            localStorage.setItem("token", json.accessToken);
-            localStorage.setItem("user", JSON.stringify(json.user));
-            const isSecure = typeof window !== "undefined" && window.location.protocol === "https:";
-            document.cookie = `token=${json.accessToken}; path=/; max-age=86400; SameSite=Lax${isSecure ? "; Secure" : ""}`;
-          }
-
           // If enrolment has already reached PENDING_AGREEMENT (e.g. tuition waived or offline payment received),
           // route directly to the Agreement & E-Signature page.
-          if (json.enrolment?.status === "PENDING_AGREEMENT") {
-            const agreementUrl = `/agreement?enrolmentId=${json.enrolment.id}&programId=${json.program.id}${json.batch?.id ? `&batchId=${json.batch.id}` : ""}`;
+          const effectiveEnrolmentStatus = json.enrolment?.status;
+          const effectiveEnrolmentId = json.enrolmentId || json.enrolment?.id;
+
+          if (effectiveEnrolmentStatus === "PENDING_AGREEMENT" && effectiveEnrolmentId) {
+            const agreementUrl = `/agreement?enrolmentId=${effectiveEnrolmentId}&programId=${json.program.id}${json.batch?.id ? `&batchId=${json.batch.id}` : ""}`;
             router.replace(agreementUrl);
             return;
           }
 
           // Check if enrolment is already ACTIVE or COMPLETED
-          if (json.enrolment?.status === "ACTIVE" || json.enrolment?.status === "COMPLETED") {
+          if (effectiveEnrolmentStatus === "ACTIVE" || effectiveEnrolmentStatus === "COMPLETED") {
             setAlreadyEnrolledError(
               "You have already completed enrolment and payment for this course."
             );
@@ -137,23 +140,23 @@ export default function LeadCheckoutPage({
     setAlreadyEnrolledError(null);
 
     try {
-      const authToken = localStorage.getItem("token") || data.accessToken;
+      const targetEnrolId = data.enrolmentId || data.enrolment?.id;
       const res = await fetch(`${API_URL}/payments/checkout-session`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },
         body: JSON.stringify({
           targetType: "ENROLMENT",
           targetId: data.program.id,
-          enrolmentId: data.enrolment.id,
-          amount: data.amount,
-          currency: data.currency,
-          attendeeName: data.lead.name,
-          attendeeEmail: data.lead.email,
-          attendeePhone: data.lead.phone,
-          idempotencyKey: `lead_chk_${Date.now()}_${data.enrolment.id.slice(0, 8)}`,
+          enrolmentId: targetEnrolId,
+          leadToken: token,
+          amount: data.pricing?.amount || data.amount,
+          currency: data.pricing?.currency || data.currency || "USD",
+          idempotencyKey: `lead_chk_${Date.now()}_${(targetEnrolId || '').slice(0, 8)}`,
+          origin: typeof window !== "undefined" ? window.location.origin : undefined,
+          returnUrl: typeof window !== "undefined" ? `${window.location.origin}/checkout/success` : undefined,
+          cancelUrl: typeof window !== "undefined" ? `${window.location.origin}/checkout/lead/${token}?cancelled=1` : undefined,
         }),
       });
 
@@ -208,13 +211,13 @@ export default function LeadCheckoutPage({
         body: JSON.stringify({
           targetType: "ENROLMENT",
           targetId: data.program.id,
-          enrolmentId: data.enrolment.id,
-          userId: data.user.id,
+          enrolmentId: data.enrolmentId || data.enrolment?.id,
+          userId: data.user?.id,
           amount: data.amount,
           currency: data.currency,
           status,
           failureReason: status === "FAILED" ? "Simulated test bank transaction declined." : undefined,
-          idempotencyKey: `lead_chk_${Date.now()}_${data.enrolment.id.slice(0, 8)}`,
+          idempotencyKey: `lead_chk_${Date.now()}_${(data.enrolmentId || data.enrolment?.id || '').slice(0, 8)}`,
         }),
       });
 
@@ -312,7 +315,7 @@ export default function LeadCheckoutPage({
     );
   }
 
-  const agreementUrl = `/agreement?programId=${data.program.id}&enrolmentId=${data.enrolment.id}`;
+  const agreementUrl = `/agreement?programId=${data.program.id}&enrolmentId=${data.enrolmentId || data.enrolment?.id || ""}`;
   const programStepsUrl = `/programs/${data.program.id}/steps`;
 
   return (
@@ -344,7 +347,7 @@ export default function LeadCheckoutPage({
           Complete Your Enrolment
         </h1>
         <p style={{ fontSize: "0.88rem", color: "#78716A", margin: "0 0 1.5rem", lineHeight: 1.5 }}>
-          Welcome, <strong style={{ color: "#1C1917" }}>{data.lead.name}</strong> ({data.lead.email}). Your 1-on-1 Discovery consultation has provisioned your priority enrolment.
+          Welcome, <strong style={{ color: "#1C1917" }}>{data.candidateName || data.lead?.name || "Learner"}</strong> ({data.maskedEmail || data.lead?.email}). Your 1-on-1 Discovery consultation has provisioned your priority enrolment.
         </p>
 
         {/* ALREADY ENROLLED GUARD BANNER */}

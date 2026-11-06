@@ -18,6 +18,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { CreateSeatPoolDto, SeatPoolCheckoutDto } from './dto/index.js';
 import { CAPACITY_OCCUPYING_STATUSES } from '../enrollments/enrollments.service.js';
 import { VolumePricingService } from './volume-pricing.service.js';
+import { generateSequentialInvoiceNumber } from '../../common/utils/invoice-number.util.js';
 
 @Injectable()
 export class SeatPoolsService {
@@ -400,6 +401,81 @@ export class SeatPoolsService {
   }
 
   /**
+   * Records an institutional Net-30 offline wire invoice request for a seat pool.
+   * Transitions status to INVOICE_ISSUED (leaves seats locked until admin confirms receipt of funds).
+   */
+  async requestOfflineInvoice(poolId: string, actor: any, notes?: string) {
+    const pool = await this.prisma.seatPool.findUnique({
+      where: { id: poolId },
+      include: { organization: true },
+    });
+
+    if (!pool) {
+      throw new NotFoundException(`SeatPool ${poolId} not found`);
+    }
+
+    if (pool.status === SeatPoolStatus.ACTIVE) {
+      throw new BadRequestException('This seat pool is already active and paid.');
+    }
+
+    const invoiceNumber = `WBM-INV-${new Date().getFullYear()}-${pool.poolCode.replace('SP-', '')}`;
+
+    return this.prisma.$transaction(async (tx) => {
+      const updatedPool = await tx.seatPool.update({
+        where: { id: poolId },
+        data: {
+          status: SeatPoolStatus.INVOICE_ISSUED,
+          paymentMethod: SeatPaymentMethod.INVOICE_OFFLINE,
+          notes: notes ? `${pool.notes || ''}\n[Net-30 Invoice Requested]: ${notes}`.trim() : pool.notes,
+        },
+      });
+
+      await tx.invoice.upsert({
+        where: { invoiceNumber },
+        create: {
+          invoiceNumber,
+          amount: pool.netAmount,
+          currency: pool.currency,
+          status: InvoiceStatus.ISSUED,
+          seatPoolId: pool.id,
+          organizationId: pool.organizationId,
+          taxFields: {
+            clientName: pool.organization.name,
+            taxId: pool.organization.taxId,
+            billingEmail: pool.organization.billingEmail,
+            seatsCount: pool.totalSeats,
+            pricePerSeat: pool.pricePerSeat,
+            terms: 'Net 30 Institutional Wire',
+          },
+        },
+        update: {
+          status: InvoiceStatus.ISSUED,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          actorId: actor?.id || null,
+          action: 'SEAT_POOL_INVOICE_REQUESTED',
+          entity: 'SeatPool',
+          entityId: pool.id,
+          meta: {
+            organizationId: pool.organizationId,
+            poolCode: pool.poolCode,
+            invoiceNumber,
+            totalSeats: pool.totalSeats,
+            netAmount: pool.netAmount,
+            currency: pool.currency,
+            notes,
+          },
+        },
+      });
+
+      return updatedPool;
+    });
+  }
+
+  /**
    * Marks a SeatPool as PAID and transitions status to ACTIVE.
    */
   async markPaid(
@@ -408,6 +484,11 @@ export class SeatPoolsService {
     details?: {
       paymentMethod?: SeatPaymentMethod;
       notes?: string;
+      stripeSessionId?: string;
+      idempotencyKey?: string;
+      chargedCurrency?: string;
+      chargedAmountMinor?: number;
+      fxRate?: string;
     },
   ) {
     const pool = await this.prisma.seatPool.findUnique({
@@ -424,6 +505,12 @@ export class SeatPoolsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      // Concurrency Guard: re-check status inside transaction to prevent double activation
+      const currentPool = await tx.seatPool.findUnique({ where: { id: poolId } });
+      if (currentPool?.status === SeatPoolStatus.ACTIVE) {
+        return currentPool;
+      }
+
       const updatedPool = await tx.seatPool.update({
         where: { id: poolId },
         data: {
@@ -452,8 +539,46 @@ export class SeatPoolsService {
         await tx.seat.createMany({ data: seatRows });
       }
 
+      // Ledger or update Payment record if Stripe/Online session is provided
+      const expectedAmountMinor = Math.round(Number(pool.netAmount) * 100);
+      let paymentRecord: any = null;
+      if (details?.stripeSessionId) {
+        paymentRecord = await tx.payment.upsert({
+          where: { stripeSessionId: details.stripeSessionId },
+          update: {
+            status: 'succeeded',
+            amount: pool.netAmount,
+            currency: pool.currency,
+            seatPoolId: pool.id,
+            expectedAmountMinor,
+            expectedCurrency: pool.currency || 'USD',
+            chargedCurrency: details?.chargedCurrency || pool.currency || 'USD',
+            chargedAmountMinor: details?.chargedAmountMinor || expectedAmountMinor,
+            fxRate: details?.fxRate || null,
+          },
+          create: {
+            seatPoolId: pool.id,
+            stripeSessionId: details.stripeSessionId,
+            amount: pool.netAmount,
+            currency: pool.currency,
+            status: 'succeeded',
+            idempotencyKey: details.idempotencyKey || null,
+            expectedAmountMinor,
+            expectedCurrency: pool.currency || 'USD',
+            chargedCurrency: details?.chargedCurrency || pool.currency || 'USD',
+            chargedAmountMinor: details?.chargedAmountMinor || expectedAmountMinor,
+            fxRate: details?.fxRate || null,
+          },
+        }).catch(() => null);
+      }
+
       // Generate or update WhatBoutMe FZE Tax Invoice to PAID
-      const invoiceNumber = `WBM-INV-${new Date().getFullYear()}-${pool.poolCode.replace('SP-', '')}`;
+      const existingInvoice = await tx.invoice.findFirst({
+        where: { seatPoolId: pool.id },
+      });
+
+      const invoiceNumber = existingInvoice?.invoiceNumber || (await generateSequentialInvoiceNumber(tx));
+
       await tx.invoice.upsert({
         where: { invoiceNumber },
         create: {
@@ -463,6 +588,7 @@ export class SeatPoolsService {
           status: InvoiceStatus.PAID,
           seatPoolId: pool.id,
           organizationId: pool.organizationId,
+          paymentId: paymentRecord?.id || null,
           taxFields: {
             clientName: pool.organization.name,
             taxId: pool.organization.taxId,
@@ -474,6 +600,7 @@ export class SeatPoolsService {
         update: {
           amount: pool.netAmount,
           status: InvoiceStatus.PAID,
+          paymentId: paymentRecord?.id || undefined,
         },
       });
 

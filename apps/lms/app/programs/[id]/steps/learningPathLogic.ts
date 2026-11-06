@@ -324,6 +324,10 @@ export function computeUnifiedJourneyProgress(params: {
   completedSteps: number;
   examPassed: boolean;
   examScore?: number | null;
+  attendanceRequired?: boolean;
+  attendanceMetForExam?: boolean;
+  attendancePercentage?: number;
+  attendanceThreshold?: number;
   coachingCompleted: boolean;
   coachingStatus?: string | null;
   coachingRequired?: boolean;
@@ -337,6 +341,17 @@ export function computeUnifiedJourneyProgress(params: {
   const allStepsDone = totalSteps > 0 && completedSteps >= totalSteps;
 
   const examPassed = Boolean(params.examPassed);
+  const attendanceRequired = params.attendanceRequired !== false;
+  const attendanceMetForExam =
+    !attendanceRequired || params.attendanceMetForExam !== false || examPassed;
+  const attendancePct =
+    typeof params.attendancePercentage === "number"
+      ? Math.round(params.attendancePercentage)
+      : 0;
+  const attendanceThreshold =
+    typeof params.attendanceThreshold === "number"
+      ? params.attendanceThreshold
+      : 80;
   const coachingCompleted = Boolean(params.coachingCompleted);
   const missionApproved = Boolean(params.missionApproved);
   const coachingRequired = params.coachingRequired !== false;
@@ -378,13 +393,19 @@ export function computeUnifiedJourneyProgress(params: {
       id: "exam",
       title: "Final Examination",
       isCompleted: examPassed,
-      isUnlocked: allStepsDone,
+      isUnlocked: allStepsDone && attendanceMetForExam,
       statusLabel: examPassed
         ? `Passed${typeof params.examScore === "number" ? ` (${params.examScore}%)` : ""}`
+        : allStepsDone && !attendanceMetForExam
+        ? `Attendance ${attendancePct}% / ${attendanceThreshold}%`
         : allStepsDone
         ? "Ready for Exam"
         : "Locked",
-      detail: examPassed ? "Passed with certificate qualification" : "Comprehensive final examination",
+      detail: examPassed
+        ? "Passed with certificate qualification"
+        : allStepsDone && !attendanceMetForExam
+        ? `Requires ${attendanceThreshold}% batch live session attendance (Current: ${attendancePct}%)`
+        : "Comprehensive final examination",
     },
     {
       id: "coaching",

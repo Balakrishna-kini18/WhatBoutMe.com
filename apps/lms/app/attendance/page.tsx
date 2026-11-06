@@ -14,18 +14,32 @@ interface MySession {
   endTime: string;
   recordingUrl?: string | null;
   joinUrl?: string | null;
+  programId?: string | null;
   programTitle: string;
+  batchId?: string | null;
   batchName: string;
   attended: boolean;
+  isRequired?: boolean;
+  isCohortSession?: boolean;
   durationMin?: number | null;
   sessionType?: string;
+  status?: string;
 }
 
-interface Day {
-  date: string; // YYYY-MM-DD
-  visited: boolean;
-  lessonDone: boolean;
-  sessionJoined: boolean;
+interface BatchAttendanceCompliance {
+  enrolmentId: string;
+  enrolmentStatus: string;
+  batchId: string | null;
+  batchName: string;
+  programId: string;
+  programTitle: string;
+  attendanceRequired: boolean;
+  thresholdPercentage: number;
+  requiredSessionCount: number;
+  attendedSessionCount: number;
+  attendancePercentage: number;
+  complianceStatus: "COMPLIANT" | "NOT_COMPLIANT" | "NOT_APPLICABLE";
+  isEligibleForExam: boolean;
 }
 
 const Icons = {
@@ -101,18 +115,14 @@ const Icons = {
 
 const dayOf = (date: string) => new Date(`${date}T00:00:00`);
 
-function streakOf(days: Day[], today: string) {
-  const present = new Set(days.map((d) => d.date));
-  const cursor = dayOf(today);
-  if (!present.has(today)) cursor.setDate(cursor.getDate() - 1);
-  let streak = 0;
-  for (; ;) {
-    const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
-    if (!present.has(key)) return streak;
-    streak++;
-    cursor.setDate(cursor.getDate() - 1);
-  }
-}
+const isOneOnOneSession = (s: MySession) =>
+  s.sessionType === "ONE_ON_ONE" ||
+  s.sessionType === "ONE_ON_ONE_WITH_RO" ||
+  s.sessionType === "SPEAKER_DISCOVERY_CALL" ||
+  s.title?.toLowerCase().includes("1-on-1") ||
+  s.title?.toLowerCase().includes("1-to-1") ||
+  s.title?.toLowerCase().includes("coaching") ||
+  s.title?.toLowerCase().includes("discovery");
 
 const formatKey = (d: Date) => {
   const y = d.getFullYear();
@@ -122,7 +132,7 @@ const formatKey = (d: Date) => {
 };
 
 const timeOf = (iso: string) =>
-new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -133,15 +143,26 @@ interface CalendarDay {
   isCurrentMonth: boolean;
   isToday: boolean;
   isSelected: boolean;
-  dayAttendance?: Day;
+  hasPresentSession: boolean;
+  hasMissedCohortSession: boolean;
   sessions: MySession[];
 }
 
 export default function AttendancePage() {
   const router = useRouter();
-  const [days, setDays] = useState<Day[]>([]);
   const [today, setToday] = useState("");
   const [sessions, setSessions] = useState<MySession[]>([]);
+  const [batches, setBatches] = useState<BatchAttendanceCompliance[]>([]);
+  const [selectedBatchId, setSelectedBatchId] = useState<string>("ALL");
+  const [overallStats, setOverallStats] = useState<{
+    totalScheduledSessions: number;
+    totalAttendedSessions: number;
+    overallAttendancePercentage: number;
+  }>({
+    totalScheduledSessions: 0,
+    totalAttendedSessions: 0,
+    overallAttendancePercentage: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [userName, setUserName] = useState("Learner");
@@ -176,33 +197,147 @@ export default function AttendancePage() {
         if (!res.ok) throw new Error();
         return res.json();
       });
-    Promise.all([load("/attendance/mine"), load("/sessions/mine")])
-      .then(([daily, live]) => {
-        const fetchedDays = Array.isArray(daily?.days) ? daily.days : [];
-        const todayStr = daily?.today ?? formatKey(new Date());
-        setDays(fetchedDays);
+
+    Promise.all([
+      load("/me/attendance").catch(() => null),
+      load("/sessions/mine").catch(() => []),
+    ])
+      .then(([meAtt, live]) => {
+        const todayStr = formatKey(new Date());
         setToday(todayStr);
         setSelectedKey(todayStr);
-        setSessions(Array.isArray(live) ? live : []);
+        const tDate = dayOf(todayStr);
+        setCurrentDate(new Date(tDate.getFullYear(), tDate.getMonth(), 1));
 
-        if (todayStr) {
-          const tDate = dayOf(todayStr);
-          setCurrentDate(new Date(tDate.getFullYear(), tDate.getMonth(), 1));
+        const batchList: BatchAttendanceCompliance[] = Array.isArray(meAtt?.batches)
+          ? meAtt.batches
+          : [];
+        setBatches(batchList);
+
+        if (batchList.length === 1 && batchList[0]?.batchId) {
+          setSelectedBatchId(batchList[0].batchId);
         }
+
+        // Merge sessions from /me/attendance history and /sessions/mine for complete metadata
+        const mergedById = new Map<string, MySession>();
+
+        if (Array.isArray(meAtt?.history)) {
+          for (const h of meAtt.history) {
+            mergedById.set(h.sessionId, {
+              id: h.sessionId,
+              title: h.sessionTitle || "Live Session",
+              startTime: h.startTimeUtc,
+              endTime: h.endTimeUtc,
+              recordingUrl: h.recordingUrl ?? null,
+              joinUrl: h.joinUrl ?? null,
+              programId: h.programId ?? null,
+              programTitle: h.programTitle || "Program",
+              batchId: h.batchId ?? null,
+              batchName: h.batchName || "Cohort Batch",
+              attended: Boolean(h.attended),
+              isRequired: h.isRequired !== false,
+              isCohortSession: h.isCohortSession !== false,
+              durationMin: h.minutesPresent ?? 0,
+              sessionType: h.sessionType,
+              status: h.status,
+            });
+          }
+        }
+
+        if (Array.isArray(live)) {
+          for (const s of live) {
+            const existing = mergedById.get(s.id);
+            mergedById.set(s.id, {
+              id: s.id,
+              title: s.title || existing?.title || "Live Session",
+              startTime: s.startTime || existing?.startTime,
+              endTime: s.endTime || existing?.endTime,
+              recordingUrl: s.recordingUrl ?? existing?.recordingUrl ?? null,
+              joinUrl: s.joinUrl ?? existing?.joinUrl ?? null,
+              programId: s.programId ?? existing?.programId ?? null,
+              programTitle: s.programTitle || existing?.programTitle || "Program",
+              batchId: s.batchId ?? existing?.batchId ?? null,
+              batchName: s.batchName || existing?.batchName || "Cohort Batch",
+              attended: Boolean(existing?.attended || s.attended),
+              isRequired: existing?.isRequired ?? true,
+              isCohortSession: existing?.isCohortSession ?? !isOneOnOneSession(s),
+              durationMin: existing?.durationMin ?? s.durationMin ?? 0,
+              sessionType: s.sessionType || existing?.sessionType,
+              status: existing?.status,
+            });
+          }
+        }
+
+        const mergedList = Array.from(mergedById.values()).sort(
+          (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
+        );
+        setSessions(mergedList);
+
+        setOverallStats({
+          totalScheduledSessions:
+            typeof meAtt?.totalScheduledSessions === "number"
+              ? meAtt.totalScheduledSessions
+              : mergedList.filter((s) => !isOneOnOneSession(s)).length,
+          totalAttendedSessions:
+            typeof meAtt?.totalAttendedSessions === "number"
+              ? meAtt.totalAttendedSessions
+              : mergedList.filter((s) => !isOneOnOneSession(s) && s.attended).length,
+          overallAttendancePercentage:
+            typeof meAtt?.overallAttendancePercentage === "number"
+              ? meAtt.overallAttendancePercentage
+              : 0,
+        });
       })
-      .catch(() => setError("We could not load your attendance. Please try again in a moment."))
+      .catch(() =>
+        setError("We could not load your live session attendance. Please try again in a moment.")
+      )
       .finally(() => setLoading(false));
   }, [router]);
 
-  const monthStr = today ? today.slice(0, 7) : "";
+  const nowMs = Date.now();
 
-  // Map attendance by date
-  const daysMap = new Map<string, Day>();
-  days.forEach((d) => daysMap.set(d.date, d));
+  // Filter sessions by selected batch (if a specific batch is selected)
+  const activeBatch =
+    selectedBatchId !== "ALL"
+      ? batches.find((b) => (b.batchId || b.enrolmentId) === selectedBatchId) || null
+      : null;
+
+  const filteredSessions = sessions.filter((s) => {
+    if (selectedBatchId === "ALL") return true;
+    if (activeBatch?.batchId && s.batchId) {
+      return s.batchId === activeBatch.batchId;
+    }
+    if (activeBatch?.programId && s.programId) {
+      return s.programId === activeBatch.programId;
+    }
+    if (activeBatch?.batchName && s.batchName) {
+      return s.batchName === activeBatch.batchName;
+    }
+    return true;
+  });
+
+  // Compute active stats for the right-hand stats card based on selection
+  const activeAttendedCount = activeBatch
+    ? activeBatch.attendedSessionCount
+    : overallStats.totalAttendedSessions;
+  const activeRequiredCount = activeBatch
+    ? activeBatch.requiredSessionCount
+    : overallStats.totalScheduledSessions;
+  const activeAttendancePct = activeBatch
+    ? Math.round(activeBatch.attendancePercentage)
+    : overallStats.overallAttendancePercentage;
+  const activeThresholdPct = activeBatch
+    ? activeBatch.thresholdPercentage
+    : batches[0]?.thresholdPercentage ?? 80;
+  const isActiveExamEligible = activeBatch
+    ? activeBatch.isEligibleForExam
+    : batches.length > 0
+    ? batches.every((b) => b.isEligibleForExam)
+    : activeRequiredCount > 0 && activeAttendancePct >= activeThresholdPct;
 
   // Map sessions by date
   const sessionsMap = new Map<string, MySession[]>();
-  sessions.forEach((s) => {
+  filteredSessions.forEach((s) => {
     const d = new Date(s.startTime);
     const key = formatKey(d);
     const list = sessionsMap.get(key) || [];
@@ -220,38 +355,43 @@ export default function AttendancePage() {
   let firstDayIndex = firstDayOfMonth.getDay() - 1;
   if (firstDayIndex === -1) firstDayIndex = 6;
 
+  const buildCalendarCell = (d: Date, isCurrentMonth: boolean): CalendarDay => {
+    const key = formatKey(d);
+    const daySessions = sessionsMap.get(key) || [];
+    const hasPresentSession = daySessions.some((s) => s.attended);
+    const hasMissedCohortSession =
+      !hasPresentSession &&
+      daySessions.some(
+        (s) =>
+          !s.attended &&
+          !isOneOnOneSession(s) &&
+          new Date(s.endTime).getTime() < nowMs
+      );
+    return {
+      date: d,
+      dateKey: key,
+      dayNumber: d.getDate(),
+      isCurrentMonth,
+      isToday: key === today,
+      isSelected: key === selectedKey,
+      hasPresentSession,
+      hasMissedCohortSession,
+      sessions: daySessions,
+    };
+  };
+
   const calendarDays: CalendarDay[] = [];
 
   // Previous month fill
   for (let i = firstDayIndex; i > 0; i--) {
     const d = new Date(year, month, 1 - i);
-    const key = formatKey(d);
-    calendarDays.push({
-      date: d,
-      dateKey: key,
-      dayNumber: d.getDate(),
-      isCurrentMonth: false,
-      isToday: key === today,
-      isSelected: key === selectedKey,
-      dayAttendance: daysMap.get(key),
-      sessions: sessionsMap.get(key) || [],
-    });
+    calendarDays.push(buildCalendarCell(d, false));
   }
 
   // Current month days
   for (let i = 1; i <= lastDayOfMonth.getDate(); i++) {
     const d = new Date(year, month, i);
-    const key = formatKey(d);
-    calendarDays.push({
-      date: d,
-      dateKey: key,
-      dayNumber: i,
-      isCurrentMonth: true,
-      isToday: key === today,
-      isSelected: key === selectedKey,
-      dayAttendance: daysMap.get(key),
-      sessions: sessionsMap.get(key) || [],
-    });
+    calendarDays.push(buildCalendarCell(d, true));
   }
 
   // Next month fill
@@ -259,17 +399,7 @@ export default function AttendancePage() {
   if (remaining < 7) {
     for (let i = 1; i <= remaining; i++) {
       const d = new Date(year, month + 1, i);
-      const key = formatKey(d);
-      calendarDays.push({
-        date: d,
-        dateKey: key,
-        dayNumber: d.getDate(),
-        isCurrentMonth: false,
-        isToday: key === today,
-        isSelected: key === selectedKey,
-        dayAttendance: daysMap.get(key),
-        sessions: sessionsMap.get(key) || [],
-      });
+      calendarDays.push(buildCalendarCell(d, false));
     }
   }
 
@@ -289,17 +419,8 @@ export default function AttendancePage() {
 
   // Selected Day Data
   const selectedDateObj = selectedKey ? dayOf(selectedKey) : null;
-  const selectedDayAttendance = selectedKey ? daysMap.get(selectedKey) : undefined;
   const selectedDaySessions = selectedKey ? sessionsMap.get(selectedKey) || [] : [];
-  const selectedReasons = selectedDayAttendance
-    ? [
-      selectedDayAttendance.visited && "Portal visit",
-      selectedDayAttendance.lessonDone && "Course step finished",
-      selectedDayAttendance.sessionJoined && "Live session joined",
-    ].filter(Boolean)
-    : [];
-
-  const nowMs = Date.now();
+  const selectedDayPresentSessions = selectedDaySessions.filter((s) => s.attended);
 
   return (
     <div className={styles.container}>
@@ -310,15 +431,225 @@ export default function AttendancePage() {
           <span className={styles.backText}>Back</span>
         </Link>
         <div className={styles.headerTitleGroup}>
-          <h1 className={styles.title}>Attendance</h1>
+          <h1 className={styles.title}>Live Session Attendance</h1>
           <div className={styles.headerBadge}>
             <span className={styles.headerBadgeDot} aria-hidden="true" />
-            <span>A day counts when you open the portal, finish a course step or join a live session.</span>
+            <span>
+              Attendance is tracked per enrolled batch from live sessions conducted by your instructor. Meet your batch attendance threshold to unlock the Final Examination.
+            </span>
           </div>
         </div>
       </header>
 
       {error && <p role="alert" className={styles.notice}>{error}</p>}
+
+      {/* Enrolled Course / Batch Live-Session Compliance Overview */}
+      {batches.length > 0 && (
+        <section
+          aria-label="Enrolled Batch Attendance Compliance"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "12px",
+            marginBottom: "18px",
+          }}
+        >
+          {/* Multi-batch filter bar when enrolled in multiple batches */}
+          {batches.length > 1 && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: "8px",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedBatchId("ALL")}
+                style={{
+                  padding: "7px 14px",
+                  borderRadius: "999px",
+                  fontSize: "0.82rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  border:
+                    selectedBatchId === "ALL"
+                      ? "1px solid #ea580c"
+                      : "1px solid #e7ddd1",
+                  background: selectedBatchId === "ALL" ? "#ea580c" : "#ffffff",
+                  color: selectedBatchId === "ALL" ? "#ffffff" : "#4a443d",
+                }}
+              >
+                All Enrolled Batches ({batches.length})
+              </button>
+              {batches.map((b) => {
+                const key = b.batchId || b.enrolmentId;
+                const isActive = selectedBatchId === key;
+                return (
+                  <button
+                    key={b.enrolmentId}
+                    type="button"
+                    onClick={() => setSelectedBatchId(key)}
+                    style={{
+                      padding: "7px 14px",
+                      borderRadius: "999px",
+                      fontSize: "0.82rem",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      border: isActive
+                        ? "1px solid #ea580c"
+                        : "1px solid #e7ddd1",
+                      background: isActive ? "#ea580c" : "#ffffff",
+                      color: isActive ? "#ffffff" : "#4a443d",
+                    }}
+                  >
+                    {b.batchName} · {b.programTitle} ({Math.round(b.attendancePercentage)}%)
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Per-Batch Compliance Cards */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(290px, 1fr))",
+              gap: "12px",
+            }}
+          >
+            {(selectedBatchId === "ALL"
+              ? batches
+              : batches.filter(
+                  (b) => (b.batchId || b.enrolmentId) === selectedBatchId
+                )
+            ).map((b) => {
+              const pct = Math.round(b.attendancePercentage);
+              const isCompliant = b.isEligibleForExam;
+              return (
+                <div
+                  key={b.enrolmentId}
+                  style={{
+                    background: "#ffffff",
+                    border: isCompliant
+                      ? "1px solid rgba(22, 163, 74, 0.3)"
+                      : "1px solid rgba(234, 88, 12, 0.35)",
+                    borderRadius: "14px",
+                    padding: "14px 16px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "10px",
+                    boxShadow: "0 2px 8px rgba(20, 17, 15, 0.04)",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
+                      gap: "10px",
+                    }}
+                  >
+                    <div>
+                      <span
+                        style={{
+                          fontSize: "0.73rem",
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.04em",
+                          color: "#ea580c",
+                          display: "block",
+                        }}
+                      >
+                        {b.batchName}
+                      </span>
+                      <strong
+                        style={{
+                          fontSize: "0.96rem",
+                          color: "#1c1917",
+                          display: "block",
+                          marginTop: "2px",
+                        }}
+                      >
+                        {b.programTitle}
+                      </strong>
+                    </div>
+                    <span
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: "999px",
+                        fontSize: "0.75rem",
+                        fontWeight: 700,
+                        whiteSpace: "nowrap",
+                        background: isCompliant
+                          ? "rgba(22, 163, 74, 0.12)"
+                          : "rgba(217, 119, 6, 0.14)",
+                        color: isCompliant ? "#15803d" : "#b45309",
+                      }}
+                    >
+                      {!b.attendanceRequired
+                        ? "✓ Attendance Optional"
+                        : isCompliant
+                        ? `✓ Final Exam Unlocked (≥${b.thresholdPercentage}%)`
+                        : `🔒 Final Exam Locked (<${b.thresholdPercentage}%)`}
+                    </span>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div
+                    style={{
+                      width: "100%",
+                      height: "8px",
+                      background: "#f5efe8",
+                      borderRadius: "999px",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${Math.min(100, Math.max(0, pct))}%`,
+                        height: "100%",
+                        background: isCompliant ? "#16a34a" : "#ea580c",
+                        borderRadius: "999px",
+                        transition: "width 0.3s ease",
+                      }}
+                    />
+                  </div>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      gap: "8px",
+                      fontSize: "0.8rem",
+                      color: "#57534e",
+                    }}
+                  >
+                    <span>
+                      Live Attendance: <strong>{pct}%</strong> ({b.attendedSessionCount} of{" "}
+                      {b.requiredSessionCount} live sessions) • Required:{" "}
+                      <strong>{b.thresholdPercentage}%</strong>
+                    </span>
+                    <Link
+                      href={`/programs/${b.programId}/steps`}
+                      style={{
+                        color: "#ea580c",
+                        fontWeight: 700,
+                        textDecoration: "none",
+                      }}
+                    >
+                      Course Path →
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* 2-Column Dashboard Layout: Left Calendar, Right Stats & Today Activity */}
       <div className={styles.mainLayout}>
@@ -337,20 +668,20 @@ export default function AttendancePage() {
                   >
                     {Icons.chevronLeft}
                   </button>
-                    <h2 className={styles.monthTitle} suppressHydrationWarning>
-                      {currentDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
-                    </h2>
-                    <button
-                      type="button"
-                      onClick={nextMonth}
-                      aria-label="Next month"
-                      className={styles.navBtn}
-                    >
-                      {Icons.chevronRight}
-                    </button>
-                    <button type="button" onClick={goToToday} className={styles.todayBtn}>
-                      Today
-                    </button>
+                  <h2 className={styles.monthTitle} suppressHydrationWarning>
+                    {currentDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={nextMonth}
+                    aria-label="Next month"
+                    className={styles.navBtn}
+                  >
+                    {Icons.chevronRight}
+                  </button>
+                  <button type="button" onClick={goToToday} className={styles.todayBtn}>
+                    Today
+                  </button>
                 </div>
 
                 {/* View Mode Switcher */}
@@ -392,7 +723,7 @@ export default function AttendancePage() {
                       role="gridcell"
                       tabIndex={0}
                       aria-selected={isSelectedCell}
-                      aria-label={`${cd.date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}${cd.dayAttendance ? ", Present" : ""}${cd.sessions.length > 0 ? `, ${cd.sessions.length} sessions` : ""}`}
+                      aria-label={`${cd.date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}${cd.hasPresentSession ? ", Live Session Attended" : ""}${cd.sessions.length > 0 ? `, ${cd.sessions.length} sessions` : ""}`}
                       suppressHydrationWarning
                       onClick={() => setSelectedKey(cd.dateKey)}
                       onKeyDown={(e) => {
@@ -410,19 +741,16 @@ export default function AttendancePage() {
                       </div>
 
                       <div className={styles.cellEvents}>
-                        {/* Attendance Badge */}
-                        {cd.dayAttendance && (
-                          <span className={styles.presentBadge} title="Attended">
+                        {/* Live-Session Attendance Badge (Only when learner attended a live session on this date) */}
+                        {cd.hasPresentSession && (
+                          <span className={styles.presentBadge} title="Live Session Attended">
                             {Icons.check} Present
                           </span>
                         )}
 
                         {/* Scheduled Live Sessions / Coaching */}
                         {cd.sessions.map((s) => {
-                          const isOneOnOne =
-                            s.sessionType === "ONE_ON_ONE" ||
-                            s.title?.toLowerCase().includes("1-on-1") ||
-                            s.title?.toLowerCase().includes("coaching");
+                          const isOneOnOne = isOneOnOneSession(s);
 
                           if (isOneOnOne) {
                             return (
@@ -440,7 +768,7 @@ export default function AttendancePage() {
                             <span
                               key={s.id}
                               className={styles.sessionPillCohort}
-                              title={`${s.title} (${timeOf(s.startTime)})`}
+                              title={`${s.title}${s.batchName ? ` · ${s.batchName}` : ""} (${timeOf(s.startTime)})`}
                             >
                               {Icons.video}
                               <span>{s.title}</span>
@@ -457,11 +785,11 @@ export default function AttendancePage() {
               <div className={styles.legend}>
                 <div className={styles.legendItem}>
                   <span className={styles.legendDotPresent} />
-                  <span>Attendance Logged (Present)</span>
+                  <span>Live Session Attended (Present)</span>
                 </div>
                 <div className={styles.legendItem}>
                   <span className={styles.legendDotCohort} />
-                  <span>Cohort Live Class</span>
+                  <span>Batch Live Session</span>
                 </div>
                 <div className={styles.legendItem}>
                   <span className={styles.legendDotCoaching} />
@@ -499,49 +827,17 @@ export default function AttendancePage() {
 
               <section className={styles.listPanel}>
                 <div className={styles.listPanelHead}>
-                  <h2>Daily Attendance Log</h2>
+                  <h2>
+                    Batch Live Sessions Attendance
+                    {activeBatch ? ` — ${activeBatch.batchName}` : ""}
+                  </h2>
                 </div>
-                {days.length === 0 ? (
+                {filteredSessions.length === 0 ? (
                   <p className={styles.emptyNotice} style={{ padding: "2rem", textAlign: "center" }}>
-                    No attendance recorded yet.
+                    No live sessions scheduled for your batch yet.
                   </p>
                 ) : (
-                  days.map((day) => {
-                    const date = dayOf(day.date);
-                    const reasons = [
-                      day.visited && "Portal visit",
-                      day.lessonDone && "Course step finished",
-                      day.sessionJoined && "Live session joined",
-                    ].filter(Boolean);
-                    return (
-                      <div key={day.date} className={styles.listItem}>
-                        <div className={styles.listDateTile}>
-                          <span suppressHydrationWarning>{date.toLocaleDateString("en-US", { month: "short" })}</span>
-                          <strong>{date.getDate()}</strong>
-                        </div>
-                        <div className={styles.listItemBody}>
-                            <p className={styles.listItemTitle} suppressHydrationWarning>
-                              {date.toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-                            </p>
-                            <p className={styles.listItemMeta}>{reasons.join(" · ")}</p>
-                        </div>
-                        <span className={styles.badgePresentPill}>Present</span>
-                      </div>
-                    );
-                  })
-                )}
-              </section>
-
-              <section className={styles.listPanel}>
-                <div className={styles.listPanelHead}>
-                  <h2>Live Sessions Attendance</h2>
-                </div>
-                {sessions.length === 0 ? (
-                  <p className={styles.emptyNotice} style={{ padding: "2rem", textAlign: "center" }}>
-                    No live sessions scheduled yet.
-                  </p>
-                ) : (
-                  sessions.map((session) => {
+                  filteredSessions.map((session) => {
                     const start = new Date(session.startTime);
                     const isUpcoming = new Date(session.endTime).getTime() > nowMs;
                     return (
@@ -553,6 +849,7 @@ export default function AttendancePage() {
                         <div className={styles.listItemBody}>
                           <p className={styles.listItemTitle}>{session.title}</p>
                           <p className={styles.listItemMeta}>
+                            {session.batchName ? `${session.batchName} · ` : ""}
                             {session.programTitle} · {timeOf(session.startTime)} to {timeOf(session.endTime)}
                             {(session.durationMin ?? 0) > 0 ? ` · ${session.durationMin} min attended` : ""}
                           </p>
@@ -576,7 +873,9 @@ export default function AttendancePage() {
             <div className={styles.statsHeader}>
               <div className={styles.statsTitleRow}>
                 <span className={styles.statsTitleIcon}>{Icons.chartOrange}</span>
-                <h3 className={styles.statsTitle}>Attendance Stats</h3>
+                <h3 className={styles.statsTitle}>
+                  {activeBatch ? `${activeBatch.batchName} Stats` : "Live Attendance Stats"}
+                </h3>
               </div>
               {/* Subtle Decorative Calendar Illustration */}
               <div className={styles.calendarIllustration} aria-hidden="true">
@@ -600,29 +899,33 @@ export default function AttendancePage() {
 
             {/* 3 Metric Tiles Side-by-Side */}
             <div className={styles.statsTilesRow}>
-              {/* Tile 1: Days Present */}
+              {/* Tile 1: Attendance Rate */}
               <div className={styles.statTile}>
                 <div className={styles.tileIconGreen}>{Icons.calendarGreen}</div>
-                <div className={styles.tileValue}>{loading ? "–" : days.length}</div>
-                <div className={styles.tileLabel}>Days Present</div>
+                <div className={styles.tileValue}>
+                  {loading ? "–" : `${activeAttendancePct}%`}
+                </div>
+                <div className={styles.tileLabel}>
+                  Attendance (Min {activeThresholdPct}%)
+                </div>
               </div>
 
-              {/* Tile 2: This Month */}
+              {/* Tile 2: Live Sessions Attended */}
               <div className={styles.statTile}>
                 <div className={styles.tileIconOrange}>{Icons.chartOrange}</div>
                 <div className={styles.tileValue}>
-                  {loading ? "–" : days.filter((d) => d.date.startsWith(monthStr)).length}
+                  {loading ? "–" : `${activeAttendedCount}/${activeRequiredCount}`}
                 </div>
-                <div className={styles.tileLabel}>This Month</div>
+                <div className={styles.tileLabel}>Live Sessions</div>
               </div>
 
-              {/* Tile 3: Current Streak */}
+              {/* Tile 3: Final Exam Gate */}
               <div className={styles.statTile}>
                 <div className={styles.tileIconPurple}>{Icons.flamePurple}</div>
                 <div className={styles.tileValue}>
-                  {loading ? "–" : today ? `${streakOf(days, today)} ${streakOf(days, today) === 1 ? "day" : "days"}` : "0 days"}
+                  {loading ? "–" : isActiveExamEligible ? "Eligible" : "Locked"}
                 </div>
-                <div className={styles.tileLabel}>Current Streak</div>
+                <div className={styles.tileLabel}>Final Exam Gate</div>
               </div>
             </div>
           </div>
@@ -633,14 +936,12 @@ export default function AttendancePage() {
               <div className={styles.activityHeader}>
                 <div className={styles.activityDateRow}>
                   <span className={styles.activityCalendarIcon}>{Icons.calendarSmall}</span>
-                  < h3 className = { styles.activityDateTitle } suppressHydrationWarning >
-                    {
-                      selectedDateObj.toLocaleDateString("en-US", {
-                        weekday: "short",
-                        month: "short",
-                        day: "numeric",
-                      })
-                    }
+                  <h3 className={styles.activityDateTitle} suppressHydrationWarning>
+                    {selectedDateObj.toLocaleDateString("en-US", {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                    })}
                   </h3>
                 </div>
                 {selectedKey === today && (
@@ -649,26 +950,30 @@ export default function AttendancePage() {
               </div>
 
               <div className={styles.activityBody}>
-                {/* Daily Activity */}
+                {/* Live Session Attendance Summary for Selected Date */}
                 <div className={styles.activitySection}>
-                  <h4 className={styles.activitySectionTitle}>Daily Activity</h4>
-                  {selectedDayAttendance ? (
+                  <h4 className={styles.activitySectionTitle}>Live Session Status</h4>
+                  {selectedDayPresentSessions.length > 0 ? (
                     <div>
                       <span className={styles.activityPresentBadge}>
-                        {Icons.check} Present
+                        {Icons.check} Present ({selectedDayPresentSessions.length}{" "}
+                        {selectedDayPresentSessions.length === 1 ? "session" : "sessions"})
                       </span>
                       <ul className={styles.activityBulletList}>
-                        {selectedReasons.map((r) => (
-                          <li key={r as string} className={styles.activityBulletItem}>
+                        {selectedDayPresentSessions.map((s) => (
+                          <li key={s.id} className={styles.activityBulletItem}>
                             <span className={styles.activityBulletDot}>•</span>
-                            <span>{r}</span>
+                            <span>
+                              {s.title}
+                              {s.batchName ? ` (${s.batchName})` : ""}
+                            </span>
                           </li>
                         ))}
                       </ul>
                     </div>
                   ) : (
                     <p className={styles.emptyNotice}>
-                      No portal visit or activity recorded on this date.
+                      No live session attendance recorded on this date.
                     </p>
                   )}
                 </div>
@@ -684,17 +989,16 @@ export default function AttendancePage() {
                         const startMs = new Date(s.startTime).getTime();
                         const endMs = new Date(s.endTime).getTime();
                         const isUpcoming = endMs > nowMs;
-                        const isLive = nowMs >= startMs - 5 * 60000 && nowMs <= endMs;
-                        const isOneOnOne =
-                          s.sessionType === "ONE_ON_ONE" ||
-                          s.title?.toLowerCase().includes("1-on-1") ||
-                          s.title?.toLowerCase().includes("coaching");
+                        const isOneOnOne = isOneOnOneSession(s);
 
-                        const displayTitle = isOneOnOne && !s.title.toLowerCase().includes(userName.toLowerCase())
-                          ? `1-on-1 Coaching: ${userName}`
-                          : s.title;
+                        const displayTitle =
+                          isOneOnOne && !s.title.toLowerCase().includes(userName.toLowerCase())
+                            ? `1-on-1 Coaching: ${userName}`
+                            : s.title;
 
-                        const sessionTypeLabel = isOneOnOne ? "1:1 Coaching" : s.programTitle || "Cohort Live Class";
+                        const sessionTypeLabel = isOneOnOne
+                          ? "1:1 Coaching"
+                          : `${s.batchName ? `${s.batchName} · ` : ""}${s.programTitle || "Cohort Live Class"}`;
 
                         return (
                           <div key={s.id} className={styles.scheduledSessionBox}>
@@ -706,7 +1010,7 @@ export default function AttendancePage() {
                                 <p className={styles.sessionTitleText}>{displayTitle}</p>
                               </div>
                               <span className={s.attended ? styles.badgePresentPill : isUpcoming ? styles.badgeUpcomingPill : styles.badgeAbsentPill}>
-                                {s.attended ? "Present" : isUpcoming ? "Upcoming" : "Ended"}
+                                {s.attended ? "Present" : isUpcoming ? "Upcoming" : "Absent"}
                               </span>
                             </div>
 
@@ -733,7 +1037,7 @@ export default function AttendancePage() {
                                     method: "POST",
                                     headers: token ? { Authorization: `Bearer ${token}` } : {},
                                     keepalive: true,
-                                  }).catch(() => { });
+                                  }).catch(() => {});
                                 }}
                                 className={styles.joinNowBtn}
                               >

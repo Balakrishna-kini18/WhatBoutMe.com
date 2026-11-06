@@ -820,7 +820,9 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const allStepsCompleted = total > 0 && done === total;
 
   const stage2State = stagesEval?.stages?.STAGE_2_EXAM;
-  const isExamUnlocked = Boolean(allStepsCompleted || stage2State?.isOverridden === true);
+  const stage3State = stagesEval?.stages?.STAGE_3_ATTENDANCE;
+  const stage3Details = (stage3State?.details || stage2State?.details || {}) as any;
+
   const isExamPassed = Boolean(
     examAttempt?.status === "PASSED" ||
       examAttempt?.passed === true ||
@@ -828,6 +830,34 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
       stage2State?.isOverridden === true
   );
   const examBestScore = examAttempt?.score ?? stage2State?.details?.examScore ?? null;
+
+  const isAttendanceRequired = stage3Details?.attendanceRequired !== false;
+  const attendanceThreshold = Number(
+    stage3Details?.thresholdPercent ?? stage3Details?.attendanceThreshold ?? 80
+  );
+  const attendedLiveSessions = Number(stage3Details?.attendedSessions ?? 0);
+  const requiredLiveSessions = Number(stage3Details?.requiredSessions ?? 0);
+  const liveAttendancePercent =
+    requiredLiveSessions === 0
+      ? 0
+      : Math.round(Number(stage3Details?.attendancePercentage ?? 0));
+
+  const isAttendanceMetForExam = Boolean(
+    !isAttendanceRequired ||
+      stage2State?.isOverridden === true ||
+      stage3State?.isOverridden === true ||
+      isExamPassed ||
+      examAttempt?.status === "IN_PROGRESS" ||
+      (requiredLiveSessions > 0 &&
+        (stage3Details?.complianceStatus === "COMPLIANT" ||
+          liveAttendancePercent >= attendanceThreshold))
+  );
+
+  const isExamUnlocked = Boolean(
+    (allStepsCompleted && isAttendanceMetForExam) ||
+      stage2State?.isOverridden === true ||
+      isExamPassed
+  );
 
   const stage4State = stagesEval?.stages?.STAGE_4_ONE_ON_ONE;
   const stage4Details = stage4State?.details as any;
@@ -896,6 +926,10 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
     completedSteps: done,
     examPassed: isExamPassed,
     examScore: examBestScore,
+    attendanceRequired: isAttendanceRequired,
+    attendanceMetForExam: isAttendanceMetForExam,
+    attendancePercentage: liveAttendancePercent,
+    attendanceThreshold: attendanceThreshold,
     coachingCompleted: isCoachingCompleted,
     coachingStatus: activeCoachingReq?.status ?? latestCoachingReq?.status ?? null,
     coachingRequired: isCoachingRequired,
@@ -1251,13 +1285,67 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                       <p style={{ margin: "4px 0 0", fontSize: "0.84rem", color: "var(--text-secondary, #4a443d)" }}>
                         {isExamPassed
                           ? `Passed with ${examBestScore !== null ? `${examBestScore}%` : "success"}. Examination completed.`
-                          : `${examConfig?.questionCount ? `${examConfig.questionCount} Questions · ` : ""}Pass Mark: ${examConfig?.passMark ?? 75}% · Time Limit: ${examConfig?.timeLimitMin ?? 90} mins`}
+                          : `${examConfig?.questionCount ? `${examConfig.questionCount} Questions · ` : ""}Pass Mark: ${examConfig?.passMark ?? 80}% · Time Limit: ${examConfig?.timeLimitMin ?? 90} mins${isAttendanceRequired ? ` · Required Batch Attendance: ${attendanceThreshold}%` : ""}`}
                       </p>
+
+                      {isAttendanceRequired && !isExamPassed && (
+                        <div
+                          style={{
+                            marginTop: "8px",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            flexWrap: "wrap",
+                            gap: "8px",
+                            padding: "5px 10px",
+                            borderRadius: "8px",
+                            fontSize: "0.78rem",
+                            fontWeight: 600,
+                            background: isAttendanceMetForExam
+                              ? "rgba(22, 163, 74, 0.1)"
+                              : "rgba(217, 119, 6, 0.12)",
+                            color: isAttendanceMetForExam ? "#15803d" : "#b45309",
+                            border: isAttendanceMetForExam
+                              ? "1px solid rgba(22, 163, 74, 0.25)"
+                              : "1px solid rgba(217, 119, 6, 0.3)",
+                          }}
+                        >
+                          <span>
+                            {isAttendanceMetForExam ? "✓" : "⚠️"} Live Attendance
+                            {progression?.batchName ? ` (${progression.batchName})` : ""}:{" "}
+                            <strong>{liveAttendancePercent}%</strong> ({attendedLiveSessions}/{requiredLiveSessions} live sessions) • Required: <strong>{attendanceThreshold}%</strong>
+                          </span>
+                          <Link
+                            href="/attendance"
+                            style={{
+                              color: "inherit",
+                              textDecoration: "underline",
+                              fontWeight: 700,
+                              marginLeft: "4px",
+                            }}
+                          >
+                            View Attendance →
+                          </Link>
+                        </div>
+                      )}
 
                       {!isExamUnlocked && (
                         <div className={styles.lockMessage}>
                           {InfoCircle}
-                          <span>Requires completing all {total} curriculum steps</span>
+                          <span>
+                            {!allStepsCompleted
+                              ? `Requires completing all ${total} curriculum steps${
+                                  isAttendanceRequired
+                                    ? ` and at least ${attendanceThreshold}% live session attendance`
+                                    : ""
+                                }`
+                              : requiredLiveSessions === 0
+                              ? `Requires at least ${attendanceThreshold}% live session attendance in ${
+                                  progression?.batchName || "your batch"
+                                } to unlock the Final Exam. No live sessions have been conducted yet (Current: 0% / Required: ${attendanceThreshold}%).`
+                              : `Requires at least ${attendanceThreshold}% live session attendance in ${
+                                  progression?.batchName || "your batch"
+                                } to unlock the Final Exam. Your current attendance is ${liveAttendancePercent}% (${attendedLiveSessions} of ${requiredLiveSessions} live sessions attended).`}
+                          </span>
                         </div>
                       )}
 
@@ -1286,14 +1374,20 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                       ) : (
                         <span
                           className={styles.lockedPill}
-                          title={`Requires completing all ${total} curriculum steps`}
+                          title={
+                            !allStepsCompleted
+                              ? `Requires completing all ${total} curriculum steps`
+                              : `Requires ${attendanceThreshold}% live session attendance (Current: ${liveAttendancePercent}%)`
+                          }
                           aria-disabled="true"
                         >
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ opacity: 0.7 }}>
                             <rect x="4" y="11" width="16" height="10" rx="2" />
                             <path d="M8 11V7a4 4 0 0 1 8 0v4" />
                           </svg>
-                          Locked
+                          {allStepsCompleted && !isAttendanceMetForExam
+                            ? `Locked (<${attendanceThreshold}% Attendance)`
+                            : "Locked"}
                         </span>
                       )}
                     </div>

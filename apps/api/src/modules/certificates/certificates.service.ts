@@ -484,12 +484,18 @@ export class CertificatesService {
           try {
             await this.emailService.sendTemplateEmail({
               to: enrolment.user.email,
-              subject: `Certificate Issued: ${enrolment.program?.title || 'Program'}`,
+              subject: `Certificate Issued: ${enrolment.program?.title || 'Course'}`,
               template: 'CertificateIssuedEmail',
               props: {
                 firstName: enrolment.user.name?.split(' ')[0] || 'Learner',
+                courseTitle: enrolment.program?.title || 'Course',
                 programName: enrolment.program?.title || 'Course',
-                issueDate: now.toLocaleDateString(),
+                certificateCode: code,
+                issueDate: now.toLocaleDateString('en-US', {
+                  month: 'long',
+                  day: 'numeric',
+                  year: 'numeric',
+                }),
                 certificateUrl: issuedCert.pdfUrl || `${lmsUrl}/certificates/${issuedCert.id}`,
                 verificationUrl: `${marketingUrl}/verify/${code}`,
               },
@@ -543,7 +549,7 @@ export class CertificatesService {
       const issueDate = certificate.issueDate || certificate.issuedAt || certificate.createdAt;
       const issueYear = issueDate.getFullYear();
       const issueMonth = issueDate.getMonth() + 1;
-      const appUrl = process.env.APP_URL || 'https://whatboutme.com';
+      const { marketingUrl: appUrl } = getAppUrls();
       const certCode = certificate.certificateCode || certificate.certificateNumber || cleanCode;
       const recipientName =
         (certificate.enrolment as any)?.signedAgreement?.typedName ||

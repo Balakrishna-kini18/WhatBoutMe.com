@@ -11,13 +11,17 @@ interface OralAssessmentResultEmailProps {
   dashboardUrl: string;
 }
 
+const defaultLmsUrl =
+  process.env.NEXT_PUBLIC_LMS_URL ||
+  'https://learn.whatboutme.com';
+
 export const OralAssessmentResultEmail = ({
   firstName = 'Student',
   assessmentName = 'Mid-Term Oral Exam',
   passed = true,
   score = '85/100',
   feedback = 'Excellent pronunciation and great use of advanced vocabulary.',
-  dashboardUrl = 'https://whatboutme.com/dashboard/assessments',
+  dashboardUrl = `${defaultLmsUrl.replace(/\/+$/, '')}/dashboard/assessments`,
 }: OralAssessmentResultEmailProps) => {
   return (
     <WhatBoutMeEmailLayout previewText={`Your results for ${assessmentName} are ready`} heading="Assessment Results">

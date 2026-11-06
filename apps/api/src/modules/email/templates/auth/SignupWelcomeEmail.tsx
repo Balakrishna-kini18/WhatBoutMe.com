@@ -2,39 +2,83 @@ import { Button, Text, Section } from '@react-email/components';
 import * as React from 'react';
 import WhatBoutMeEmailLayout from '../WhatBoutMeEmailLayout.js';
 
-interface SignupWelcomeEmailProps {
-  firstName: string;
-  loginUrl: string;
+export interface SignupWelcomeEmailProps {
+  firstName?: string;
+  loginUrl?: string;
 }
 
 export const SignupWelcomeEmail = ({
-  firstName = 'Student',
-  loginUrl = 'https://whatboutme.com/login',
+  firstName = 'there',
+  loginUrl = `${(process.env.NEXT_PUBLIC_LMS_URL || 'https://learn.whatboutme.com').replace(/\/+$/, '')}/login`,
 }: SignupWelcomeEmailProps) => {
+  const cleanName =
+    firstName &&
+    firstName !== 'there' &&
+    firstName !== 'Student' &&
+    firstName !== 'User' &&
+    firstName !== 'Learner'
+      ? firstName.trim()
+      : 'there';
+
   return (
-    <WhatBoutMeEmailLayout previewText="Welcome to WhatBoutMe!" heading="Welcome to WhatBoutMe!">
-      <Text className="text-black text-[14px] leading-[24px]">
-        Hi {firstName},
+    <WhatBoutMeEmailLayout previewText="Welcome to WhatBoutMe">
+      <Text
+        style={{
+          fontSize: '15px',
+          color: '#1f2937',
+          margin: '0 0 12px 0',
+        }}
+      >
+        Hi {cleanName},
       </Text>
-      <Text className="text-black text-[14px] leading-[24px]">
-        We are thrilled to have you join WhatBoutMe. Your account has been successfully created.
-        You can now access your dashboard, explore programs, and manage your enrollments.
+
+      <Text
+        style={{
+          fontSize: '15px',
+          lineHeight: '22px',
+          color: '#4b5563',
+          margin: '0 0 20px 0',
+        }}
+      >
+        Welcome to <strong>WhatBoutMe</strong>! Your account has been successfully created.
+        You can now access your dashboard, view your enrolled courses, and join live sessions.
       </Text>
-      <Section className="text-center mt-[32px] mb-[32px]">
+
+      {/* Primary Action Button */}
+      <Section
+        style={{
+          textAlign: 'center',
+          margin: '24px 0 24px 0',
+        }}
+      >
         <Button
-          className="bg-black rounded text-white text-[14px] font-semibold no-underline text-center px-[20px] py-[12px]"
           href={loginUrl}
+          style={{
+            backgroundColor: '#111827',
+            color: '#ffffff',
+            fontSize: '14px',
+            fontWeight: 700,
+            textDecoration: 'none',
+            textAlign: 'center',
+            borderRadius: '8px',
+            padding: '14px 28px',
+            display: 'inline-block',
+          }}
         >
-          Sign in to your account
+          Go to Dashboard &rarr;
         </Button>
       </Section>
-      <Text className="text-black text-[14px] leading-[24px]">
-        If you have any questions, simply reply to this email. We're here to help!
-      </Text>
-      <Text className="text-black text-[14px] leading-[24px]">
-        Best,
-        <br />
-        The WhatBoutMe Team
+
+      <Text
+        style={{
+          fontSize: '12px',
+          lineHeight: '18px',
+          color: '#9ca3af',
+          textAlign: 'center',
+          margin: 0,
+        }}
+      >
+        If you have any questions, simply reply directly to this email. We're here to help!
       </Text>
     </WhatBoutMeEmailLayout>
   );

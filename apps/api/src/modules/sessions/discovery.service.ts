@@ -1,3 +1,4 @@
+import { getAppUrls } from '../../common/config/app-urls.js';
 import {
   BadRequestException,
   ConflictException,
@@ -938,7 +939,7 @@ export class DiscoveryService {
               `Thank you for your interest in WhatBoutMe.\n\n` +
               `Unfortunately, Roweena is unavailable for the requested slot (${session.startTime.toLocaleString()}).\n\n` +
               `Reason: ${reason}\n\n` +
-              `Please visit https://whatboutme.com/contact to pick an alternative date and time that works for you.`,
+              `` + 'Please visit ' + getAppUrls().marketingUrl + '/contact to pick an alternative date and time that works for you.' + ``,
           },
         })
         .catch(() => null);

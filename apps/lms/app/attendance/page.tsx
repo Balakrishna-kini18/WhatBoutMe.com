@@ -501,32 +501,6 @@ export default function AttendancePage() {
                     Live session attendance is evaluated per enrolled batch. Reach the minimum attendance threshold in your batch to unlock the Final Examination.
                   </p>
                 </div>
-                {/* Secondary In-Card View Toggle */}
-                <div className={styles.viewToggle}>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("calendar")}
-                    className={styles.toggleBtn}
-                  >
-                    {Icons.calendarSmall}
-                    <span>Calendar View</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("batches")}
-                    className={`${styles.toggleBtn} ${styles.toggleBtnActive}`}
-                  >
-                    {Icons.userGroup}
-                    <span>Batch Attendance</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("list")}
-                    className={styles.toggleBtn}
-                  >
-                    <span>List History</span>
-                  </button>
-                </div>
               </div>
 
               {/* Multi-batch filter dropdown when enrolled in multiple batches */}
@@ -604,8 +578,8 @@ export default function AttendancePage() {
                 {(selectedBatchId === "ALL"
                   ? batches
                   : batches.filter(
-                      (b) => (b.batchId || b.enrolmentId) === selectedBatchId
-                    )
+                    (b) => (b.batchId || b.enrolmentId) === selectedBatchId
+                  )
                 ).map((b) => {
                   const pct = Math.round(b.attendancePercentage);
                   const isCompliant = b.isEligibleForExam;
@@ -673,8 +647,8 @@ export default function AttendancePage() {
                           {!b.attendanceRequired
                             ? "✓ Attendance Optional"
                             : isCompliant
-                            ? `✓ Final Exam Unlocked (≥${b.thresholdPercentage}%)`
-                            : `🔒 Final Exam Locked (<${b.thresholdPercentage}%)`}
+                              ? `✓ Final Exam Unlocked (≥${b.thresholdPercentage}%)`
+                              : `🔒 Final Exam Locked (<${b.thresholdPercentage}%)`}
                         </span>
                       </div>
 
@@ -760,33 +734,6 @@ export default function AttendancePage() {
                   </button>
                   <button type="button" onClick={goToToday} className={styles.todayBtn}>
                     Today
-                  </button>
-                </div>
-
-                {/* View Mode Switcher */}
-                <div className={styles.viewToggle}>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("calendar")}
-                    className={`${styles.toggleBtn} ${styles.toggleBtnActive}`}
-                  >
-                    {Icons.calendarSmall}
-                    <span>Calendar View</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("batches")}
-                    className={styles.toggleBtn}
-                  >
-                    {Icons.userGroup}
-                    <span>Batch Attendance</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("list")}
-                    className={styles.toggleBtn}
-                  >
-                    <span>List History</span>
                   </button>
                 </div>
               </div>
@@ -891,35 +838,6 @@ export default function AttendancePage() {
           ) : (
             /* List View Alternative */
             <div className={styles.listView}>
-              <div className={styles.calendarNav} style={{ background: "transparent", padding: "0 0 0.5rem", border: "none" }}>
-                <div />
-                <div className={styles.viewToggle}>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("calendar")}
-                    className={styles.toggleBtn}
-                  >
-                    {Icons.calendarSmall}
-                    <span>Calendar View</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("batches")}
-                    className={styles.toggleBtn}
-                  >
-                    {Icons.userGroup}
-                    <span>Batch Attendance</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("list")}
-                    className={`${styles.toggleBtn} ${styles.toggleBtnActive}`}
-                  >
-                    <span>List History</span>
-                  </button>
-                </div>
-              </div>
-
               <section className={styles.listPanel}>
                 <div className={styles.listPanelHead}>
                   <h2>

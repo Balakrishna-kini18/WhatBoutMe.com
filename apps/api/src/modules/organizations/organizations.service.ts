@@ -56,6 +56,7 @@ export class OrganizationsService {
   async listOrganizations(query?: {
     search?: string;
     status?: OrganizationStatus;
+    orgType?: OrganizationType;
     page?: number;
     limit?: number;
     orgId?: string;
@@ -70,6 +71,9 @@ export class OrganizationsService {
     }
     if (query?.status) {
       where.status = query.status;
+    }
+    if (query?.orgType) {
+      where.orgType = query.orgType;
     }
     if (query?.search) {
       const q = query.search.trim();
@@ -316,8 +320,8 @@ export class OrganizationsService {
               passwordHash,
             },
           });
-        } else {
-          // If user exists, update password hash with initial password
+        } else if (!ownerUser.passwordHash) {
+          // If existing user had no password hash, set initial password
           await tx.user.update({
             where: { id: ownerUser.id },
             data: { passwordHash },

@@ -64,10 +64,18 @@ export function getAppUrls(reqOrOrigin?: any): AppUrls {
     (process.env.VERCEL && !process.env.ROOT_DOMAIN) ||
     Boolean(clientHost?.endsWith('.vercel.app'))
   ) {
-    defaultAdmin = 'https://what-bout-me-com-admin.vercel.app';
-    defaultLms = 'https://what-bout-me-com-lms.vercel.app';
-    defaultMarketing = 'https://what-bout-me-com-atyb.vercel.app';
-    defaultApi = 'https://what-bout-me-com.vercel.app';
+    const vUrl = (process.env.VERCEL_URL || clientHost || '').toLowerCase();
+    if (vUrl.includes('whataboutme')) {
+      defaultAdmin = 'https://admin-whataboutme.vercel.app';
+      defaultLms = 'https://lms-whataboutme.vercel.app';
+      defaultMarketing = 'https://whataboutme.vercel.app';
+      defaultApi = 'https://api-whataboutme.vercel.app';
+    } else {
+      defaultAdmin = 'https://what-bout-me-com-admin.vercel.app';
+      defaultLms = 'https://what-bout-me-com-lms.vercel.app';
+      defaultMarketing = 'https://what-bout-me-com-atyb.vercel.app';
+      defaultApi = 'https://what-bout-me-com.vercel.app';
+    }
   } else if (
     isProduction ||
     (clientHost &&

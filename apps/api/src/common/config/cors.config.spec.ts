@@ -82,6 +82,29 @@ describe('CORS Origin Validation (isAllowedCorsOrigin)', () => {
       expect(isAllowedCorsOrigin('https://my-pr-branch.vercel.app')).toBe(true);
     });
 
+    it('allows admin-whataboutme.vercel.app even in production mode', () => {
+      const prevEnv = process.env.NODE_ENV;
+      try {
+        process.env.NODE_ENV = 'production';
+        expect(isAllowedCorsOrigin('https://admin-whataboutme.vercel.app')).toBe(true);
+        expect(isAllowedCorsOrigin('https://lms-whataboutme.vercel.app')).toBe(true);
+        expect(isAllowedCorsOrigin('https://whataboutme-admin.vercel.app')).toBe(true);
+        expect(isAllowedCorsOrigin('https://what-bout-me-com.vercel.app')).toBe(true);
+      } finally {
+        process.env.NODE_ENV = prevEnv;
+      }
+    });
+
+    it('dynamically honors service URL environment variables (NEXT_PUBLIC_ADMIN_URL, etc.)', () => {
+      const prev = process.env.NEXT_PUBLIC_ADMIN_URL;
+      try {
+        process.env.NEXT_PUBLIC_ADMIN_URL = 'https://custom-admin-portal.external-host.com';
+        expect(isAllowedCorsOrigin('https://custom-admin-portal.external-host.com')).toBe(true);
+      } finally {
+        process.env.NEXT_PUBLIC_ADMIN_URL = prev;
+      }
+    });
+
     it('honors custom allowedOrigins from CORS_ORIGIN env var', () => {
       const customOrigins = ['https://partner.example.com', 'https://*.trusted.net'];
       expect(isAllowedCorsOrigin('https://partner.example.com', customOrigins)).toBe(true);

@@ -110,6 +110,44 @@ describe("Host and Domain Family Isolation Suite", () => {
       expect(getAdminUrl()).toBe("https://what-bout-me-com-admin.vercel.app");
     });
 
+    it("dynamically resolves sibling Vercel URLs for prefix-style naming (admin-whataboutme, lms-whataboutme)", () => {
+      Object.defineProperty(globalThis, "window", {
+        value: {
+          location: {
+            hostname: "lms-whataboutme.vercel.app",
+            origin: "https://lms-whataboutme.vercel.app",
+          },
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      delete process.env.NEXT_PUBLIC_LMS_URL;
+      delete process.env.NEXT_PUBLIC_SITE_URL;
+      delete process.env.NEXT_PUBLIC_API_URL;
+
+      expect(getLmsUrl()).toBe("https://lms-whataboutme.vercel.app");
+      expect(getMarketingUrl()).toBe("https://whataboutme.vercel.app");
+      expect(getApiBaseUrl()).toBe("https://api-whataboutme.vercel.app");
+      expect(getAdminUrl()).toBe("https://admin-whataboutme.vercel.app");
+    });
+
+    it("honors explicitly configured NEXT_PUBLIC_API_URL when on vercel.app even if host is custom domain", () => {
+      Object.defineProperty(globalThis, "window", {
+        value: {
+          location: {
+            hostname: "admin-whataboutme.vercel.app",
+            origin: "https://admin-whataboutme.vercel.app",
+          },
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      process.env.NEXT_PUBLIC_API_URL = "https://api.whatboutme.com";
+      expect(getApiBaseUrl()).toBe("https://api.whatboutme.com");
+    });
+
     it("resolves local development ports on localhost", () => {
       Object.defineProperty(globalThis, "window", {
         value: {

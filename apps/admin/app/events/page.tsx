@@ -5,6 +5,7 @@ import Link from "next/link";
 import styles from "./events.module.css";
 import {
   API_URL,
+  getMarketingUrl,
   type EventItem,
   type EventLocationType,
   type CurrencyCode,
@@ -296,12 +297,7 @@ export default function EventsAdminPage() {
   };
 
   const handleCopyShareLink = async (evt: EventItem) => {
-    const origin =
-      typeof window !== "undefined"
-        ? window.location.origin.includes("3002")
-          ? window.location.origin.replace("3002", "3000")
-          : window.location.origin
-        : "https://whatboutme.com";
+    const origin = getMarketingUrl();
     const shareUrl = `${origin}/events/${evt.slug || evt.id}`;
 
     if (navigator.share) {

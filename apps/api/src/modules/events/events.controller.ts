@@ -34,6 +34,12 @@ export class EventsController {
   }
 
   @Public()
+  @Get('ticket/:regId')
+  getTicketDetails(@Param('regId') regId: string) {
+    return this.eventsService.getTicketDetails(regId);
+  }
+
+  @Public()
   @Get(':idOrSlug')
   getEvent(@Param('idOrSlug') idOrSlug: string, @Req() req: any) {
     const userId = req.user?.id || req.user?.userId || req.user?.sub;

@@ -869,26 +869,15 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
           amount: selectedPoolForPayment.netAmount,
         });
 
-        // Step 2A: Live Stripe Hosted Checkout Session
-        if (checkoutRes?.checkoutUrl && !checkoutRes?.simulationBypass) {
-          toast.info("Redirecting to secure Stripe Checkout...", "Stripe Gateway");
+        // Step 2: Redirect to Authoritative Checkout (Stripe Hosted or Server-Side Simulation)
+        if (checkoutRes?.checkoutUrl) {
+          toast.info("Redirecting to secure checkout...", "Payment Gateway");
           window.location.href = checkoutRes.checkoutUrl;
           return;
         }
 
-        // Step 2B: Fallback Test Bypass Mode
-        await apiPost("/payments/webhook/test-simulate", {
-          targetType: "SEAT_POOL",
-          targetId: selectedPoolForPayment.id,
-          poolId: selectedPoolForPayment.id,
-          status: "PAID",
-          amount: selectedPoolForPayment.netAmount,
-          currency: selectedPoolForPayment.currency,
-          stripeSessionId: checkoutRes?.orderId || `sim_cs_${Date.now()}`,
-        });
-
         toast.success(
-          `⚡ Payment confirmed! ${selectedPoolForPayment.totalSeats} student seats are now unlocked and active.`,
+          `Payment confirmed! ${selectedPoolForPayment.totalSeats} student seats are now unlocked and active.`,
           "Payment Successful"
         );
       } else {

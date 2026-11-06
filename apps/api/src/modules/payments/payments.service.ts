@@ -573,6 +573,43 @@ export class PaymentsService {
       }
     }
 
+    if (orderResult.simulationBypass) {
+      const simulatedSessionId = orderResult.orderId;
+      await this.simulateTestWebhook({
+        targetType: dto.targetType,
+        targetId: dto.targetId,
+        enrolmentId: targetEnrolmentId,
+        poolId: (pricing as any).poolId,
+        status: 'PAID',
+        amount: finalAmount,
+        currency: pricing.currency,
+        couponCode: cleanCouponCode,
+        idempotencyKey: dto.idempotencyKey || `idem_${simulatedSessionId}`,
+        stripeSessionId: simulatedSessionId,
+      });
+
+      const { lmsUrl, marketingUrl, adminUrl } = getAppUrls();
+      let simulatedRedirectUrl: string;
+      if (dto.targetType === 'SEAT_POOL') {
+        const poolOrgId = (pricing as any).organizationId;
+        const targetPoolId = (pricing as any).poolId || dto.targetId;
+        simulatedRedirectUrl = `${adminUrl}/users/organizations/${poolOrgId}?tab=pools&paid=1&session_id=${simulatedSessionId}&poolId=${targetPoolId}`;
+      } else if (dto.targetType === 'EVENT') {
+        simulatedRedirectUrl = `${marketingUrl}/events/${dto.targetId}?session_id=${simulatedSessionId}&registered=1`;
+      } else {
+        simulatedRedirectUrl = `${lmsUrl}/checkout/success?session_id=${simulatedSessionId}`;
+      }
+
+      return {
+        ...orderResult,
+        status: 'PAID',
+        checkoutUrl: simulatedRedirectUrl,
+        title: pricing.title,
+        currencySymbol: getCurrencySymbol(pricing.currency),
+        discountAmount,
+      };
+    }
+
     return {
       ...orderResult,
       title: pricing.title,

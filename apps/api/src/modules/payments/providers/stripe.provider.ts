@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import Stripe from 'stripe';
 import { getAppUrls } from '../../../common/config/app-urls.js';
 import {
@@ -50,23 +50,12 @@ export class StripePaymentProvider implements IPaymentProvider {
     const stripe = this.getStripe();
 
     if (!stripe) {
-      this.logger.warn(
-        '[StripeProvider] Stripe not initialized. Falling back to test emulation order.'
+      this.logger.error(
+        '[StripeProvider] Stripe SDK is not initialized. Ensure STRIPE_SECRET_KEY is configured in .env',
       );
-      const orderId = `cs_test_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
-      return {
-        provider: this.providerType,
-        orderId,
-        amount: params.amount,
-        currency: params.currency,
-        status: 'PENDING',
-        simulationBypass: true,
-        clientSecret: `mock_secret_${orderId}`,
-        metadata: {
-          ...params.metadata,
-          idempotencyKey: params.idempotencyKey,
-        },
-      };
+      throw new ServiceUnavailableException(
+        'Stripe payment gateway is currently unavailable. Please contact support or configure payment credentials.',
+      );
     }
 
     try {

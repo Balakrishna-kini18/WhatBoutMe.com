@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { BadRequestException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, UnauthorizedException, ServiceUnavailableException } from '@nestjs/common';
 import { PaymentsController } from '../src/modules/payments/payments.controller.js';
 import { PaymentsService } from '../src/modules/payments/payments.service.js';
 import { StripePaymentProvider } from '../src/modules/payments/providers/stripe.provider.js';
@@ -259,6 +259,25 @@ describe('Payment Gateway P0/P1 Security Specification Suite', () => {
           isSimulated: true,
         }),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // =========================================================================
+  // 5. Fail-Closed Stripe Provider on Missing SDK / Key (Finding 6)
+  // =========================================================================
+  describe('Finding 6: Fail-Closed Stripe Provider on Missing SDK / Key', () => {
+    it('throws ServiceUnavailableException on createOrder when Stripe is not initialized', async () => {
+      delete process.env.STRIPE_SECRET_KEY;
+      const provider = new StripePaymentProvider();
+
+      await expect(
+        provider.createOrder({
+          amount: 100,
+          currency: 'USD',
+          targetType: 'ENROLMENT',
+          targetId: 'prog-1',
+        }),
+      ).rejects.toThrow(ServiceUnavailableException);
     });
   });
 });

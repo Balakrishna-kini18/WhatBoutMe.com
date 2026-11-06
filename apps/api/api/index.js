@@ -47,6 +47,7 @@ const AUTO_SERVERLESS = Boolean(
   process.env.K_SERVICE
 );
 if (AUTO_SERVERLESS && process.env.WORKER_MODE !== 'true') {
+  process.env.VERCEL = process.env.VERCEL || '1';
   process.env.NODE_ENV = process.env.NODE_ENV || 'production';
   // Tag for downstream modules (api.ts, prisma.service, redis.*, queue.module).
   // Keeps the existing !WORKER_MODE == serverless convention intact.
@@ -110,19 +111,25 @@ export default async function (req, res) {
     req.originalUrl = req.url;
   } catch {}
 
-  // Final 11s outer hard-stop (Vercel Hobby hard limit 10s).  If nothing else
+  // Final outer hard-stop matching Vercel maxDuration. If nothing else
   // fires, this guarantees we write at least SOMETHING before Vercel kills us.
+  const configuredOuterLimit = Number(process.env.OUTER_SAFETY_LIMIT_MS);
+  const OUTER_LIMIT_MS =
+    Number.isFinite(configuredOuterLimit) && configuredOuterLimit > 0
+      ? configuredOuterLimit
+      : 58000;
+
   let outerFinished = false;
   const outerHardStop = setTimeout(() => {
     if (outerFinished) return;
     outerFinished = true;
-    console.error('VERCEL ENTRY: outer 11s hard-stop fired (nothing else responded).');
+    console.error(`VERCEL ENTRY: outer ${OUTER_LIMIT_MS}ms hard-stop fired (nothing else responded).`);
     writeJson(res, 504, {
       statusCode: 504,
       error: 'Serverless Gateway Timeout',
       message: 'Outer entry safety limit exceeded before Nest could respond.',
     });
-  }, 11000);
+  }, OUTER_LIMIT_MS);
   if (outerHardStop && outerHardStop.unref) outerHardStop.unref();
 
   try {
@@ -207,7 +214,7 @@ export default async function (req, res) {
     // If it somehow returned without ending the response (shouldn't happen, but
     // if Nest/Express leaks) wait up to 250ms for res.end; otherwise force-end.
     const waitForEndMs = 250;
-    const endWaitUntil = innerStart + 10500; // never wait past Vercel limit
+    const endWaitUntil = innerStart + OUTER_LIMIT_MS; // never wait past Vercel limit
     const pollEndDeadline = Math.min(Date.now() + waitForEndMs, endWaitUntil);
     while (Date.now() < pollEndDeadline && !(res.writableEnded || res.headersSent && res.finished)) {
       await new Promise(r => setTimeout(r, 10));

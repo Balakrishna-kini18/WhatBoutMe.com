@@ -1,3 +1,7 @@
+import { EventTicketEmail } from './templates/lms/EventTicketEmail.js';
+import { CorporateSeatInviteEmail } from './templates/lms/CorporateSeatInviteEmail.js';
+import { LeadCheckoutLinkEmail } from './templates/lms/LeadCheckoutLinkEmail.js';
+import { BroadcastAnnouncementEmail } from './templates/lms/BroadcastAnnouncementEmail.js';
 import { render } from '@react-email/render';
 import * as React from 'react';
 
@@ -66,8 +70,21 @@ export async function renderEmailTemplate(template: string, props: any): Promise
     case 'PaymentSuccessEmail':
       templateComponent = React.createElement(PaymentSuccessEmail, props);
       break;
+    case 'EventTicketEmail':
+      templateComponent = React.createElement(EventTicketEmail, props);
+      break;
+    case 'CorporateSeatInviteEmail':
+      templateComponent = React.createElement(CorporateSeatInviteEmail, props);
+      break;
+    case 'LeadCheckoutLinkEmail':
+      templateComponent = React.createElement(LeadCheckoutLinkEmail, props);
+      break;
     case 'LeadEnquiryNotificationEmail':
       templateComponent = React.createElement(LeadEnquiryNotificationEmail, props);
+      break;
+        case 'BroadcastAnnouncementEmail':
+    case 'BroadcastAnnouncement':
+      templateComponent = React.createElement(BroadcastAnnouncementEmail, props);
       break;
     default:
       throw new Error(`Unknown email template: ${template}`);

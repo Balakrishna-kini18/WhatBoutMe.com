@@ -4,6 +4,7 @@ import { Type } from 'class-transformer';
 import webpush from 'web-push';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { EmailService } from '../email/email.service.js';
+import { renderEmailTemplate } from '../email/template-renderer.js';
 import { AuditLogService } from '../../common/audit/audit-log.service.js';
 import { DeliveryStatus, NotificationChannel, Role, EnrolmentStatus } from '@prisma/client';
 
@@ -522,88 +523,105 @@ export class NotificationsService {
     let pushCount = 0;
     let emailCount = 0;
 
-    for (const recipient of recipients) {
-      const prefs = (recipient.notificationPreferences as NotificationPreferencesDto) || {};
+    // Pre-render master HTML template once for high throughput and zero Vercel timeout risk
+    let preRenderedHtml: string | null = null;
+    let emailAttachments: any = undefined;
 
-      // 1. IN_APP Channel
-      if (dto.channels.includes('IN_APP')) {
-        let inAppBody = dto.message;
-        if (dto.attachments && dto.attachments.length > 0) {
-          inAppBody += `\n\n📎 Attached files: ${dto.attachments.map((a) => a.filename).join(', ')}`;
-        }
-
-        await this.createInAppNotification({
-          userId: recipient.id,
-          title: dto.title,
-          message: inAppBody,
-          link: dto.link,
-          type: 'BROADCAST_ANNOUNCEMENT',
-          template: 'BroadcastAnnouncement',
-          channel: NotificationChannel.IN_APP,
+    if (dto.channels.includes('EMAIL') && this.emailService) {
+      if (dto.attachments && dto.attachments.length > 0) {
+        emailAttachments = dto.attachments.map((att) => {
+          const base64Data = att.content.includes('base64,')
+            ? att.content.split('base64,')[1]
+            : att.content;
+          return {
+            filename: att.filename,
+            content: Buffer.from(base64Data, 'base64'),
+            contentType: att.contentType,
+          };
         });
-        inAppCount++;
       }
 
-      // 2. PUSH Channel (respects marketingPush preference unless targeted directly)
-      if (dto.channels.includes('PUSH')) {
-        if (dto.target === 'USER' || prefs.marketingPush !== false) {
-          const sent = await this.sendPushToUser(recipient.id, {
-            title: dto.title,
-            body: dto.message,
-            url: dto.link || '/',
-            tag: `broadcast-${Date.now()}`,
-          });
-          if (sent > 0) pushCount += sent;
+      try {
+        let batchName: string | undefined = undefined;
+        if (dto.target === 'BATCH' && dto.targetId) {
+          const b = await this.prisma.batch.findUnique({ where: { id: dto.targetId }, select: { name: true } });
+          batchName = b?.name;
         }
+        preRenderedHtml = await renderEmailTemplate('BroadcastAnnouncementEmail', {
+          firstName: 'there',
+          title: dto.title,
+          message: dto.message,
+          link: dto.link,
+          batchName,
+        });
+      } catch (err: any) {
+        this.logger.warn(`Failed to pre-render broadcast email: ${err.message}`);
       }
+    }
 
-      // 3. EMAIL Channel
-      if (dto.channels.includes('EMAIL') && this.emailService) {
-        try {
-          const emailAttachments = dto.attachments && dto.attachments.length > 0
-            ? dto.attachments.map((att) => {
-                const base64Data = att.content.includes('base64,')
-                  ? att.content.split('base64,')[1]
-                  : att.content;
-                return {
-                  filename: att.filename,
-                  content: Buffer.from(base64Data, 'base64'),
-                  contentType: att.contentType,
-                };
-              })
-            : undefined;
+    // Process recipients in concurrent batches of 15 to eliminate serverless timeout risks
+    const CHUNK_SIZE = 15;
+    for (let i = 0; i < recipients.length; i += CHUNK_SIZE) {
+      const chunk = recipients.slice(i, i + CHUNK_SIZE);
 
-          await this.emailService.sendEmail({
-            to: recipient.email,
-            subject: dto.title,
-            html: `
-              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#ffffff;border:1px solid #fae8ce;border-radius:12px;">
-                <div style="margin-bottom:20px;border-bottom:2px solid #f6ad55;padding-bottom:12px;">
-                  <span style="font-size:12px;font-weight:700;color:#c05621;letter-spacing:0.08em;text-transform:uppercase;">WhatBoutMe Announcement</span>
-                  <h1 style="font-size:22px;color:#1a202c;margin:8px 0 0;line-height:1.3;">${dto.title}</h1>
-                </div>
-                <div style="font-size:15px;line-height:1.6;color:#2d3748;white-space:pre-wrap;margin-bottom:24px;">
-                  ${dto.message}
-                </div>
-                ${
-                  dto.link
-                    ? `<div style="margin:24px 0;"><a href="${dto.link}" style="display:inline-block;background:#e06d28;color:#ffffff;padding:12px 24px;border-radius:8px;font-weight:700;text-decoration:none;font-size:14px;">Open Details</a></div>`
-                    : ''
-                }
-                <hr style="border:none;border-top:1px solid #edf2f7;margin:28px 0 16px;" />
-                <p style="font-size:12px;color:#718096;margin:0;">
-                  WhatBoutMe FZE • Continuous Healthcare & Clinical Learning
-                </p>
-              </div>
-            `,
-            text: `${dto.title}\n\n${dto.message}${dto.link ? `\n\nLink: ${dto.link}` : ''}`,
-            attachments: emailAttachments,
-          });
-          emailCount++;
-        } catch (err: any) {
-          this.logger.warn(`Failed to email broadcast to ${recipient.email}: ${err.message}`);
-        }
-      }
+      await Promise.allSettled(
+        chunk.map(async (recipient) => {
+          const prefs = (recipient.notificationPreferences as NotificationPreferencesDto) || {};
+
+          // 1. IN_APP Channel
+          if (dto.channels.includes('IN_APP')) {
+            let inAppBody = dto.message;
+            if (dto.attachments && dto.attachments.length > 0) {
+              inAppBody += `\n\n📎 Attached files: ${dto.attachments.map((a) => a.filename).join(', ')}`;
+            }
+
+            await this.createInAppNotification({
+              userId: recipient.id,
+              title: dto.title,
+              message: inAppBody,
+              link: dto.link,
+              type: 'BROADCAST_ANNOUNCEMENT',
+              template: 'BroadcastAnnouncement',
+              channel: NotificationChannel.IN_APP,
+            });
+            inAppCount++;
+          }
+
+          // 2. PUSH Channel
+          if (dto.channels.includes('PUSH')) {
+            if (dto.target === 'USER' || prefs.marketingPush !== false) {
+              const sent = await this.sendPushToUser(recipient.id, {
+                title: dto.title,
+                body: dto.message,
+                url: dto.link || '/',
+                tag: `broadcast-${Date.now()}`,
+              });
+              if (sent > 0) pushCount += sent;
+            }
+          }
+
+          // 3. EMAIL Channel (Concurrently dispatched with personalized pre-rendered layout)
+          if (dto.channels.includes('EMAIL') && this.emailService) {
+            try {
+              const recipientFirstName = recipient.name?.split(' ')[0] || 'there';
+              const personalizedHtml = preRenderedHtml
+                ? preRenderedHtml.replace('Hi there,', `Hi ${recipientFirstName},`)
+                : undefined;
+
+              await this.emailService.sendEmail({
+                to: recipient.email,
+                subject: dto.title,
+                html: personalizedHtml || preRenderedHtml || undefined,
+                text: `${dto.title}\n\n${dto.message}${dto.link ? `\n\nLink: ${dto.link}` : ''}`,
+                attachments: emailAttachments,
+              });
+              emailCount++;
+            } catch (err: any) {
+              this.logger.warn(`Failed to email broadcast to ${recipient.email}: ${err.message}`);
+            }
+          }
+        }),
+      );
     }
 
     // Mandatory Audit Logging

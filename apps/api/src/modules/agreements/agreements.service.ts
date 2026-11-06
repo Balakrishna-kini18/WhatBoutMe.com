@@ -1303,6 +1303,7 @@ export class AgreementsService {
           where: { enrolmentId: enrolment.id },
         });
         if (linkedSeat && linkedSeat.status !== 'CONSUMED') {
+          const wasAssigned = linkedSeat.status === 'ASSIGNED';
           await (tx as any).seat.update({
             where: { id: linkedSeat.id },
             data: {
@@ -1315,6 +1316,7 @@ export class AgreementsService {
               where: { id: linkedSeat.seatPoolId },
               data: {
                 seatsConsumed: { increment: 1 },
+                ...(wasAssigned ? { seatsAssigned: { decrement: 1 } } : {}),
               },
             });
           }

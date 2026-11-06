@@ -53,6 +53,7 @@ export class AdminOrganizationsController {
     @Request() req: any,
     @Query('search') search?: string,
     @Query('status') status?: any,
+    @Query('orgType') orgType?: any,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
@@ -62,7 +63,7 @@ export class AdminOrganizationsController {
       user?.email === 'roweenam@gmail.com';
 
     if (user?.role === Role.SUPER_ADMIN || user?.role === Role.ADMIN || isFoxwelStaff) {
-      return this.orgsService.listOrganizations({ search, status, page, limit });
+      return this.orgsService.listOrganizations({ search, status, orgType, page, limit });
     }
 
     // Organization partner fallback: return their scoped organization rather than 403 Forbidden

@@ -202,7 +202,7 @@ export default function VolumePricingModal({
         >
           <div>
             <div style={{ fontWeight: 700, fontSize: "0.9rem", color: formData.enabled ? "#166534" : "#475569" }}>
-              {formData.enabled ? "✓ Volume Discounts Active" : "Volume Discounts Disabled"}
+              {formData.enabled ? "Volume Discounts Active" : "Volume Discounts Disabled"}
             </div>
             <div style={{ fontSize: "0.76rem", color: "#64748b", marginTop: "2px" }}>
               When enabled, organizations booking course slots receive automatic tiered discounts.

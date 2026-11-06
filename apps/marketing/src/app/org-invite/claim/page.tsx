@@ -65,13 +65,13 @@ function OrgInviteClaimContent() {
       // 1. If user is not signed in, create account or sign in first
       if (!activeToken) {
         if (isNewUser) {
-          // Quick register
-          const registerRes = await fetch(`${API_BASE_URL}/auth/register`, {
+          // Quick register / signup
+          const registerRes = await fetch(`${API_BASE_URL}/auth/signup`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              fullName,
-              email,
+              name: fullName.trim() || email.split("@")[0],
+              email: email.trim().toLowerCase(),
               password,
             }),
           });

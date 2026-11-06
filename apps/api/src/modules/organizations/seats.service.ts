@@ -1181,8 +1181,9 @@ export class SeatsService {
       await tx.seatPool.update({
         where: { id: seat.seatPoolId },
         data: {
-          seatsConsumed: { decrement: seat.status === SeatStatus.CONSUMED ? 1 : 0 },
-          seatsAssigned: { decrement: 1 },
+          ...(seat.status === SeatStatus.CONSUMED
+            ? { seatsConsumed: { decrement: 1 } }
+            : { seatsAssigned: { decrement: 1 } }),
           seatsAvailable: { increment: 1 },
         },
       });

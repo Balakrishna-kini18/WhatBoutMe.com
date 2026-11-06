@@ -21,6 +21,7 @@ import { WebsiteModule } from './modules/website/website.module.js';
 import { CloudinaryModule } from './modules/cloudinary/cloudinary.module.js';
 import { QueueModule } from './modules/queue/queue.module.js';
 import { RedisGlobalModule } from './common/redis/redis.module.js';
+import { RedisService } from './common/redis/redis.service.js';
 import { EmailModule } from './modules/email/email.module.js';
 import { ZoomModule } from './modules/zoom/zoom.module.js';
 import { RealtimeModule } from './modules/realtime/realtime.module.js';
@@ -63,7 +64,8 @@ import { RedisThrottlerStorage } from './common/throttler/redis-throttler.storag
     }),
     PrismaModule,
     ThrottlerModule.forRootAsync({
-      useFactory: () => ({
+      inject: [RedisService],
+      useFactory: (redisService?: RedisService) => ({
         throttlers: [
           {
             name: 'default',
@@ -71,10 +73,10 @@ import { RedisThrottlerStorage } from './common/throttler/redis-throttler.storag
             limit: 300, // 300 reqs / min; three apps share one address in an office
           }
         ],
-        // Shared Redis counter when configured; otherwise the built-in in-memory
-        // counter, so the API still runs locally without external Redis credentials.
+        // Share the singleton RedisService connection when configured so serverless
+        // instances do not open duplicate Redis sockets per cold start.
         storage: process.env.REDIS_URL || process.env.REDIS_HOST
-          ? (new RedisThrottlerStorage() as any)
+          ? (new RedisThrottlerStorage(redisService?.getClient()) as any)
           : undefined,
       }),
     }),

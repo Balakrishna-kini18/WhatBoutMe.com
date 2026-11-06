@@ -131,20 +131,34 @@ export class EmailService {
           jobOptions.jobId = `email:${options.idempotencyKey}`;
         }
 
-        const job = await this.emailQueue.add(
-          'send-email',
-          {
-            to: options.to,
-            subject: options.subject,
-            template: options.template,
-            props: options.props,
-            replyTo: options.replyTo,
-            from: options.from,
-          },
-          jobOptions,
-        );
-        this.logger.log(`Enqueued email job ${job.id} (${options.template})`);
-        return { jobId: job.id };
+        let timer: NodeJS.Timeout | undefined;
+        try {
+          const enqueuePromise = this.emailQueue.add(
+            'send-email',
+            {
+              to: options.to,
+              subject: options.subject,
+              template: options.template,
+              props: options.props,
+              replyTo: options.replyTo,
+              from: options.from,
+            },
+            jobOptions,
+          );
+          enqueuePromise.catch(() => undefined);
+
+          const job = await Promise.race([
+            enqueuePromise,
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new Error('BullMQ email enqueue timed out (400ms)')), 400);
+              if (typeof timer.unref === 'function') timer.unref();
+            }),
+          ]);
+          this.logger.log(`Enqueued email job ${job.id} (${options.template})`);
+          return { jobId: job.id };
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
       } catch (err: any) {
         this.logger.warn(
           `Failed to enqueue email (${options.template}) to BullMQ, falling back to direct delivery: ${err.message}`,

@@ -57,17 +57,54 @@ export default function LearnerDashboardPage() {
         return;
       }
 
+      let hasCachedProfile = false;
       if (isInitial) {
-        setLoading(true);
+        try {
+          const cachedRaw = localStorage.getItem("user");
+          if (cachedRaw) {
+            const parsed = JSON.parse(cachedRaw);
+            if (parsed && typeof parsed === "object" && parsed.id) {
+              setUser({
+                ...parsed,
+                enrolledPrograms: Array.isArray(parsed.enrolledPrograms)
+                  ? parsed.enrolledPrograms
+                  : [],
+                upcomingSessions: Array.isArray(parsed.upcomingSessions)
+                  ? parsed.upcomingSessions
+                  : [],
+              });
+              hasCachedProfile = true;
+              setLoading(false);
+            }
+          }
+        } catch {
+          // Ignore malformed cached user JSON
+        }
+        if (!hasCachedProfile) {
+          setLoading(true);
+        }
       }
 
       let currentToken = token;
       let authHeaders = { Authorization: `Bearer ${currentToken}` };
 
       try {
-        let res = await fetch(`${API_URL}/auth/me`, {
+        // Fire profile, attendance, and certificates concurrently to eliminate sequential waterfall
+        const mePromise = fetch(`${API_URL}/auth/me`, {
           headers: authHeaders,
         });
+        const attendancePromise = fetch(`${API_URL}/me/attendance`, {
+          headers: authHeaders,
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null);
+        const certificatesPromise = fetch(`${API_URL}/certificates/mine`, {
+          headers: authHeaders,
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null);
+
+        let res = await mePromise;
 
         if (res.status === 401) {
           const refreshToken = localStorage.getItem("refresh_token");
@@ -88,7 +125,7 @@ export default function LearnerDashboardPage() {
                 return;
               }
             } else if (renewed === null) {
-              if (isInitial) setLoadError(true);
+              if (isInitial && !hasCachedProfile) setLoadError(true);
               return;
             } else {
               localStorage.removeItem("token");
@@ -104,35 +141,46 @@ export default function LearnerDashboardPage() {
         }
 
         if (!res.ok) {
-          if (isInitial) setLoadError(true);
+          if (isInitial && !hasCachedProfile) setLoadError(true);
           return;
         }
 
         const profile: UserProfile = await res.json();
         setUser(profile);
+        setLoadError(false);
+        try {
+          localStorage.setItem("user", JSON.stringify(profile));
+        } catch {
+          // Ignore storage quota errors
+        }
 
-        // Fetch attendance summary and certificates concurrently
-        const attendancePromise = fetch(`${API_URL}/me/attendance`, {
-          headers: authHeaders,
-        })
-          .then((r) => (r.ok ? r.json() : null))
-          .catch(() => null);
-
-        const certificatesPromise = fetch(`${API_URL}/certificates/mine`, {
-          headers: authHeaders,
-        })
-          .then((r) => (r.ok ? r.json() : []))
-          .catch(() => []);
-
-        const [attData, certs] = await Promise.all([
+        let [attData, certs] = await Promise.all([
           attendancePromise,
           certificatesPromise,
         ]);
 
+        // If token was rotated during 401 recovery, re-fetch attendance/certificates with fresh token
+        if (currentToken !== token && (!attData || !certs)) {
+          const [retryAtt, retryCerts] = await Promise.all([
+            attData
+              ? Promise.resolve(attData)
+              : fetch(`${API_URL}/me/attendance`, { headers: authHeaders })
+                  .then((r) => (r.ok ? r.json() : null))
+                  .catch(() => null),
+            certs
+              ? Promise.resolve(certs)
+              : fetch(`${API_URL}/certificates/mine`, { headers: authHeaders })
+                  .then((r) => (r.ok ? r.json() : []))
+                  .catch(() => []),
+          ]);
+          attData = retryAtt;
+          certs = retryCerts;
+        }
+
         if (attData) setAttendanceSummary(attData);
         setCertificates(certs || []);
       } catch {
-        if (isInitial) setLoadError(true);
+        if (isInitial && !hasCachedProfile) setLoadError(true);
       } finally {
         if (isInitial) setLoading(false);
       }
@@ -197,7 +245,10 @@ export default function LearnerDashboardPage() {
             type="button"
             className={styles.continueCourseBtn}
             style={{ width: "auto", display: "inline-flex", padding: "0 24px" }}
-            onClick={() => window.location.reload()}
+            onClick={() => {
+              setLoadError(false);
+              loadDashboard(true);
+            }}
           >
             Try Again
           </button>

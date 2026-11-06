@@ -77,34 +77,51 @@ export class SessionLifecycleService {
     const startMs = new Date(session.startTime).getTime();
     const endMs = new Date(session.endTime).getTime();
 
+    const enqueueBounded = async (name: string, payload: any, opts: any, label: string): Promise<boolean> => {
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        const p = Promise.resolve().then(() => this.lifecycleQueue!.add(name, payload, opts));
+        p.catch(() => undefined);
+        await Promise.race([
+          p,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error('BullMQ lifecycle enqueue timed out (400ms)')), 400);
+            if (typeof timer.unref === 'function') timer.unref();
+          }),
+        ]);
+        return true;
+      } catch (err: any) {
+        this.logger.warn(`Failed scheduling ${label} for ${session.id}: ${err.message}`);
+        return false;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
     // 1. Activation job at startTime
     if (startMs > now) {
       const delay = Math.max(0, startMs - now);
       const jobId = `session-activate:${session.id}:${version}`;
-      try {
-        await this.lifecycleQueue.add(
-          'activate-session',
-          { sessionId: session.id, version },
-          { jobId, delay, removeOnComplete: { count: 100, age: 86400 }, removeOnFail: { count: 200, age: 7 * 86400 } },
-        );
-      } catch (err: any) {
-        this.logger.warn(`Failed scheduling session-activate for ${session.id}: ${err.message}`);
-      }
+      const ok = await enqueueBounded(
+        'activate-session',
+        { sessionId: session.id, version },
+        { jobId, delay, removeOnComplete: { count: 100, age: 86400 }, removeOnFail: { count: 200, age: 7 * 86400 } },
+        'session-activate',
+      );
+      if (!ok) return; // Bail early if Redis queue is unreachable so we don't stall 5x sequentially
     }
 
     // 2. Completion job at endTime
     if (endMs > now) {
       const delay = Math.max(0, endMs - now);
       const jobId = `session-complete:${session.id}:${version}`;
-      try {
-        await this.lifecycleQueue.add(
-          'complete-session',
-          { sessionId: session.id, version },
-          { jobId, delay, removeOnComplete: { count: 100, age: 86400 }, removeOnFail: { count: 200, age: 7 * 86400 } },
-        );
-      } catch (err: any) {
-        this.logger.warn(`Failed scheduling session-complete for ${session.id}: ${err.message}`);
-      }
+      const ok = await enqueueBounded(
+        'complete-session',
+        { sessionId: session.id, version },
+        { jobId, delay, removeOnComplete: { count: 100, age: 86400 }, removeOnFail: { count: 200, age: 7 * 86400 } },
+        'session-complete',
+      );
+      if (!ok) return;
     }
 
     // 3. 24-hour reminder
@@ -112,15 +129,13 @@ export class SessionLifecycleService {
     if (time24h > now) {
       const delay = Math.max(0, time24h - now);
       const jobId = `session-reminder-24h:${session.id}:${version}`;
-      try {
-        await this.lifecycleQueue.add(
-          'session-reminder-24h',
-          { sessionId: session.id, version, timeframe: '24 hours' },
-          { jobId, delay, removeOnComplete: { count: 100, age: 86400 }, removeOnFail: { count: 200, age: 7 * 86400 } },
-        );
-      } catch (err: any) {
-        this.logger.warn(`Failed scheduling session-reminder-24h for ${session.id}: ${err.message}`);
-      }
+      const ok = await enqueueBounded(
+        'session-reminder-24h',
+        { sessionId: session.id, version, timeframe: '24 hours' },
+        { jobId, delay, removeOnComplete: { count: 100, age: 86400 }, removeOnFail: { count: 200, age: 7 * 86400 } },
+        'session-reminder-24h',
+      );
+      if (!ok) return;
     }
 
     // 4. 1-hour reminder
@@ -128,15 +143,13 @@ export class SessionLifecycleService {
     if (time1h > now) {
       const delay = Math.max(0, time1h - now);
       const jobId = `session-reminder-1h:${session.id}:${version}`;
-      try {
-        await this.lifecycleQueue.add(
-          'session-reminder-1h',
-          { sessionId: session.id, version, timeframe: '1 hour' },
-          { jobId, delay, removeOnComplete: { count: 100, age: 86400 }, removeOnFail: { count: 200, age: 7 * 86400 } },
-        );
-      } catch (err: any) {
-        this.logger.warn(`Failed scheduling session-reminder-1h for ${session.id}: ${err.message}`);
-      }
+      const ok = await enqueueBounded(
+        'session-reminder-1h',
+        { sessionId: session.id, version, timeframe: '1 hour' },
+        { jobId, delay, removeOnComplete: { count: 100, age: 86400 }, removeOnFail: { count: 200, age: 7 * 86400 } },
+        'session-reminder-1h',
+      );
+      if (!ok) return;
     }
 
     // 5. 10-minute reminder
@@ -144,15 +157,12 @@ export class SessionLifecycleService {
     if (time10m > now) {
       const delay = Math.max(0, time10m - now);
       const jobId = `session-reminder-10m:${session.id}:${version}`;
-      try {
-        await this.lifecycleQueue.add(
-          'session-reminder-10m',
-          { sessionId: session.id, version, timeframe: '10 minutes' },
-          { jobId, delay, removeOnComplete: { count: 100, age: 86400 }, removeOnFail: { count: 200, age: 7 * 86400 } },
-        );
-      } catch (err: any) {
-        this.logger.warn(`Failed scheduling session-reminder-10m for ${session.id}: ${err.message}`);
-      }
+      await enqueueBounded(
+        'session-reminder-10m',
+        { sessionId: session.id, version, timeframe: '10 minutes' },
+        { jobId, delay, removeOnComplete: { count: 100, age: 86400 }, removeOnFail: { count: 200, age: 7 * 86400 } },
+        'session-reminder-10m',
+      );
     }
   }
 
@@ -176,14 +186,26 @@ export class SessionLifecycleService {
     let removedCount = 0;
     for (const prefix of prefixes) {
       const jobId = `${prefix}:${sessionId}:${version}`;
+      let timer: NodeJS.Timeout | undefined;
       try {
-        const job = await this.lifecycleQueue.getJob(jobId);
+        const getJobPromise = Promise.resolve().then(() => this.lifecycleQueue!.getJob(jobId));
+        getJobPromise.catch(() => undefined);
+        const job = await Promise.race([
+          getJobPromise,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error('BullMQ getJob timed out (400ms)')), 400);
+            if (typeof timer.unref === 'function') timer.unref();
+          }),
+        ]);
         if (job && typeof job.remove === 'function') {
           await job.remove();
           removedCount++;
         }
       } catch (err: any) {
         this.logger.warn(`Could not remove superseded delayed job ${jobId}: ${err?.message || err}`);
+        break;
+      } finally {
+        if (timer) clearTimeout(timer);
       }
     }
 

@@ -29,6 +29,11 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
   private redis: Redis | null = null;
   private readonly memoryFallback = new ThrottlerStorageService();
   private readonly prefix: string;
+  private redisCircuitOpenUntil = 0;
+  private redisConnecting = false;
+  private lastWarnTime = 0;
+  private static readonly REDIS_OP_TIMEOUT_MS = 250;
+  private static readonly REDIS_CIRCUIT_COOLDOWN_MS = 20000;
 
   // Atomic Lua script: evaluates hits, sets TTL on first hit, and manages blocking
   private static readonly LUA_INCREMENT = `
@@ -127,6 +132,33 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
   }
 
   /**
+   * Non-blocking readiness & circuit-breaker check so ThrottlerGuard never stalls HTTP traffic.
+   */
+  private canUseRedis(): boolean {
+    if (!this.redis) return false;
+    if (Date.now() < this.redisCircuitOpenUntil) return false;
+
+    const status = (this.redis as any).status;
+    if (status === undefined || status === 'ready') {
+      return true;
+    }
+
+    if (status === 'wait' && !this.redisConnecting && typeof (this.redis as any).connect === 'function') {
+      this.redisConnecting = true;
+      (this.redis as any)
+        .connect()
+        .catch(() => {
+          this.redisCircuitOpenUntil = Date.now() + RedisThrottlerStorage.REDIS_CIRCUIT_COOLDOWN_MS;
+        })
+        .finally(() => {
+          this.redisConnecting = false;
+        });
+    }
+
+    return false;
+  }
+
+  /**
    * Atomic increment conforming to @nestjs/throttler ThrottlerStorage contract.
    */
   async increment(
@@ -136,7 +168,7 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
     blockDuration: number,
     throttlerName: string,
   ): Promise<ThrottlerStorageRecord> {
-    if (!this.redis) {
+    if (!this.canUseRedis() || !this.redis) {
       return this.memoryFallback.increment(key, ttl, limit, blockDuration, throttlerName);
     }
 
@@ -144,17 +176,32 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
     const primaryKey = `${this.prefix}:${throttlerName}:${safeKey}`;
     const blockKey = `${primaryKey}:blocked`;
 
+    let timer: NodeJS.Timeout | undefined;
     try {
-      // Execute atomic Lua script
-      const result = (await this.redis.eval(
-        RedisThrottlerStorage.LUA_INCREMENT,
-        2,
-        primaryKey,
-        blockKey,
-        ttl.toString(),
-        limit.toString(),
-        blockDuration.toString(),
-      )) as [number, number, number, number];
+      // Execute atomic Lua script with fast 250ms timeout guard
+      const evalPromise = Promise.resolve().then(() =>
+        this.redis!.eval(
+          RedisThrottlerStorage.LUA_INCREMENT,
+          2,
+          primaryKey,
+          blockKey,
+          ttl.toString(),
+          limit.toString(),
+          blockDuration.toString(),
+        ),
+      ) as Promise<[number, number, number, number]>;
+      evalPromise.catch(() => undefined);
+
+      const result = await Promise.race([
+        evalPromise,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`Redis throttler eval timed out after ${RedisThrottlerStorage.REDIS_OP_TIMEOUT_MS}ms`)),
+            RedisThrottlerStorage.REDIS_OP_TIMEOUT_MS,
+          );
+          if (typeof timer.unref === 'function') timer.unref();
+        }),
+      ]);
 
       const totalHits = Number(result[0]);
       const timeToExpire = Math.max(0, Math.ceil(Number(result[1]) / 1000));
@@ -168,10 +215,17 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
         timeToBlockExpire,
       };
     } catch (err: any) {
-      this.logger.warn(
-        `Redis throttler increment failed (falling back to memory): ${err?.message || err}`,
-      );
+      this.redisCircuitOpenUntil = Date.now() + RedisThrottlerStorage.REDIS_CIRCUIT_COOLDOWN_MS;
+      const now = Date.now();
+      if (now - this.lastWarnTime > 15000) {
+        this.lastWarnTime = now;
+        this.logger.warn(
+          `Redis throttler increment failed (falling back to memory): ${err?.message || err}`,
+        );
+      }
       return this.memoryFallback.increment(key, ttl, limit, blockDuration, throttlerName);
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 

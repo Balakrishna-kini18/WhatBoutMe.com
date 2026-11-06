@@ -92,18 +92,23 @@ export class HealthController {
         let timer: NodeJS.Timeout | undefined;
         try {
           const client = this.redisService.getClient();
-          if (
-            client &&
-            (client.status === 'wait' || client.status === 'close' || client.status === 'end')
-          ) {
-            try {
-              await client.connect();
-            } catch {
-              /* handled by ping below */
+          const probePromise = (async () => {
+            if (
+              client &&
+              (client.status === 'wait' || client.status === 'close' || client.status === 'end')
+            ) {
+              try {
+                await client.connect();
+              } catch {
+                /* handled by ping below */
+              }
             }
-          }
+            return await client.ping();
+          })();
+          probePromise.catch(() => undefined);
+
           await Promise.race([
-            client.ping(),
+            probePromise,
             new Promise((_, reject) => {
               timer = setTimeout(() => reject(new Error('timeout')), 1500);
               if (typeof timer.unref === 'function') {

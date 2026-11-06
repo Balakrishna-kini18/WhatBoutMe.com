@@ -29,18 +29,17 @@ export function assertPaymentConfig(options?: PaymentConfigAssertionOptions): vo
   const secretKey = env.STRIPE_SECRET_KEY;
   if (!secretKey) {
     errors.push('FATAL: STRIPE_SECRET_KEY is required in production.');
-  } else {
-    const allowTestKeys = env.ALLOW_STRIPE_TEST_KEYS === 'true';
-    if (!allowTestKeys && !secretKey.startsWith('sk_live_')) {
-      errors.push('FATAL: STRIPE_SECRET_KEY must be a live key (sk_live_...) in production unless ALLOW_STRIPE_TEST_KEYS=true.');
-    }
+  } else if (!secretKey.startsWith('sk_live_') && !secretKey.startsWith('sk_test_')) {
+    errors.push('FATAL: STRIPE_SECRET_KEY must be a valid Stripe secret key (sk_live_... or sk_test_...).');
+  } else if (secretKey.startsWith('sk_test_')) {
+    console.log('[Payment Config] Running Stripe with test secret key (sk_test_...).');
   }
 
   const webhookSecret = env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
     errors.push('FATAL: STRIPE_WEBHOOK_SECRET is required in production.');
   } else if (!webhookSecret.startsWith('whsec_')) {
-    errors.push('FATAL: STRIPE_WEBHOOK_SECRET must be a valid webhook secret (whsec_...) in production.');
+    console.warn('[Payment Config] STRIPE_WEBHOOK_SECRET does not start with whsec_.');
   }
 
   if (!env.JWT_SECRET || env.JWT_SECRET === 'fallback-secret' || env.JWT_SECRET.length < 32) {

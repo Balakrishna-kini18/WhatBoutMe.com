@@ -420,18 +420,36 @@ export default function LiveSessionsPage() {
         method: "POST",
         headers: getAuthHeaders(),
         keepalive: true,
-      }).catch(() => {});
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && data.active === false) {
+            setActiveSessionId(null);
+            try {
+              localStorage.removeItem("active_live_session");
+            } catch {}
+          }
+        })
+        .catch(() => {});
     };
 
     sendHeartbeat();
     const interval = setInterval(sendHeartbeat, 30000); // 30s interval
 
     const handleBeforeUnload = () => {
-      fetch(`${API_URL}/sessions/${activeSessionId}/live-heartbeat`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        keepalive: true,
-      }).catch(() => {});
+      if (activeSessionId) {
+        try {
+          fetch(`${API_URL}/sessions/${activeSessionId}/live-heartbeat`, {
+            method: "POST",
+            headers: {
+              ...getAuthHeaders(),
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ action: "leave" }),
+            keepalive: true,
+          }).catch(() => {});
+        } catch {}
+      }
     };
 
     window.addEventListener("beforeunload", handleBeforeUnload);
@@ -482,7 +500,11 @@ export default function LiveSessionsPage() {
   const handleLeaveLiveSession = useCallback((sessionId: string) => {
     fetch(`${API_URL}/sessions/${sessionId}/live-heartbeat`, {
       method: "POST",
-      headers: getAuthHeaders(),
+      headers: {
+        ...getAuthHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ action: "leave" }),
       keepalive: true,
     }).catch(() => {});
     setActiveSessionId(null);
@@ -837,8 +859,9 @@ export default function LiveSessionsPage() {
                         className={`${styles.calPill} ${isOneOnOne ? styles.calPillCoaching : styles.calPillCohort} ${isBooked ? styles.calPillBooked : ""}`}
                         title={`${evt.title} (${formatTime(new Date(evt.startTime))})`}
                         onClick={() => {
-                          const safeUrl = sanitizeExternalUrl(evt.joinUrl);
+                          const safeUrl = buildLearnerJoinUrl(evt.joinUrl);
                           if (safeUrl) {
+                            handleJoinLiveSession(evt);
                             window.open(safeUrl, "_blank", "noopener,noreferrer");
                           }
                         }}

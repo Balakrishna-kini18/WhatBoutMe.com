@@ -144,23 +144,23 @@ export class CertificateEligibilityService {
     const s5 = stageEval.stages[LearnerStage.STAGE_5_MISSION_STATEMENT];
 
     const unmetRequirements: string[] = [];
-    if (s1.details?.uncompletedStepTitles && s1.details.uncompletedStepTitles.length > 0) {
+    if (!s1.isCompleted && s1.details?.uncompletedStepTitles && s1.details.uncompletedStepTitles.length > 0) {
       unmetRequirements.push(
         `Program steps incomplete: ${s1.details.completedSteps}/${s1.details.totalSteps} completed. Remaining: ${s1.details.uncompletedStepTitles.join(', ')}`,
       );
     }
-    if (s1.details?.unpassedQuizStepTitles && s1.details.unpassedQuizStepTitles.length > 0) {
+    if (!s1.isCompleted && s1.details?.unpassedQuizStepTitles && s1.details.unpassedQuizStepTitles.length > 0) {
       unmetRequirements.push(
         `Step quizzes incomplete: ${s1.details.passedQuizzes}/${s1.details.requiredQuizzes} passed. Missing: ${s1.details.unpassedQuizStepTitles.join(', ')}`,
       );
     }
-    if (s2.details?.examRequired && !s2.details?.examPassed) {
+    if (!s2.isCompleted && s2.details?.examRequired && !s2.details?.examPassed) {
       unmetRequirements.push('Final 50-question exam not passed.');
     }
-    if (s2.details?.oralRequired && !s2.details?.oralPassed) {
+    if (!s2.isCompleted && s2.details?.oralRequired && !s2.details?.oralPassed) {
       unmetRequirements.push('Oral assessment not marked as PASSED.');
     }
-    if (s3.details?.complianceStatus === 'NOT_COMPLIANT') {
+    if (!s3.isCompleted && s3.details?.complianceStatus === 'NOT_COMPLIANT') {
       unmetRequirements.push(
         `Attendance requirement not met: ${Math.round(
           s3.details?.attendancePercentage ?? 0,
@@ -169,12 +169,12 @@ export class CertificateEligibilityService {
         } sessions), minimum threshold is ${s3.details?.thresholdPercent ?? 80}%.`,
       );
     }
-    if (s4.details?.isRequired !== false && !s4.isCompleted) {
+    if (!s4.isCompleted && s4.details?.isRequired !== false) {
       unmetRequirements.push(
-        'Required 1-on-1 coaching session has not been completed.',
+        'Required 1-on-1 closing call has not been completed.',
       );
     }
-    if (s5.details?.isRequired !== false && !s5.isCompleted) {
+    if (!s5.isCompleted && s5.details?.isRequired !== false) {
       unmetRequirements.push(
         'Handwritten mission statement has not been approved.',
       );
@@ -195,13 +195,13 @@ export class CertificateEligibilityService {
       steps: {
         required: s1.details?.totalSteps ?? 0,
         completed: s1.details?.completedSteps ?? 0,
-        isMet: (s1.details?.uncompletedStepTitles?.length ?? 0) === 0,
+        isMet: s1.isCompleted || (s1.details?.uncompletedStepTitles?.length ?? 0) === 0,
         uncompletedStepTitles: s1.details?.uncompletedStepTitles,
       },
       quizzes: {
         required: s1.details?.requiredQuizzes ?? 0,
         passed: s1.details?.passedQuizzes ?? 0,
-        isMet: (s1.details?.unpassedQuizStepTitles?.length ?? 0) === 0,
+        isMet: s1.isCompleted || (s1.details?.unpassedQuizStepTitles?.length ?? 0) === 0,
         unpassedQuizStepTitles: s1.details?.unpassedQuizStepTitles,
       },
       finalExam: {
@@ -209,14 +209,14 @@ export class CertificateEligibilityService {
         passed: s2.details?.examPassed ?? false,
         score: s2.details?.examScore ?? null,
         attemptCount: s2.details?.attemptCount ?? 0,
-        isMet: s2.details?.examRequired ? s2.details?.examPassed : true,
+        isMet: s2.isCompleted || (s2.details?.examRequired ? s2.details?.examPassed : true),
       },
       oralAssessment: {
         required: s2.details?.oralRequired ?? false,
         passed: s2.details?.oralPassed ?? false,
         score: s2.details?.oralScore ?? null,
         status: s2.details?.oralStatus ?? null,
-        isMet: s2.details?.oralRequired ? s2.details?.oralPassed : true,
+        isMet: s2.isCompleted || (s2.details?.oralRequired ? s2.details?.oralPassed : true),
       },
       attendance: {
         required: true,
@@ -225,7 +225,7 @@ export class CertificateEligibilityService {
         requiredSessions: s3.details?.requiredSessions ?? 0,
         attendedSessions: s3.details?.attendedSessions ?? 0,
         status: s3.details?.complianceStatus ?? 'NOT_APPLICABLE',
-        isMet: s3.details?.complianceStatus !== 'NOT_COMPLIANT',
+        isMet: s3.isCompleted || s3.details?.complianceStatus !== 'NOT_COMPLIANT',
       },
       closingCall: {
         required: true,

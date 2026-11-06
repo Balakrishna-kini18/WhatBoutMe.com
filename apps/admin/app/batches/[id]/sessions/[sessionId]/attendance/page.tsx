@@ -279,17 +279,20 @@ export default function SessionAttendancePage({
 
   const handleOpenOverride = (learner: LearnerAttendanceItem) => {
     const sessionDur = data?.session.durationMinutes || 60;
-    const initialStatus = isLearnerPresent(learner.status)
+    const isPresent = isLearnerPresent(learner.status);
+    const initialStatus = isPresent
       ? "PRESENT"
       : learner.status === "EXCUSED"
       ? "EXCUSED"
+      : learner.minutesPresent > 0
+      ? "ABSENT"
       : "PRESENT";
     const initialMinutes =
-      initialStatus === "PRESENT"
-        ? learner.minutesPresent > 0
-          ? learner.minutesPresent
-          : sessionDur
-        : learner.minutesPresent || 0;
+      learner.minutesPresent > 0
+        ? learner.minutesPresent
+        : initialStatus === "PRESENT"
+        ? sessionDur
+        : 0;
 
     setOverrideModal({
       isOpen: true,
@@ -617,8 +620,36 @@ export default function SessionAttendancePage({
 
   const paginatedLearners = useMemo(() => {
     const startIdx = (currentPage - 1) * pageSize;
-    return sortedLearners.slice(startIdx, startIdx + pageSize);
+    return sortedLearners.slice(startIdx + pageSize ? startIdx : 0, startIdx + pageSize);
   }, [sortedLearners, currentPage, pageSize]);
+
+  const kpiStats = useMemo(() => {
+    if (!data?.learners) {
+      return { total: data?.totalLearners ?? 0, present: data?.presentCount ?? 0, partial: 0, absent: 0, rate: 0 };
+    }
+    let present = 0;
+    let partial = 0;
+    let absent = 0;
+    for (const l of data.learners) {
+      if (isLearnerPresent(l.status)) {
+        present++;
+      } else if (l.status === "EXCUSED") {
+        // Excused not counted against attendance
+      } else if (l.source !== "MANUAL" && ((l.minutesPresent ?? 0) > 0 || (l.attendancePercentage ?? 0) > 0)) {
+        partial++;
+      } else {
+        absent++;
+      }
+    }
+    const rate = data.totalLearners > 0 ? Math.round((present / data.totalLearners) * 100) : 0;
+    return {
+      total: data.totalLearners,
+      present,
+      partial,
+      absent,
+      rate,
+    };
+  }, [data]);
 
   return (
     <div className={styles.dashboardContainer} style={{ gap: "1.25rem" }}>
@@ -765,7 +796,11 @@ export default function SessionAttendancePage({
       )}
 
       {/* Dashboard-Themed KPI Cards */}
-      <section className={styles.kpiGrid} aria-label="Attendance Summary Metrics">
+      <section
+        className={styles.kpiGrid}
+        style={kpiStats.partial > 0 ? { gridTemplateColumns: "repeat(5, 1fr)" } : undefined}
+        aria-label="Attendance Summary Metrics"
+      >
         <div className={styles.kpiCard} style={{ cursor: "default" }}>
           <div className={styles.kpiTopRow}>
             <span className={styles.kpiLabel}>Total Enrolled</span>
@@ -782,7 +817,7 @@ export default function SessionAttendancePage({
             {isLoading && !data ? (
               <div className="skeleton" style={{ width: 48, height: 28, borderRadius: 6 }} />
             ) : (
-              <span className={styles.kpiValue}>{data?.totalLearners ?? 0}</span>
+              <span className={styles.kpiValue}>{kpiStats.total}</span>
             )}
           </div>
         </div>
@@ -800,10 +835,33 @@ export default function SessionAttendancePage({
             {isLoading && !data ? (
               <div className="skeleton" style={{ width: 48, height: 28, borderRadius: 6 }} />
             ) : (
-              <span className={styles.kpiValue}>{data?.presentCount ?? 0}</span>
+              <span className={styles.kpiValue}>{kpiStats.present}</span>
             )}
           </div>
         </div>
+
+        {kpiStats.partial > 0 && (
+          <div className={styles.kpiCard} style={{ cursor: "default" }}>
+            <div className={styles.kpiTopRow}>
+              <span className={styles.kpiLabel}>Partial</span>
+              <div className={styles.kpiIconBox} style={{ color: "#d97706" }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+              </div>
+            </div>
+            <div className={styles.kpiValueRow}>
+              {isLoading && !data ? (
+                <div className="skeleton" style={{ width: 48, height: 28, borderRadius: 6 }} />
+              ) : (
+                <span className={styles.kpiValue} style={{ color: "#d97706" }}>
+                  {kpiStats.partial}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className={styles.kpiCard} style={{ cursor: "default" }}>
           <div className={styles.kpiTopRow}>
@@ -821,7 +879,7 @@ export default function SessionAttendancePage({
               <div className="skeleton" style={{ width: 48, height: 28, borderRadius: 6 }} />
             ) : (
               <span className={styles.kpiValue}>
-                {data ? Math.max(0, data.totalLearners - data.presentCount) : 0}
+                {kpiStats.absent}
               </span>
             )}
           </div>
@@ -841,9 +899,7 @@ export default function SessionAttendancePage({
               <div className="skeleton" style={{ width: 58, height: 28, borderRadius: 6 }} />
             ) : (
               <span className={styles.kpiValue}>
-                {data && data.totalLearners > 0
-                  ? `${Math.round((data.presentCount / data.totalLearners) * 100)}%`
-                  : "0%"}
+                {`${kpiStats.rate}%`}
               </span>
             )}
           </div>

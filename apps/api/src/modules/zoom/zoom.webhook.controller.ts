@@ -1,18 +1,39 @@
-import { Controller, Post, Get, Body, Headers, HttpException, HttpStatus, Logger, Req } from '@nestjs/common';
+import { Controller, Post, Body, Headers, HttpException, HttpStatus, Logger, Optional, Inject, forwardRef } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator.js';
 import * as crypto from 'crypto';
 import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { ZoomMeetingProvider } from './zoom.service.js';
+import { ZoomProcessor } from './zoom.processor.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { AttendanceReconciliationService } from '../sessions/attendance-reconciliation.service.js';
+import { SessionsService } from '../sessions/sessions.service.js';
 
 @Controller('webhooks/zoom')
 export class ZoomWebhookController {
   private readonly logger = new Logger(ZoomWebhookController.name);
+  private inlineProcessor: ZoomProcessor | null = null;
 
   constructor(
     @InjectQueue('zoom-events') private readonly zoomQueue: Queue,
     private readonly zoomService: ZoomMeetingProvider,
-  ) {}
+    @Optional() private readonly prisma?: PrismaService,
+    @Optional()
+    @Inject(forwardRef(() => AttendanceReconciliationService))
+    private readonly reconciliationService?: AttendanceReconciliationService,
+    @Optional()
+    @Inject(forwardRef(() => SessionsService))
+    private readonly sessionsService?: SessionsService,
+  ) {
+    if (this.prisma && this.reconciliationService && this.sessionsService) {
+      this.inlineProcessor = new ZoomProcessor(
+        this.zoomService,
+        this.prisma,
+        this.reconciliationService,
+        this.sessionsService,
+      );
+    }
+  }
 
   @Public()
   @Post()
@@ -66,13 +87,29 @@ export class ZoomWebhookController {
       };
     }
 
-    // Dispatch valid events to BullMQ
+    // Dispatch valid events to BullMQ (or process inline in serverless when WORKER_MODE !== 'true')
     this.logger.log(`Received verified Zoom event: ${body.event}`);
-    
-    await this.zoomQueue.add('process-zoom-webhook', body, {
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 2000 },
-    });
+
+    let queuedToWorker = false;
+    if (process.env.WORKER_MODE === 'true' || !this.inlineProcessor) {
+      try {
+        await this.zoomQueue.add('process-zoom-webhook', body, {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 2000 },
+        });
+        queuedToWorker = process.env.WORKER_MODE === 'true';
+      } catch (err: any) {
+        this.logger.warn(`BullMQ zoomQueue.add failed (${err.message}); falling back to inline webhook execution.`);
+      }
+    }
+
+    if (!queuedToWorker && this.inlineProcessor) {
+      try {
+        await this.inlineProcessor.processPayload(body);
+      } catch (err: any) {
+        this.logger.error(`Inline Zoom webhook processing error for ${body.event}: ${err.message}`);
+      }
+    }
 
     // Return 200 OK immediately as required by Zoom
     return { status: 'success' };

@@ -11,6 +11,9 @@ export interface NormalizedParticipantRecord {
   participantName?: string;
   joinTime: Date;
   leaveTime: Date;
+  durationMinutes?: number;
+  matchedUserId?: string;
+  matchedEnrolmentId?: string;
   rawPayload?: any;
 }
 
@@ -22,6 +25,8 @@ export interface AggregatedParticipant {
   joinTime: Date;
   leaveTime: Date;
   durationMin: number;
+  matchedUserId?: string;
+  matchedEnrolmentId?: string;
   rawPayload?: any;
 }
 
@@ -44,7 +49,10 @@ export class AttendanceReconciliationService {
     const grouped = new Map<string, NormalizedParticipantRecord[]>();
 
     for (const record of records) {
-      let key = record.participantEmail?.trim().toLowerCase() || '';
+      let key = record.matchedUserId ? `user:${record.matchedUserId}` : '';
+      if (!key) {
+        key = record.participantEmail?.trim().toLowerCase() || '';
+      }
       if (!key) {
         key = record.participantName?.trim().toLowerCase() || record.providerId || 'UNKNOWN';
       }
@@ -76,6 +84,16 @@ export class AttendanceReconciliationService {
         // Clock skew guard: leave time cannot precede join time
         if (validLeave.getTime() < validJoin.getTime()) {
           validLeave = validJoin;
+        }
+
+        // If leaveTime equals joinTime (e.g. missing leave_time in Zoom payload) but Zoom reported durationMinutes > 0,
+        // derive the interval end from durationMinutes so time present is not lost.
+        if (
+          validLeave.getTime() === validJoin.getTime() &&
+          typeof rec.durationMinutes === 'number' &&
+          rec.durationMinutes > 0
+        ) {
+          validLeave = new Date(validJoin.getTime() + rec.durationMinutes * 60000);
         }
 
         validRecords.push({
@@ -128,16 +146,19 @@ export class AttendanceReconciliationService {
       const firstJoin = merged[0].joinTime;
       const lastLeave = merged[merged.length - 1].leaveTime;
       const firstRecord = validRecords[0].original;
+      const recordWithEmail = validRecords.find((r) => r.original.participantEmail?.trim())?.original || firstRecord;
       const durationMin = Math.max(0, Math.round(durationMs / 60000));
 
       results.push({
         provider: firstRecord.provider,
         providerId: firstRecord.providerId,
-        participantEmail: firstRecord.participantEmail?.trim().toLowerCase() || undefined,
+        participantEmail: recordWithEmail.participantEmail?.trim().toLowerCase() || undefined,
         participantName: firstRecord.participantName?.trim(),
         joinTime: firstJoin,
         leaveTime: lastLeave,
         durationMin: Number.isFinite(durationMin) ? durationMin : 0,
+        matchedUserId: firstRecord.matchedUserId,
+        matchedEnrolmentId: firstRecord.matchedEnrolmentId,
         rawPayload: firstRecord.rawPayload,
       });
     }
@@ -166,6 +187,12 @@ export class AttendanceReconciliationService {
           },
         },
         user: true, // for 1-on-1 sessions
+        learner: true, // for dedicated 1-on-1 coaching & discovery sessions
+        bookings: {
+          include: {
+            user: true,
+          },
+        },
       },
     });
 
@@ -173,7 +200,100 @@ export class AttendanceReconciliationService {
       throw new BadRequestException('Session not found');
     }
 
-    const aggregated = this.aggregateRecords(rawRecords);
+    // Lookup map of enrolled learners by lowercase email and normalized name
+    const enrolledByEmail = new Map<string, { userId: string; enrolmentId: string }>();
+    const enrolledByName = new Map<string, { userId: string; enrolmentId: string }>();
+    const ambiguousNames = new Set<string>();
+    const matchedUserIds = new Set<string>();
+
+    const normalizeName = (raw?: string | null) =>
+      (raw || '')
+        .replace(/\s*\((guest|host|me|co-host).*?\)\s*/gi, '')
+        .trim()
+        .toLowerCase();
+
+    if (session.batch?.enrolments && session.batch.enrolments.length > 0) {
+      for (const enrolment of session.batch.enrolments) {
+        if (enrolment.user?.email) {
+          enrolledByEmail.set(enrolment.user.email.toLowerCase().trim(), {
+            userId: enrolment.userId,
+            enrolmentId: enrolment.id,
+          });
+        }
+        const normName = normalizeName(enrolment.user?.name);
+        if (normName) {
+          const existingByName = enrolledByName.get(normName);
+          if (existingByName && existingByName.userId !== enrolment.userId) {
+            ambiguousNames.add(normName);
+          } else {
+            enrolledByName.set(normName, {
+              userId: enrolment.userId,
+              enrolmentId: enrolment.id,
+            });
+          }
+        }
+      }
+    } else {
+      // 1-on-1, dedicated coaching, or discovery call session
+      const targetLearners: { id: string; name?: string | null; email?: string | null; enrolmentId?: string }[] = [];
+      const sessionLearner = (session as any).learner;
+      const sessionUser = (session as any).user;
+
+      if (sessionLearner?.id && sessionLearner?.email) {
+        targetLearners.push({ id: sessionLearner.id, name: sessionLearner.name, email: sessionLearner.email });
+      }
+      if (sessionUser?.id && sessionUser?.email && !targetLearners.some((l) => l.id === sessionUser.id)) {
+        targetLearners.push({ id: sessionUser.id, name: sessionUser.name, email: sessionUser.email });
+      }
+      for (const booking of (session as any).bookings || []) {
+        if (booking.user?.id && booking.user?.email && !targetLearners.some((l) => l.id === booking.user.id)) {
+          targetLearners.push({
+            id: booking.user.id,
+            name: booking.user.name,
+            email: booking.user.email,
+            enrolmentId: booking.enrolmentId || '',
+          });
+        }
+      }
+
+      for (const l of targetLearners) {
+        if (l.email) {
+          enrolledByEmail.set(l.email.toLowerCase().trim(), {
+            userId: l.id,
+            enrolmentId: l.enrolmentId || '',
+          });
+        }
+        const normName = normalizeName(l.name);
+        if (normName) {
+          enrolledByName.set(normName, {
+            userId: l.id,
+            enrolmentId: l.enrolmentId || '',
+          });
+        }
+      }
+    }
+
+    // Pre-match raw records to enrolled learners BEFORE interval aggregation so that
+    // a learner who switches devices (e.g. browser guest -> Mobile Zoom App with personal email)
+    // has all of their attendance intervals merged into a single learner record.
+    const preMatchedRecords: NormalizedParticipantRecord[] = rawRecords.map((rec) => {
+      const email = rec.participantEmail?.toLowerCase().trim();
+      const normName = normalizeName(rec.participantName);
+      const matched =
+        (email ? enrolledByEmail.get(email) : undefined) ||
+        (normName && !ambiguousNames.has(normName) ? enrolledByName.get(normName) : undefined);
+
+      if (matched) {
+        return {
+          ...rec,
+          matchedUserId: matched.userId,
+          matchedEnrolmentId: matched.enrolmentId,
+        };
+      }
+      return rec;
+    });
+
+    const aggregated = this.aggregateRecords(preMatchedRecords);
 
     // Calculate effective session duration in minutes
     let sessionDurationMin = session.durationMinutes || 0;
@@ -186,15 +306,19 @@ export class AttendanceReconciliationService {
       sessionDurationMin = 60;
     }
 
-    // Determine actual meeting timeline across all participants
+    // Determine actual meeting timeline and maximum participant duration across all participants
     let minJoinTime: Date | null = null;
     let maxLeaveTime: Date | null = null;
+    let maxParticipantDurationMin = 0;
     for (const p of aggregated) {
       if (p.joinTime && (!minJoinTime || p.joinTime.getTime() < minJoinTime.getTime())) {
         minJoinTime = p.joinTime;
       }
       if (p.leaveTime && (!maxLeaveTime || p.leaveTime.getTime() > maxLeaveTime.getTime())) {
         maxLeaveTime = p.leaveTime;
+      }
+      if (p.durationMin && p.durationMin > maxParticipantDurationMin) {
+        maxParticipantDurationMin = p.durationMin;
       }
     }
 
@@ -207,22 +331,37 @@ export class AttendanceReconciliationService {
     }
 
     // Effective session duration:
-    // 1. If host record exists and host attended, host's duration is the authoritative meeting time.
-    // 2. If host ended early, use host's duration so learners are not penalized for early dismissal.
-    // 3. If session ran overtime (actualMeetingDurationMin > sessionDurationMin), use actual live duration
-    //    so late-joiners who only attended near the end (e.g. at 5:42 of a 5:29-5:55 meeting)
-    //    do not falsely receive an inflated percentage like 89% when they only attended 50% of the class.
-    let effectiveSessionDuration = sessionDurationMin;
-    const hostEmail = (session as any).hostTrainer?.email?.toLowerCase().trim();
-    const hostRecord = hostEmail
-      ? aggregated.find((p) => p.participantEmail?.toLowerCase().trim() === hostEmail)
-      : null;
+    // 1. If host record exists and host attended, host's duration is authoritative ONLY IF
+    //    all participants also departed with the host (early dismissal).
+    // 2. If participants stayed longer than the host (e.g. host disconnected early, transferred host,
+    //    or class continued), the session was live for at least maxParticipantDurationMin / actualMeetingDurationMin.
+    // 3. If session ran overtime (actualMeetingDurationMin or maxParticipantDurationMin > sessionDurationMin),
+    //    use actual live duration so mid-session leavers are evaluated against the true session length.
+    const hostRecord = aggregated.find(
+      (p) =>
+        (session.hostTrainer?.id && p.matchedUserId === session.hostTrainer.id) ||
+        (session.hostTrainer?.email && p.participantEmail === session.hostTrainer.email),
+    );
 
-    if (hostRecord && hostRecord.durationMin > 0) {
-      effectiveSessionDuration = hostRecord.durationMin;
-    } else if (actualMeetingDurationMin > 0) {
-      // Evaluate against the actual live span when session ran overtime
-      effectiveSessionDuration = Math.max(sessionDurationMin, actualMeetingDurationMin);
+    const maxObservedSpanMin = Math.max(
+      actualMeetingDurationMin,
+      maxParticipantDurationMin,
+      hostRecord?.durationMin ?? 0,
+    );
+
+    let effectiveSessionDuration = sessionDurationMin;
+
+    if (maxObservedSpanMin > sessionDurationMin) {
+      // Session ran overtime beyond scheduled duration
+      effectiveSessionDuration = maxObservedSpanMin;
+    } else if (
+      hostRecord &&
+      hostRecord.durationMin > 0 &&
+      maxParticipantDurationMin <= hostRecord.durationMin + 3 &&
+      actualMeetingDurationMin <= hostRecord.durationMin + 3
+    ) {
+      // Host legitimately wrapped up the class early and everyone left around the same time
+      effectiveSessionDuration = Math.max(hostRecord.durationMin, maxParticipantDurationMin);
     }
 
     // Synchronize session duration in the database if actual live duration differs
@@ -242,48 +381,6 @@ export class AttendanceReconciliationService {
       session.batch?.program?.minAttendancePercentage ??
       (session.batch as any)?.attendanceThreshold ??
       75;
-
-    // Lookup map of enrolled learners by lowercase email and normalized name
-    const enrolledByEmail = new Map<string, { userId: string; enrolmentId: string }>();
-    const enrolledByName = new Map<string, { userId: string; enrolmentId: string }>();
-    const matchedUserIds = new Set<string>();
-
-    const normalizeName = (raw?: string | null) =>
-      (raw || '')
-        .replace(/\s*\((guest|host|me|co-host).*?\)\s*/gi, '')
-        .trim()
-        .toLowerCase();
-
-    if (session.batch?.enrolments) {
-      for (const enrolment of session.batch.enrolments) {
-        if (enrolment.user?.email) {
-          enrolledByEmail.set(enrolment.user.email.toLowerCase().trim(), {
-            userId: enrolment.userId,
-            enrolmentId: enrolment.id,
-          });
-        }
-        const normName = normalizeName(enrolment.user?.name);
-        if (normName) {
-          enrolledByName.set(normName, {
-            userId: enrolment.userId,
-            enrolmentId: enrolment.id,
-          });
-        }
-      }
-    } else if (session.userId && session.user?.email) {
-      // 1-on-1 session
-      enrolledByEmail.set(session.user.email.toLowerCase().trim(), {
-        userId: session.userId,
-        enrolmentId: '',
-      });
-      const normName = normalizeName(session.user?.name);
-      if (normName) {
-        enrolledByName.set(normName, {
-          userId: session.userId,
-          enrolmentId: '',
-        });
-      }
-    }
 
     // Pre-fetch existing unmatched records in 1 query to prevent N+1 query loops
     const existingUnmatchedList = await this.prisma.unmatchedAttendance.findMany({
@@ -324,14 +421,21 @@ export class AttendanceReconciliationService {
       const email = participant.participantEmail?.toLowerCase().trim();
       const normParticipantName = normalizeName(participant.participantName);
       const matched =
+        (participant.matchedUserId
+          ? { userId: participant.matchedUserId, enrolmentId: participant.matchedEnrolmentId || '' }
+          : undefined) ||
         (email ? enrolledByEmail.get(email) : undefined) ||
-        (!email && normParticipantName ? enrolledByName.get(normParticipantName) : undefined);
+        (normParticipantName && !ambiguousNames.has(normParticipantName)
+          ? enrolledByName.get(normParticipantName)
+          : undefined);
 
       if (matched) {
         matchedUserIds.add(matched.userId);
         const attendedDurationMin = participant.durationMin || 0;
         const attendancePercentage =
-          effectiveSessionDuration > 0 ? (attendedDurationMin / effectiveSessionDuration) * 100 : 0;
+          effectiveSessionDuration > 0
+            ? Math.min(100, (attendedDurationMin / effectiveSessionDuration) * 100)
+            : 0;
         const minMinutes = (session as any).minAttendanceMinutes;
         const meetsThreshold = minMinutes && minMinutes > 0
           ? attendedDurationMin >= minMinutes
@@ -365,6 +469,7 @@ export class AttendanceReconciliationService {
             durationMin: item.durationMin,
             attendancePercentage: item.attendancePercentage,
             status: item.status,
+            authoritative: true,
           }),
         ),
       );
@@ -532,7 +637,10 @@ export class AttendanceReconciliationService {
       const minThreshold =
         unmatched.session?.batch?.program?.minAttendancePercentage ?? 75;
       const minutesPresent = unmatched.minutesPresent || unmatched.durationMin || 0;
-      const percentage = (minutesPresent / sessionDurationMin) * 100;
+      const percentage =
+        sessionDurationMin > 0
+          ? Math.min(100, Math.round(((minutesPresent / sessionDurationMin) * 100) * 100) / 100)
+          : 0;
       // Admin manual linking represents an explicit reconciliation action to credit attendance
       const calculatedStatus = AttendanceStatus.PRESENT;
 

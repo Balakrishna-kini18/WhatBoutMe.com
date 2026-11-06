@@ -105,6 +105,91 @@ describe('Phase 5: BatchAttendanceController Integration & Endpoint Tests', () =
       );
     });
 
+    it('self-heals mid-session leavers who had stale 100% PRESENT when another learner stayed for the full 32m overtime session', async () => {
+      const mockSession = {
+        id: '2069107a-33a9-4151-b3a2-78c2dc1ab1d2',
+        batchId: '1b1bf560-96c4-4932-acca-32dc411c9a37',
+        title: 'Introdcuon section',
+        sessionType: 'BATCH_CLASS',
+        startTime: new Date('2026-11-05T11:29:00Z'),
+        endTime: new Date('2026-11-05T11:49:00Z'),
+        durationMinutes: 20, // originally 20m scheduled, but ran 32m
+        meetingProvider: 'ZOOM',
+        batch: {
+          program: { minAttendancePercentage: 75 },
+          enrolments: [
+            { id: 'enr-bk', userId: 'u-bk', user: { name: 'BK', email: 'balakrishna@foxwel.ai' } },
+            { id: 'enr-sah', userId: 'u-sah', user: { name: 'sahyadri', email: 'gagan.cs22@sahyadri.edu.in' } },
+            { id: 'enr-sid', userId: 'u-sid', user: { name: 'siddhlinga', email: 'kamathbro99@gmail.com' } },
+            { id: 'enr-vig', userId: 'u-vig', user: { name: 'vignesh pai', email: 'vigneshpai2018@gmail.com' } },
+          ],
+        },
+      };
+
+      prismaMock.session.findUnique.mockResolvedValue(mockSession);
+      prismaMock.attendance.update = vi.fn().mockResolvedValue({});
+      prismaMock.attendance.findMany.mockResolvedValue([
+        {
+          id: 'att-bk',
+          sessionId: mockSession.id,
+          userId: 'u-bk',
+          status: AttendanceStatus.PRESENT_AUTO,
+          source: AttendanceSource.AUTO,
+          minutesPresent: 21,
+          attendancePercentage: 100, // stale 100% from when BK left at 05:20 PM
+          joinTime: new Date('2026-11-05T11:25:00Z'),
+          leaveTime: new Date('2026-11-05T11:50:00Z'),
+        },
+        {
+          id: 'att-sah',
+          sessionId: mockSession.id,
+          userId: 'u-sah',
+          status: AttendanceStatus.ABSENT,
+          source: AttendanceSource.AUTO,
+          minutesPresent: 7,
+          attendancePercentage: 36,
+          joinTime: new Date('2026-11-05T11:40:00Z'),
+          leaveTime: new Date('2026-11-05T11:47:00Z'),
+        },
+        {
+          id: 'att-sid',
+          sessionId: mockSession.id,
+          userId: 'u-sid',
+          status: AttendanceStatus.PRESENT_AUTO,
+          source: AttendanceSource.AUTO,
+          minutesPresent: 21,
+          attendancePercentage: 100, // stale 100% from when siddhlinga left at 05:21 PM
+          joinTime: new Date('2026-11-05T11:27:00Z'),
+          leaveTime: new Date('2026-11-05T11:51:00Z'),
+        },
+        {
+          id: 'att-vig',
+          sessionId: mockSession.id,
+          userId: 'u-vig',
+          status: AttendanceStatus.PRESENT_AUTO,
+          source: AttendanceSource.AUTO,
+          minutesPresent: 32,
+          attendancePercentage: 100, // stayed full 32m until 05:31 PM
+          joinTime: new Date('2026-11-05T11:25:00Z'),
+          leaveTime: new Date('2026-11-05T12:01:00Z'),
+        },
+      ]);
+
+      const result = await controller.getBatchSessionAttendance(mockSession.batchId, mockSession.id);
+
+      // Only vignesh pai (32/32 = 100%) should be PRESENT; BK and siddhlinga (21/32 = 65.63% < 75%) become ABSENT (PARTIAL 66%)
+      expect(result.presentCount).toBe(1);
+      const bk = result.learners.find((l) => l.userId === 'u-bk')!;
+      const sid = result.learners.find((l) => l.userId === 'u-sid')!;
+      const vig = result.learners.find((l) => l.userId === 'u-vig')!;
+      expect(bk.status).toBe(AttendanceStatus.ABSENT);
+      expect(Math.round(bk.attendancePercentage)).toBe(66);
+      expect(sid.status).toBe(AttendanceStatus.ABSENT);
+      expect(Math.round(sid.attendancePercentage)).toBe(66);
+      expect(vig.status).toBe(AttendanceStatus.PRESENT_AUTO);
+      expect(vig.attendancePercentage).toBe(100);
+    });
+
     it('throws NotFoundException if session does not belong to the batch', async () => {
       prismaMock.session.findUnique.mockResolvedValue({
         id: 'sess-other',

@@ -1325,10 +1325,23 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                               : "1px solid rgba(217, 119, 6, 0.3)",
                           }}
                         >
-                          <span>
-                            {isAttendanceMetForExam ? "✓" : "⚠️"} Live Attendance
-                            {progression?.batchName ? ` (${progression.batchName})` : ""}:{" "}
-                            <strong>{liveAttendancePercent}%</strong> ({attendedLiveSessions}/{requiredLiveSessions} live sessions) • Required: <strong>{attendanceThreshold}%</strong>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                            {isAttendanceMetForExam ? (
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                            ) : (
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                                <line x1="12" y1="9" x2="12" y2="13" />
+                                <line x1="12" y1="17" x2="12.01" y2="17" />
+                              </svg>
+                            )}
+                            <span>
+                              Live Attendance
+                              {progression?.batchName ? ` (${progression.batchName})` : ""}:{" "}
+                              <strong>{liveAttendancePercent}%</strong> ({attendedLiveSessions}/{requiredLiveSessions} live sessions) • Required: <strong>{attendanceThreshold}%</strong>
+                            </span>
                           </span>
                           <Link
                             href="/attendance"

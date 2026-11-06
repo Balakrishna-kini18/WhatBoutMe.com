@@ -1360,10 +1360,23 @@ export default function ExamPage({
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
-              <strong style={{ fontSize: "0.92rem" }}>
-                {config.attendanceGate.isEligible
-                  ? "✓ Batch Live Session Attendance Requirement Met"
-                  : "🔒 Final Exam Locked — Live Session Attendance Below Threshold"}
+              <strong style={{ fontSize: "0.92rem", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                {config.attendanceGate.isEligible ? (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    <span>Batch Live Session Attendance Requirement Met</span>
+                  </>
+                ) : (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="4" y="11" width="16" height="10" rx="2" />
+                      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                    </svg>
+                    <span>Final Exam Locked — Live Session Attendance Below Threshold</span>
+                  </>
+                )}
               </strong>
               <Link
                 href="/attendance"

@@ -111,6 +111,17 @@ const Icons = {
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   ),
+  lockSmall: (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  ),
+  checkSmall: (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  ),
 };
 
 const dayOf = (date: string) => new Date(`${date}T00:00:00`);
@@ -424,68 +435,62 @@ export default function AttendancePage() {
 
   return (
     <div className={styles.container}>
-      {/* Page Title & Helper Row */}
+      {/* Page Title & View Switcher Row */}
       <header className={styles.header}>
-        <Link href="/" className={styles.backLink} title="Back to Dashboard">
-          <span className={styles.backIconWrap}>{Icons.arrowLeft}</span>
-          <span className={styles.backText}>Back</span>
-        </Link>
-        <div className={styles.headerTitleGroup}>
+        <div className={styles.headerLeft}>
+          <Link href="/" className={styles.backLink} title="Back to Dashboard">
+            <span className={styles.backIconWrap}>{Icons.arrowLeft}</span>
+            <span className={styles.backText}>Back</span>
+          </Link>
           <h1 className={styles.title}>Live Session Attendance</h1>
-          <div className={styles.headerBadge}>
-            <span className={styles.headerBadgeDot} aria-hidden="true" />
-            <span>
-              Attendance is tracked per enrolled batch from live sessions conducted by your instructor. Meet your batch attendance threshold to unlock the Final Examination.
-            </span>
-          </div>
+        </div>
+
+        {/* Top View Toggle: Calendar View vs Batch Attendance vs List History on the same line */}
+        <div className={styles.topTabsRow} role="tablist" aria-label="Attendance view modes">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={viewMode === "calendar"}
+            onClick={() => setViewMode("calendar")}
+            className={`${styles.topTabBtn} ${viewMode === "calendar" ? styles.topTabBtnActive : ""}`}
+          >
+            {Icons.calendarSmall}
+            <span>Calendar View</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={viewMode === "batches"}
+            onClick={() => setViewMode("batches")}
+            className={`${styles.topTabBtn} ${viewMode === "batches" ? styles.topTabBtnActive : ""}`}
+          >
+            {Icons.userGroup}
+            <span>Batch Attendance</span>
+            {batches.length > 0 && (
+              <span className={styles.topTabBadge}>{batches.length}</span>
+            )}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={viewMode === "list"}
+            onClick={() => setViewMode("list")}
+            className={`${styles.topTabBtn} ${viewMode === "list" ? styles.topTabBtnActive : ""}`}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="8" y1="6" x2="21" y2="6" />
+              <line x1="8" y1="12" x2="21" y2="12" />
+              <line x1="8" y1="18" x2="21" y2="18" />
+              <line x1="3" y1="6" x2="3.01" y2="6" />
+              <line x1="3" y1="12" x2="3.01" y2="12" />
+              <line x1="3" y1="18" x2="3.01" y2="18" />
+            </svg>
+            <span>List History</span>
+          </button>
         </div>
       </header>
 
       {error && <p role="alert" className={styles.notice}>{error}</p>}
-
-      {/* Top View Toggle: Calendar View vs Batch Attendance vs List History */}
-      <div className={styles.topTabsRow} role="tablist" aria-label="Attendance view modes">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={viewMode === "calendar"}
-          onClick={() => setViewMode("calendar")}
-          className={`${styles.topTabBtn} ${viewMode === "calendar" ? styles.topTabBtnActive : ""}`}
-        >
-          {Icons.calendarSmall}
-          <span>Calendar View</span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={viewMode === "batches"}
-          onClick={() => setViewMode("batches")}
-          className={`${styles.topTabBtn} ${viewMode === "batches" ? styles.topTabBtnActive : ""}`}
-        >
-          {Icons.userGroup}
-          <span>Batch Attendance</span>
-          {batches.length > 0 && (
-            <span className={styles.topTabBadge}>{batches.length}</span>
-          )}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={viewMode === "list"}
-          onClick={() => setViewMode("list")}
-          className={`${styles.topTabBtn} ${viewMode === "list" ? styles.topTabBtnActive : ""}`}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <line x1="8" y1="6" x2="21" y2="6" />
-            <line x1="8" y1="12" x2="21" y2="12" />
-            <line x1="8" y1="18" x2="21" y2="18" />
-            <line x1="3" y1="6" x2="3.01" y2="6" />
-            <line x1="3" y1="12" x2="3.01" y2="12" />
-            <line x1="3" y1="18" x2="3.01" y2="18" />
-          </svg>
-          <span>List History</span>
-        </button>
-      </div>
 
       {/* 2-Column Dashboard Layout: Left Content, Right Stats & Today Activity */}
       <div className={styles.mainLayout}>
@@ -633,6 +638,9 @@ export default function AttendancePage() {
                         </div>
                         <span
                           style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "5px",
                             padding: "4px 10px",
                             borderRadius: "999px",
                             fontSize: "0.75rem",
@@ -644,11 +652,22 @@ export default function AttendancePage() {
                             color: isCompliant ? "#15803d" : "#b45309",
                           }}
                         >
-                          {!b.attendanceRequired
-                            ? "✓ Attendance Optional"
-                            : isCompliant
-                              ? `✓ Final Exam Unlocked (≥${b.thresholdPercentage}%)`
-                              : `🔒 Final Exam Locked (<${b.thresholdPercentage}%)`}
+                          {!b.attendanceRequired ? (
+                            <>
+                              {Icons.checkSmall}
+                              <span>Attendance Optional</span>
+                            </>
+                          ) : isCompliant ? (
+                            <>
+                              {Icons.checkSmall}
+                              <span>Final Exam Unlocked (≥{b.thresholdPercentage}%)</span>
+                            </>
+                          ) : (
+                            <>
+                              {Icons.lockSmall}
+                              <span>Final Exam Locked (&lt;{b.thresholdPercentage}%)</span>
+                            </>
+                          )}
                         </span>
                       </div>
 
@@ -919,7 +938,7 @@ export default function AttendancePage() {
                   {loading ? "–" : `${activeAttendancePct}%`}
                 </div>
                 <div className={styles.tileLabel}>
-                  Attendance (Min {activeThresholdPct}%)
+                  Attendance (≥{activeThresholdPct}%)
                 </div>
               </div>
 
@@ -934,158 +953,172 @@ export default function AttendancePage() {
 
               {/* Tile 3: Final Exam Gate */}
               <div className={styles.statTile}>
-                <div className={styles.tileIconPurple}>{Icons.flamePurple}</div>
-                <div className={styles.tileValue}>
-                  {loading ? "–" : isActiveExamEligible ? "Eligible" : "Locked"}
+                  <div className={isActiveExamEligible ? styles.tileIconGreen : styles.tileIconLocked}>
+                    {isActiveExamEligible ? (
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <rect x="4" y="11" width="16" height="10" rx="2" />
+                        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                      </svg>
+                    )}
+                  </div>
+                  <div
+                    className={styles.tileStatusValue}
+                    style={{ color: isActiveExamEligible ? "#15803d" : "#c2410c" }}
+                  >
+                    {loading ? "–" : isActiveExamEligible ? "Eligible" : "Locked"}
+                  </div>
+                  <div className={styles.tileLabel}>Final Exam</div>
                 </div>
-                <div className={styles.tileLabel}>Final Exam Gate</div>
               </div>
             </div>
-          </div>
 
-          {/* Card 2: Today / Selected Day Activity */}
-          {selectedKey && selectedDateObj && (
-            <div className={styles.activityCard}>
-              <div className={styles.activityHeader}>
-                <div className={styles.activityDateRow}>
-                  <span className={styles.activityCalendarIcon}>{Icons.calendarSmall}</span>
-                  <h3 className={styles.activityDateTitle} suppressHydrationWarning>
-                    {selectedDateObj.toLocaleDateString("en-US", {
-                      weekday: "short",
-                      month: "short",
-                      day: "numeric",
-                    })}
-                  </h3>
-                </div>
-                {selectedKey === today && (
-                  <span className={styles.todayBadge}>TODAY</span>
-                )}
-              </div>
-
-              <div className={styles.activityBody}>
-                {/* Live Session Attendance Summary for Selected Date */}
-                <div className={styles.activitySection}>
-                  <h4 className={styles.activitySectionTitle}>Live Session Status</h4>
-                  {selectedDayPresentSessions.length > 0 ? (
-                    <div>
-                      <span className={styles.activityPresentBadge}>
-                        {Icons.check} Present ({selectedDayPresentSessions.length}{" "}
-                        {selectedDayPresentSessions.length === 1 ? "session" : "sessions"})
-                      </span>
-                      <ul className={styles.activityBulletList}>
-                        {selectedDayPresentSessions.map((s) => (
-                          <li key={s.id} className={styles.activityBulletItem}>
-                            <span className={styles.activityBulletDot}>•</span>
-                            <span>
-                              {s.title}
-                              {s.batchName ? ` (${s.batchName})` : ""}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : (
-                    <p className={styles.emptyNotice}>
-                      No live session attendance recorded on this date.
-                    </p>
-                  )}
-                </div>
-
-                <div className={styles.activityDivider} />
-
-                {/* Scheduled Classes */}
-                <div className={styles.activitySection}>
-                  <h4 className={styles.activitySectionTitle}>Scheduled Classes</h4>
-                  {selectedDaySessions.length > 0 ? (
-                    <div className={styles.sessionList}>
-                      {selectedDaySessions.map((s) => {
-                        const startMs = new Date(s.startTime).getTime();
-                        const endMs = new Date(s.endTime).getTime();
-                        const isUpcoming = endMs > nowMs;
-                        const isOneOnOne = isOneOnOneSession(s);
-
-                        const displayTitle =
-                          isOneOnOne && !s.title.toLowerCase().includes(userName.toLowerCase())
-                            ? `1-on-1 Coaching: ${userName}`
-                            : s.title;
-
-                        const sessionTypeLabel = isOneOnOne
-                          ? "1:1 Coaching"
-                          : `${s.batchName ? `${s.batchName} · ` : ""}${s.programTitle || "Cohort Live Class"}`;
-
-                        return (
-                          <div key={s.id} className={styles.scheduledSessionBox}>
-                            <div className={styles.sessionBoxTop}>
-                              <div className={styles.sessionAvatarIcon}>
-                                {Icons.userGroup}
-                              </div>
-                              <div className={styles.sessionTitleContainer}>
-                                <p className={styles.sessionTitleText}>{displayTitle}</p>
-                              </div>
-                              <span className={s.attended ? styles.badgePresentPill : isUpcoming ? styles.badgeUpcomingPill : styles.badgeAbsentPill}>
-                                {s.attended ? "Present" : isUpcoming ? "Upcoming" : "Absent"}
-                              </span>
-                            </div>
-
-                            <div className={styles.sessionMetaContainer}>
-                              <div className={styles.sessionMetaRow}>
-                                {Icons.clock}
-                                <span>{timeOf(s.startTime)} – {timeOf(s.endTime)}</span>
-                              </div>
-                              <div className={styles.sessionMetaRow}>
-                                {Icons.video}
-                                <span>{sessionTypeLabel}</span>
-                              </div>
-                            </div>
-
-                            {/* Join Button */}
-                            {isUpcoming && sanitizeExternalUrl(s.joinUrl) ? (
-                              <Link
-                                href={`/live?autoJoin=${s.id}`}
-                                onClick={() => {
-                                  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-                                  fetch(`${API_URL}/sessions/${s.id}/attend`, {
-                                    method: "POST",
-                                    headers: token ? { Authorization: `Bearer ${token}` } : {},
-                                    keepalive: true,
-                                  }).catch(() => { });
-                                }}
-                                className={styles.joinNowBtn}
-                              >
-                                {Icons.video}
-                                <span>Join Now</span>
-                              </Link>
-                            ) : isUpcoming ? (
-                              <button
-                                type="button"
-                                disabled
-                                className={`${styles.joinNowBtn} ${styles.joinNowBtnDisabled}`}
-                                title="Meeting link will become active before class starts"
-                              >
-                                {Icons.video}
-                                <span>Join Now</span>
-                              </button>
-                            ) : s.recordingUrl ? (
-                              <Link
-                                href={`/sessions/${s.id}/recording`}
-                                className={styles.recordingLink}
-                              >
-                                Watch Recording
-                              </Link>
-                            ) : null}
-                          </div>
-                        );
+            {/* Card 2: Today / Selected Day Activity */}
+            {selectedKey && selectedDateObj && (
+              <div className={styles.activityCard}>
+                <div className={styles.activityHeader}>
+                  <div className={styles.activityDateRow}>
+                    <span className={styles.activityCalendarIcon}>{Icons.calendarSmall}</span>
+                    <h3 className={styles.activityDateTitle} suppressHydrationWarning>
+                      {selectedDateObj.toLocaleDateString("en-US", {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
                       })}
-                    </div>
-                  ) : (
-                    <p className={styles.emptyNotice}>
-                      No live sessions scheduled on this date.
-                    </p>
+                    </h3>
+                  </div>
+                  {selectedKey === today && (
+                    <span className={styles.todayBadge}>TODAY</span>
                   )}
                 </div>
+
+                <div className={styles.activityBody}>
+                  {/* Live Session Attendance Summary for Selected Date */}
+                  <div className={styles.activitySection}>
+                    <h4 className={styles.activitySectionTitle}>Live Session Status</h4>
+                    {selectedDayPresentSessions.length > 0 ? (
+                      <div>
+                        <span className={styles.activityPresentBadge}>
+                          {Icons.check} Present ({selectedDayPresentSessions.length}{" "}
+                          {selectedDayPresentSessions.length === 1 ? "session" : "sessions"})
+                        </span>
+                        <ul className={styles.activityBulletList}>
+                          {selectedDayPresentSessions.map((s) => (
+                            <li key={s.id} className={styles.activityBulletItem}>
+                              <span className={styles.activityBulletDot}>•</span>
+                              <span>
+                                {s.title}
+                                {s.batchName ? ` (${s.batchName})` : ""}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : (
+                      <p className={styles.emptyNotice}>
+                        No live session attendance recorded on this date.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className={styles.activityDivider} />
+
+                  {/* Scheduled Classes */}
+                  <div className={styles.activitySection}>
+                    <h4 className={styles.activitySectionTitle}>Scheduled Classes</h4>
+                    {selectedDaySessions.length > 0 ? (
+                      <div className={styles.sessionList}>
+                        {selectedDaySessions.map((s) => {
+                          const startMs = new Date(s.startTime).getTime();
+                          const endMs = new Date(s.endTime).getTime();
+                          const isUpcoming = endMs > nowMs;
+                          const isOneOnOne = isOneOnOneSession(s);
+
+                          const displayTitle =
+                            isOneOnOne && !s.title.toLowerCase().includes(userName.toLowerCase())
+                              ? `1-on-1 Coaching: ${userName}`
+                              : s.title;
+
+                          const sessionTypeLabel = isOneOnOne
+                            ? "1:1 Coaching"
+                            : `${s.batchName ? `${s.batchName} · ` : ""}${s.programTitle || "Cohort Live Class"}`;
+
+                          return (
+                            <div key={s.id} className={styles.scheduledSessionBox}>
+                              <div className={styles.sessionBoxTop}>
+                                <div className={styles.sessionAvatarIcon}>
+                                  {Icons.userGroup}
+                                </div>
+                                <div className={styles.sessionTitleContainer}>
+                                  <p className={styles.sessionTitleText}>{displayTitle}</p>
+                                </div>
+                                <span className={s.attended ? styles.badgePresentPill : isUpcoming ? styles.badgeUpcomingPill : styles.badgeAbsentPill}>
+                                  {s.attended ? "Present" : isUpcoming ? "Upcoming" : "Absent"}
+                                </span>
+                              </div>
+
+                              <div className={styles.sessionMetaContainer}>
+                                <div className={styles.sessionMetaRow}>
+                                  {Icons.clock}
+                                  <span>{timeOf(s.startTime)} – {timeOf(s.endTime)}</span>
+                                </div>
+                                <div className={styles.sessionMetaRow}>
+                                  {Icons.video}
+                                  <span>{sessionTypeLabel}</span>
+                                </div>
+                              </div>
+
+                              {/* Join Button */}
+                              {isUpcoming && sanitizeExternalUrl(s.joinUrl) ? (
+                                <Link
+                                  href={`/live?autoJoin=${s.id}`}
+                                  onClick={() => {
+                                    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+                                    fetch(`${API_URL}/sessions/${s.id}/attend`, {
+                                      method: "POST",
+                                      headers: token ? { Authorization: `Bearer ${token}` } : {},
+                                      keepalive: true,
+                                    }).catch(() => { });
+                                  }}
+                                  className={styles.joinNowBtn}
+                                >
+                                  {Icons.video}
+                                  <span>Join Now</span>
+                                </Link>
+                              ) : isUpcoming ? (
+                                <button
+                                  type="button"
+                                  disabled
+                                  className={`${styles.joinNowBtn} ${styles.joinNowBtnDisabled}`}
+                                  title="Meeting link will become active before class starts"
+                                >
+                                  {Icons.video}
+                                  <span>Join Now</span>
+                                </button>
+                              ) : s.recordingUrl ? (
+                                <Link
+                                  href={`/sessions/${s.id}/recording`}
+                                  className={styles.recordingLink}
+                                >
+                                  Watch Recording
+                                </Link>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className={styles.emptyNotice}>
+                        No live sessions scheduled on this date.
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
+            )}
         </aside>
       </div>
     </div>

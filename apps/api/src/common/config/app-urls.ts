@@ -38,10 +38,18 @@ export function getAppUrls(): AppUrls {
     defaultMarketing = 'https://marketing.testfox.in';
     defaultApi = 'https://whatboutme.testfox.in';
   } else if (process.env.VERCEL && !process.env.ROOT_DOMAIN) {
-    defaultAdmin = 'https://what-bout-me-com-admin.vercel.app';
-    defaultLms = 'https://what-bout-me-com-lms.vercel.app';
-    defaultMarketing = 'https://what-bout-me-com-atyb.vercel.app';
-    defaultApi = 'https://what-bout-me-com.vercel.app';
+    const vUrl = (process.env.VERCEL_URL || '').toLowerCase();
+    if (vUrl.includes('whataboutme')) {
+      defaultAdmin = 'https://admin-whataboutme.vercel.app';
+      defaultLms = 'https://lms-whataboutme.vercel.app';
+      defaultMarketing = 'https://whataboutme.vercel.app';
+      defaultApi = 'https://api-whataboutme.vercel.app';
+    } else {
+      defaultAdmin = 'https://what-bout-me-com-admin.vercel.app';
+      defaultLms = 'https://what-bout-me-com-lms.vercel.app';
+      defaultMarketing = 'https://what-bout-me-com-atyb.vercel.app';
+      defaultApi = 'https://what-bout-me-com.vercel.app';
+    }
   } else if (isProduction) {
     defaultAdmin = `https://admin.${rootDomain}`;
     defaultLms = `https://learn.${rootDomain}`;

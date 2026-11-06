@@ -48,6 +48,8 @@ const ALLOWED_LMS_ORIGIN_PATTERNS = [
   /^https?:\/\/(?:[a-zA-Z0-9-]+\.)*vercel\.app(?::\d+)?$/i,
   /^https?:\/\/(?:learn|lms)\.whatboutme\.com(?::\d+)?$/i,
   /^https?:\/\/(?:[a-zA-Z0-9-]+\.)*whatboutme\.com(?::\d+)?$/i,
+  /^https?:\/\/(?:learn|lms)\.whataboutme\.com(?::\d+)?$/i,
+  /^https?:\/\/(?:[a-zA-Z0-9-]+\.)*whataboutme\.com(?::\d+)?$/i,
   /^https?:\/\/localhost(?::\d+)?$/i,
   /^https?:\/\/127\.0\.0\.1(?::\d+)?$/i,
   /^https?:\/\/(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)\d+\.\d+(?::\d+)?$/i,

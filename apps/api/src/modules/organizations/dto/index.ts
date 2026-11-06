@@ -323,6 +323,10 @@ export class ReassignSeatDto {
   @IsString()
   @IsOptional()
   orgInternalNotes?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  resendEmail?: boolean;
 }
 
 export class InviteItemDto {

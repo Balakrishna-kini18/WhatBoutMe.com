@@ -416,6 +416,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
     department: "",
     externalOrderRef: "",
     orgInternalNotes: "",
+    resendEmail: true,
   });
   const [editResult, setEditResult] = useState<any>(null);
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
@@ -430,6 +431,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
       department: learner.department || "",
       externalOrderRef: learner.externalOrderRef || "",
       orgInternalNotes: "",
+      resendEmail: true,
     });
     setIsEditModalOpen(true);
   };
@@ -469,14 +471,15 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
           department: editForm.department.trim() || undefined,
           externalOrderRef: editForm.externalOrderRef.trim() || undefined,
           orgInternalNotes: editForm.orgInternalNotes.trim() || undefined,
+          resendEmail: editForm.resendEmail,
         }
       );
 
       setEditResult(res);
       toast.success(
         res.reassigned
-          ? `Slot successfully reassigned to ${editForm.email}. Welcome / setup email dispatched!`
-          : `Student details updated successfully.`,
+          ? `Slot successfully reassigned to ${editForm.email}. ${res.emailSent ? "Welcome / setup email dispatched!" : ""}`
+          : `Student details updated successfully. ${res.emailSent ? "Setup email dispatched!" : ""}`,
         "Slot Updated"
       );
       fetchOrganizationDetails();
@@ -3079,10 +3082,12 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
             </h3>
             <p style={{ fontSize: "0.88rem", color: "#64748b", marginBottom: "1.2rem", lineHeight: 1.5 }}>
               {editResult.reassigned
-                ? editResult.isNewUser
+                ? editResult.emailSent
                   ? `An account setup email with LMS activation link has been dispatched to ${editResult.user?.email || editForm.email}.`
-                  : `Slot transferred to ${editResult.user?.email || editForm.email}. An enrollment notification has been dispatched.`
-                : `Student details for ${editForm.email} were updated in the academic registry.`}
+                  : `Slot transferred to ${editResult.user?.email || editForm.email}.`
+                : editResult.emailSent
+                  ? `Student details updated and account setup email re-dispatched to ${editResult.user?.email || editForm.email}.`
+                  : `Student details for ${editForm.email} were updated in the academic registry.`}
             </p>
 
             {/* Direct Setup or Login Link Card for Reassigned / Updated Slot */}
@@ -3366,6 +3371,33 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                 onChange={(e) => setEditForm({ ...editForm, orgInternalNotes: e.target.value })}
                 style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
               />
+            </div>
+
+            {/* Email Dispatch Control */}
+            <div
+              style={{
+                background: editForm.resendEmail ? "#f0fdf4" : "#f8fafc",
+                border: editForm.resendEmail ? "1px solid #86efac" : "1px solid #e2e8f0",
+                borderRadius: "8px",
+                padding: "10px 14px",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+              onClick={() => setEditForm({ ...editForm, resendEmail: !editForm.resendEmail })}
+            >
+              <input
+                type="checkbox"
+                id="editResendEmail"
+                checked={editForm.resendEmail}
+                onChange={(e) => setEditForm({ ...editForm, resendEmail: e.target.checked })}
+                style={{ width: "16px", height: "16px", accentColor: "#16a34a", cursor: "pointer" }}
+              />
+              <label htmlFor="editResendEmail" style={{ fontSize: "0.84rem", color: editForm.resendEmail ? "#166534" : "#475569", fontWeight: 600, cursor: "pointer", margin: 0 }}>
+                ✉️ Send account setup &amp; password activation email to this Gmail address
+              </label>
             </div>
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "12px" }}>

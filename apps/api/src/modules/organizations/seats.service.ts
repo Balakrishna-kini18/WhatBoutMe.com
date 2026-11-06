@@ -378,8 +378,8 @@ export class SeatsService {
         invite: true,
         enrolment: {
           include: {
-            userLessonProgress: true,
-            quizAttempts: true,
+            lessonProgress: true,
+            attempts: true,
             examAttempts: true,
             certificate: true,
           },
@@ -488,16 +488,74 @@ export class SeatsService {
             email: currentEmail,
             department: dto.department,
             externalOrderRef: dto.externalOrderRef,
+            resendEmail: Boolean(dto.resendEmail),
           },
         },
       });
+
+      const { lmsUrl } = getAppUrls(req);
+      const orgName = seat.seatPool.organization.name;
+      const programTitle = seat.seatPool.program.title;
+      const batchName = seat.seatPool.batch.name;
+      const studentName = updatedUser?.name || 'Learner';
+
+      let passwordResetUrl: string | undefined = undefined;
+      let setupUrl = `${lmsUrl}/login?email=${encodeURIComponent(currentEmail)}&redirect=/dashboard`;
+      let emailSent = false;
+
+      // If resendEmail requested or account setup requested:
+      if (dto.resendEmail && seat.userId) {
+        const passwordSetupToken = crypto.randomBytes(32).toString('hex');
+        const setupTokenHash = crypto.createHash('sha256').update(passwordSetupToken).digest('hex');
+        const setupExpiresAt = new Date(Date.now() + 14 * 86400 * 1000);
+
+        await this.prisma.passwordResetToken.create({
+          data: {
+            userId: seat.userId,
+            token: setupTokenHash,
+            expiresAt: setupExpiresAt,
+          },
+        });
+
+        passwordResetUrl = `${lmsUrl}/setup-account?token=${passwordSetupToken}&email=${encodeURIComponent(currentEmail)}`;
+        setupUrl = passwordResetUrl;
+
+        if (this.emailService) {
+          try {
+            await this.emailService.sendTemplateEmail({
+              to: currentEmail,
+              subject: `Set up your WhatBoutMe account — Sponsored by ${orgName}`,
+              template: 'CorporateSeatInviteEmail',
+              props: {
+                learnerName: studentName,
+                orgName,
+                courseTitle: programTitle,
+                programTitle,
+                batchName,
+                isNewUser: true,
+                setupUrl: passwordResetUrl,
+                dashboardUrl: `${lmsUrl}/dashboard`,
+              },
+            });
+            emailSent = true;
+          } catch (e: any) {
+            console.warn('[SeatsService] Email re-dispatch failed:', e?.message);
+          }
+        }
+      }
 
       return {
         success: true,
         reassigned: false,
         seat: updatedSeat,
         user: updatedUser,
-        message: 'Student details updated successfully.',
+        emailSent,
+        setupUrl,
+        passwordResetUrl,
+        loginUrl: `${lmsUrl}/login?email=${encodeURIComponent(currentEmail)}&redirect=/dashboard`,
+        message: emailSent
+          ? `Student details updated and account setup email dispatched to ${currentEmail}.`
+          : 'Student details updated successfully.',
       };
     }
 
@@ -660,9 +718,11 @@ export class SeatsService {
 
     const loginUrl = `${lmsUrl}/login?email=${encodeURIComponent(result.user.email)}&redirect=/dashboard`;
     const passwordResetUrl = `${lmsUrl}/setup-account?token=${result.passwordSetupToken}&email=${encodeURIComponent(result.user.email)}`;
-    const setupUrl = result.isNewUser ? passwordResetUrl : loginUrl;
+    const setupUrl = result.passwordSetupToken ? passwordResetUrl : loginUrl;
+    const shouldSendEmail = dto.resendEmail !== false;
+    let emailSent = false;
 
-    if (this.emailService) {
+    if (shouldSendEmail && this.emailService) {
       try {
         await this.emailService.sendTemplateEmail({
           to: result.user.email,
@@ -677,10 +737,11 @@ export class SeatsService {
             programTitle,
             batchName,
             isNewUser: result.isNewUser,
-            setupUrl: result.isNewUser ? passwordResetUrl : loginUrl,
+            setupUrl: result.passwordSetupToken ? passwordResetUrl : loginUrl,
             dashboardUrl: `${lmsUrl}/dashboard`,
           },
         });
+        emailSent = true;
       } catch (e: any) {
         console.warn('[SeatsService] Email dispatch failed on reassign:', e?.message);
       }
@@ -693,10 +754,13 @@ export class SeatsService {
       user: result.user,
       enrolmentId: result.enrolmentId,
       isNewUser: result.isNewUser,
+      emailSent,
       setupUrl,
       loginUrl,
       passwordResetUrl,
-      message: `Slot #${seat.slotNumber} (${seat.slotLabel}) successfully reassigned to ${result.user.email}.`,
+      message: emailSent
+        ? `Slot #${seat.slotNumber} (${seat.slotLabel}) successfully reassigned to ${result.user.email} and invitation email dispatched.`
+        : `Slot #${seat.slotNumber} (${seat.slotLabel}) successfully reassigned to ${result.user.email}.`,
     };
   }
 

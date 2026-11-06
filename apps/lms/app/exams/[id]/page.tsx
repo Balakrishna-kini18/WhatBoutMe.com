@@ -397,6 +397,10 @@ export default function ExamPage({
     if (!activeAttempt || isSubmitting) return;
 
     setIsSubmitConfirmOpen(false);
+    if (autosaveTimeoutRef.current) {
+      clearTimeout(autosaveTimeoutRef.current);
+      autosaveTimeoutRef.current = null;
+    }
     setIsSubmitting(true);
     setSubmitWarning(null);
 
@@ -576,8 +580,8 @@ export default function ExamPage({
                 {saveState === "saving"
                   ? "⟳ Saving progress..."
                   : saveState === "local"
-                  ? "✓ Saved locally (resume-ready)"
-                  : "✓ Progress auto-saved"}
+                    ? "✓ Saved locally (resume-ready)"
+                    : "✓ Progress auto-saved"}
               </span>
             </div>
           </div>
@@ -898,18 +902,18 @@ export default function ExamPage({
                       border: isCurrent
                         ? "2px solid #2563eb"
                         : isAnswered
-                        ? "1px solid #86efac"
-                        : "1px solid #e2e8f0",
+                          ? "1px solid #86efac"
+                          : "1px solid #e2e8f0",
                       backgroundColor: isCurrent
                         ? "#eff6ff"
                         : isAnswered
-                        ? "#f0fdf4"
-                        : "#f8fafc",
+                          ? "#f0fdf4"
+                          : "#f8fafc",
                       color: isCurrent
                         ? "#1d4ed8"
                         : isAnswered
-                        ? "#166534"
-                        : "#64748b",
+                          ? "#166534"
+                          : "#64748b",
                       fontWeight: isCurrent ? 700 : 500,
                     }}
                   >
@@ -1082,6 +1086,10 @@ export default function ExamPage({
                         onClick={() => {
                           navigateToQuestion(qIdx);
                           setIsSubmitConfirmOpen(false);
+                          if (autosaveTimeoutRef.current) {
+                            clearTimeout(autosaveTimeoutRef.current);
+                            autosaveTimeoutRef.current = null;
+                          }
                         }}
                         style={{
                           padding: "4px 9px",

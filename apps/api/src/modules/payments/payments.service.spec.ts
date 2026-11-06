@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PaymentsService } from './payments.service.js';
-import { BadRequestException } from '@nestjs/common';
-import { EnrolmentStatus, AgreementStatus, InvoiceStatus, EventPaymentStatus } from '@prisma/client';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { EnrolmentStatus, AgreementStatus, InvoiceStatus, EventPaymentStatus, Role } from '@prisma/client';
+
+const ENR_UUID = '10101010-1010-4010-8010-101010101010';
+const PROG_UUID = '55505550-5550-4550-8550-555055505550';
 
 describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () => {
   let service: PaymentsService;
@@ -10,7 +13,8 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
   let mockPaymentProvider: any;
 
   const mockProgram = {
-    id: 'prog-555',
+    id: PROG_UUID,
+    slug: 'brain-health-foundations',
     title: 'Brain Health Foundations',
     price: 555,
     currency: 'USD',
@@ -22,9 +26,9 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
   };
 
   const mockEnrolment = {
-    id: 'enr-101',
+    id: ENR_UUID,
     userId: 'user-bk',
-    programId: 'prog-555',
+    programId: PROG_UUID,
     status: EnrolmentStatus.PENDING_PAYMENT,
     program: mockProgram,
     batch: null,
@@ -141,7 +145,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
       await expect(
         service.simulateTestWebhook({
           targetType: 'ENROLMENT',
-          targetId: 'enr-101',
+          targetId: ENR_UUID,
           currency: 'USD',
           amount: 554.99, // 1 cent underpayment
           status: 'PAID',
@@ -153,7 +157,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
       await expect(
         service.simulateTestWebhook({
           targetType: 'ENROLMENT',
-          targetId: 'enr-101',
+          targetId: ENR_UUID,
           currency: 'USD',
           amount: 554.00, // $1.00 underpayment
           status: 'PAID',
@@ -165,7 +169,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
       await expect(
         service.simulateTestWebhook({
           targetType: 'ENROLMENT',
-          targetId: 'enr-101',
+          targetId: ENR_UUID,
           currency: 'USD',
           amount: 1.0,
           status: 'PAID',
@@ -177,7 +181,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
       await expect(
         service.simulateTestWebhook({
           targetType: 'ENROLMENT',
-          targetId: 'enr-101',
+          targetId: ENR_UUID,
           currency: 'INR',
           amount: 46064.0, // ₹1 underpayment
           status: 'PAID',
@@ -189,7 +193,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
       await expect(
         service.simulateTestWebhook({
           targetType: 'ENROLMENT',
-          targetId: 'enr-101',
+          targetId: ENR_UUID,
           currency: 'AED',
           amount: 2036.0, // AED 1 underpayment
           status: 'PAID',
@@ -201,7 +205,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
       await expect(
         service.simulateTestWebhook({
           targetType: 'ENROLMENT',
-          targetId: 'enr-101',
+          targetId: ENR_UUID,
           currency: 'USD',
           amount: 556.0,
           status: 'PAID',
@@ -212,7 +216,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
     it('accepts legitimate payment matching authoritative server price in USD ($555.00)', async () => {
       const res = await service.simulateTestWebhook({
         targetType: 'ENROLMENT',
-        targetId: 'enr-101',
+        targetId: ENR_UUID,
         currency: 'USD',
         amount: 555.0,
         status: 'PAID',
@@ -226,7 +230,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
     it('accepts legitimate payment matching authoritative server price in INR (₹46,065.00)', async () => {
       const res = await service.simulateTestWebhook({
         targetType: 'ENROLMENT',
-        targetId: 'enr-101',
+        targetId: ENR_UUID,
         currency: 'INR',
         amount: 46065,
         status: 'PAID',
@@ -240,7 +244,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
     it('accepts legitimate payment matching authoritative server price in AED (AED 2,037.00)', async () => {
       const res = await service.simulateTestWebhook({
         targetType: 'ENROLMENT',
-        targetId: 'enr-101',
+        targetId: ENR_UUID,
         currency: 'AED',
         amount: 2037,
         status: 'PAID',
@@ -254,7 +258,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
     it('accepts payment within 1 minor-unit ceiling tolerance (e.g. $555.01 if client rounded up)', async () => {
       const res = await service.simulateTestWebhook({
         targetType: 'ENROLMENT',
-        targetId: 'enr-101',
+        targetId: ENR_UUID,
         currency: 'USD',
         amount: 555.01,
         status: 'PAID',
@@ -267,7 +271,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
     it('accepts payment when client amount is omitted, authoritatively resolving price', async () => {
       const res = await service.simulateTestWebhook({
         targetType: 'ENROLMENT',
-        targetId: 'enr-101',
+        targetId: ENR_UUID,
         currency: 'AED',
         status: 'PAID',
       });
@@ -288,7 +292,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
 
       await service.simulateTestWebhook({
         targetType: 'ENROLMENT',
-        targetId: 'enr-101',
+        targetId: ENR_UUID,
         currency: 'USD',
         amount: 555,
         status: 'PAID',
@@ -312,7 +316,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
 
       await service.simulateTestWebhook({
         targetType: 'ENROLMENT',
-        targetId: 'enr-101',
+        targetId: ENR_UUID,
         currency: 'AED',
         amount: 2037,
         status: 'PAID',
@@ -336,7 +340,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
 
       await service.simulateTestWebhook({
         targetType: 'ENROLMENT',
-        targetId: 'enr-101',
+        targetId: ENR_UUID,
         currency: 'INR',
         amount: 46065,
         status: 'PAID',
@@ -369,7 +373,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
 
       const res = await service.simulateTestWebhook({
         targetType: 'ENROLMENT',
-        targetId: 'enr-101',
+        targetId: ENR_UUID,
         currency: 'USD',
         couponCode: 'SAVE10',
         amount: 499.5,
@@ -400,7 +404,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
 
       const res = await service.simulateTestWebhook({
         targetType: 'ENROLMENT',
-        targetId: 'enr-101',
+        targetId: ENR_UUID,
         currency: 'AED',
         couponCode: 'SAVE37',
         amount: 2000,
@@ -431,7 +435,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
 
       const res = await service.simulateTestWebhook({
         targetType: 'ENROLMENT',
-        targetId: 'enr-101',
+        targetId: ENR_UUID,
         currency: 'INR',
         couponCode: 'SAVE1000',
         amount: 45065,
@@ -499,7 +503,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
       await expect(
         service.createCheckoutSession({
           targetType: 'ENROLMENT',
-          targetId: 'enr-101',
+          targetId: ENR_UUID,
           currency: 'USD',
           amount: 100, // Client tries to initiate session for $100
         }),
@@ -510,7 +514,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
       await expect(
         service.createCheckoutSession({
           targetType: 'ENROLMENT',
-          targetId: 'enr-101',
+          targetId: ENR_UUID,
           currency: 'USD',
           amount: 600,
         }),
@@ -520,7 +524,7 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
     it('successfully initiates checkout order using server-side authoritative pricing when amount omitted', async () => {
       const res = await service.createCheckoutSession({
         targetType: 'ENROLMENT',
-        targetId: 'enr-101',
+        targetId: ENR_UUID,
         currency: 'USD',
       });
 
@@ -531,6 +535,235 @@ describe('PaymentsService - Pricing, Tax Arithmetic & Tampering Protection', () 
         }),
       );
       expect(res.checkoutUrl).toBe('https://checkout.stripe.com/pay_test');
+    });
+  });
+
+  describe('6. Identifier Validation & UUID Lookup Safety (No Invalid UUID Passed to Prisma)', () => {
+    it('resolves pricing by valid enrollment UUID cleanly', async () => {
+      const res = await service.resolvePricing('ENROLMENT', ENR_UUID, 'USD');
+      expect(res.enrolmentId).toBe(ENR_UUID);
+      expect(res.programId).toBe(PROG_UUID);
+      expect(res.amount).toBe(555);
+      expect(prismaMock.enrolment.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: ENR_UUID } }),
+      );
+    });
+
+    it('rejects malformed explicit enrolmentId with BadRequestException and never queries prisma.enrolment.findUnique', async () => {
+      await expect(
+        service.createCheckoutSession({
+          targetType: 'ENROLMENT',
+          targetId: PROG_UUID,
+          enrolmentId: 'not-a-valid-uuid',
+          currency: 'USD',
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(prismaMock.enrolment.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('resolves pricing by valid program UUID when no enrolment matches that UUID', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValueOnce(null);
+      prismaMock.program.findUnique.mockResolvedValueOnce(mockProgram);
+
+      const res = await service.resolvePricing('ENROLMENT', PROG_UUID, 'USD');
+      expect(res.programId).toBe(PROG_UUID);
+      expect(res.amount).toBe(555);
+      expect(prismaMock.program.findUnique).toHaveBeenCalledWith({ where: { id: PROG_UUID } });
+    });
+
+    it('resolves pricing by program slug without calling prisma.enrolment.findUnique with a non-UUID slug', async () => {
+      prismaMock.program.findUnique.mockResolvedValueOnce(mockProgram);
+
+      const res = await service.resolvePricing('ENROLMENT', 'brain-health-foundations', 'USD');
+      expect(res.programId).toBe(PROG_UUID);
+      expect(res.amount).toBe(555);
+      expect(prismaMock.enrolment.findUnique).not.toHaveBeenCalled();
+      expect(prismaMock.program.findUnique).toHaveBeenCalledWith({
+        where: { slug: 'brain-health-foundations' },
+      });
+    });
+
+    it('throws NotFoundException when valid UUID or slug does not match any resource', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValueOnce(null);
+      prismaMock.program.findUnique.mockResolvedValueOnce(null);
+
+      await expect(
+        service.resolvePricing('ENROLMENT', '99999999-9999-4999-8999-999999999999', 'USD'),
+      ).rejects.toThrow(NotFoundException);
+
+      prismaMock.program.findUnique.mockResolvedValueOnce(null);
+      await expect(
+        service.resolvePricing('ENROLMENT', 'non-existent-course-slug', 'USD'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('blocks an authenticated user attempting checkout for another user’s enrollment with ForbiddenException', async () => {
+      const victimEnrolmentId = '22222222-2222-4222-8222-222222222222';
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        ...mockEnrolment,
+        id: victimEnrolmentId,
+        userId: 'victim-user-id',
+      });
+      prismaMock.enrolment.findFirst = vi.fn().mockResolvedValue(null);
+
+      await expect(
+        service.createCheckoutSession(
+          {
+            targetType: 'ENROLMENT',
+            targetId: PROG_UUID,
+            enrolmentId: victimEnrolmentId,
+            currency: 'USD',
+          },
+          { id: 'attacker-user-id', role: Role.USER },
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('7. Early-Bird & Batch Currency Conversion Correctness', () => {
+    it('converts active early-bird price from program currency into USD, AED, and INR across checkout and webhook simulation', async () => {
+      const futureDeadline = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const earlyBirdProgram = {
+        ...mockProgram,
+        price: 555,
+        currency: 'USD',
+        earlyBirdPrice: 400,
+        earlyBirdDeadline: futureDeadline,
+      };
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        ...mockEnrolment,
+        program: earlyBirdProgram,
+        batch: null,
+      });
+
+      const usdPricing = await service.resolvePricing('ENROLMENT', ENR_UUID, 'USD');
+      const aedPricing = await service.resolvePricing('ENROLMENT', ENR_UUID, 'AED');
+      const inrPricing = await service.resolvePricing('ENROLMENT', ENR_UUID, 'INR');
+
+      expect(usdPricing.amount).toBe(400);
+      expect(aedPricing.amount).toBe(1468); // 400 * 3.67
+      expect(inrPricing.amount).toBe(33200); // 400 * 83
+
+      // Verify simulateTestWebhook agrees with resolvePricing for converted early-bird price
+      const simInr = await service.simulateTestWebhook({
+        targetType: 'ENROLMENT',
+        targetId: ENR_UUID,
+        currency: 'INR',
+        amount: 33200,
+        status: 'PAID',
+      });
+      expect(simInr.amount).toBe(33200);
+
+      // Reject raw unconverted early-bird number (400 INR instead of 33,200 INR)
+      await expect(
+        service.simulateTestWebhook({
+          targetType: 'ENROLMENT',
+          targetId: ENR_UUID,
+          currency: 'INR',
+          amount: 400,
+          status: 'PAID',
+        }),
+      ).rejects.toThrow(/underpayment rejected/i);
+    });
+
+    it('falls back to regular program price when early-bird deadline has expired', async () => {
+      const pastDeadline = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const expiredEbProgram = {
+        ...mockProgram,
+        price: 555,
+        currency: 'USD',
+        earlyBirdPrice: 400,
+        earlyBirdDeadline: pastDeadline,
+      };
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        ...mockEnrolment,
+        program: expiredEbProgram,
+        batch: null,
+      });
+
+      const usdPricing = await service.resolvePricing('ENROLMENT', ENR_UUID, 'USD');
+      const aedPricing = await service.resolvePricing('ENROLMENT', ENR_UUID, 'AED');
+      const inrPricing = await service.resolvePricing('ENROLMENT', ENR_UUID, 'INR');
+
+      expect(usdPricing.amount).toBe(555);
+      expect(aedPricing.amount).toBe(2037);
+      expect(inrPricing.amount).toBe(46065);
+    });
+
+    it('converts batch override price when batch currency matches program currency', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        ...mockEnrolment,
+        program: mockProgram, // USD 555
+        batch: {
+          id: 'batch-usd-300',
+          price: 300,
+          currency: 'USD',
+          priceUSD: null,
+          priceAED: null,
+          priceINR: null,
+        },
+      });
+
+      const usdPricing = await service.resolvePricing('ENROLMENT', ENR_UUID, 'USD');
+      const aedPricing = await service.resolvePricing('ENROLMENT', ENR_UUID, 'AED');
+      const inrPricing = await service.resolvePricing('ENROLMENT', ENR_UUID, 'INR');
+
+      expect(usdPricing.amount).toBe(300);
+      expect(aedPricing.amount).toBe(1101); // 300 * 3.67
+      expect(inrPricing.amount).toBe(24900); // 300 * 83
+    });
+
+    it('converts batch override price using batch.currency when batch currency differs from program currency', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        ...mockEnrolment,
+        program: mockProgram, // USD 555
+        batch: {
+          id: 'batch-aed-3670',
+          price: 3670,
+          currency: 'AED', // Batch priced in AED (3670 AED == 1000 USD)
+          priceUSD: null,
+          priceAED: null,
+          priceINR: null,
+        },
+      });
+
+      const aedPricing = await service.resolvePricing('ENROLMENT', ENR_UUID, 'AED');
+      const usdPricing = await service.resolvePricing('ENROLMENT', ENR_UUID, 'USD');
+      const inrPricing = await service.resolvePricing('ENROLMENT', ENR_UUID, 'INR');
+
+      expect(aedPricing.amount).toBe(3670);
+      expect(usdPricing.amount).toBe(1000); // 3670 / 3.67
+      expect(inrPricing.amount).toBe(83000); // 1000 * 83
+
+      // Verify simulateTestWebhook also uses batch.currency
+      const simUsd = await service.simulateTestWebhook({
+        targetType: 'ENROLMENT',
+        targetId: ENR_UUID,
+        currency: 'USD',
+        amount: 1000,
+        status: 'PAID',
+      });
+      expect(simUsd.amount).toBe(1000);
+    });
+
+    it('prioritizes explicit batch currency override fields (priceUSD, priceAED, priceINR) when present', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        ...mockEnrolment,
+        program: mockProgram,
+        batch: {
+          id: 'batch-explicit-overrides',
+          price: 300,
+          currency: 'USD',
+          priceUSD: 299,
+          priceAED: 1099,
+          priceINR: 23999,
+        },
+      });
+
+      expect((await service.resolvePricing('ENROLMENT', ENR_UUID, 'USD')).amount).toBe(299);
+      expect((await service.resolvePricing('ENROLMENT', ENR_UUID, 'AED')).amount).toBe(1099);
+      expect((await service.resolvePricing('ENROLMENT', ENR_UUID, 'INR')).amount).toBe(23999);
     });
   });
 });

@@ -586,5 +586,85 @@ describe('D2-Lifecycle: SessionLifecycleService', () => {
         data: { status: SessionStatus.COMPLETED },
       });
     });
+
+    it('propagates transient database errors in activateSession and completeSession so BullMQ retries the job', async () => {
+      prismaMock.session.findUnique = vi.fn().mockResolvedValue({
+        id: 'sess-db-err',
+        title: 'DB Error Session',
+        startTime: new Date('2026-10-20T09:00:00.000Z'),
+        endTime: new Date('2026-10-20T10:00:00.000Z'),
+        status: SessionStatus.SCHEDULED,
+        scheduleVersion: 1,
+      });
+      prismaMock.session.updateMany = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('P1001: Can not reach database server'));
+
+      await expect(service.activateSession('sess-db-err', 1)).rejects.toThrow(
+        'P1001: Can not reach database server',
+      );
+
+      prismaMock.session.updateMany = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('P2024: Connection pool timeout'));
+
+      await expect(service.completeSession('sess-db-err', 1)).rejects.toThrow(
+        'P2024: Connection pool timeout',
+      );
+    });
+
+    it('safely ignores superseded scheduleVersion and removes prior version delayed jobs on reschedule', async () => {
+      const removeFn = vi.fn().mockResolvedValue(undefined);
+      const lifecycleQueueMock: any = {
+        add: vi.fn().mockResolvedValue({ id: 'job-1' }),
+        getJob: vi.fn().mockResolvedValue({ remove: removeFn }),
+      };
+
+      const queuedService = new SessionLifecycleService(
+        prismaMock as any,
+        reconciliationMock as any,
+        emailMock as any,
+        meetingProviderMock,
+        calendarProviderMock,
+        undefined,
+        lifecycleQueueMock,
+      );
+
+      // Rescheduled session with scheduleVersion = 2 removes v1 delayed jobs and enqueues v2 jobs
+      await queuedService.scheduleSessionJobs({
+        id: 'sess-resched',
+        startTime: new Date('2026-10-22T10:00:00.000Z'),
+        endTime: new Date('2026-10-22T11:00:00.000Z'),
+        scheduleVersion: 2,
+      });
+
+      expect(lifecycleQueueMock.getJob).toHaveBeenCalledWith('session-activate:sess-resched:1');
+      expect(lifecycleQueueMock.getJob).toHaveBeenCalledWith('session-complete:sess-resched:1');
+      expect(removeFn).toHaveBeenCalledTimes(5);
+      expect(lifecycleQueueMock.add).toHaveBeenCalledWith(
+        'activate-session',
+        { sessionId: 'sess-resched', version: 2 },
+        expect.objectContaining({
+          jobId: 'session-activate:sess-resched:2',
+          removeOnComplete: { count: 100, age: 86400 },
+          removeOnFail: { count: 200, age: 604800 },
+        }),
+      );
+
+      // Stale v1 job arriving after reschedule to v2 is a safe no-op
+      prismaMock.session.findUnique = vi.fn().mockResolvedValueOnce({
+        id: 'sess-resched',
+        title: 'Rescheduled Session',
+        startTime: new Date('2026-10-22T10:00:00.000Z'),
+        endTime: new Date('2026-10-22T11:00:00.000Z'),
+        status: SessionStatus.SCHEDULED,
+        scheduleVersion: 2,
+      });
+      prismaMock.session.updateMany = vi.fn();
+
+      const activated = await queuedService.activateSession('sess-resched', 1);
+      expect(activated).toBe(false);
+      expect(prismaMock.session.updateMany).not.toHaveBeenCalled();
+    });
   });
 });

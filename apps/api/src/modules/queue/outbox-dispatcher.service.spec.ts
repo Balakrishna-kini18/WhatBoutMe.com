@@ -24,7 +24,7 @@ describe('OutboxDispatcherService — Multi-Worker Outbox Claim & Recovery', () 
     vi.spyOn(dispatcher['logger'], 'log').mockImplementation(() => {});
   });
 
-  it('claims and dispatches eligible PENDING outbox events with deterministic job IDs', async () => {
+  it('claims and dispatches eligible PENDING outbox events with deterministic job IDs without double-incrementing attempts', async () => {
     const mockEvents = [
       { id: 'event-1', action: 'CREATE', status: 'PENDING', payload: { foo: 'bar' } },
     ];
@@ -53,10 +53,14 @@ describe('OutboxDispatcherService — Multi-Worker Outbox Claim & Recovery', () 
         }),
         data: expect.objectContaining({
           status: 'PENDING',
-          attempts: { increment: 1 },
+          leasedUntil: expect.any(Date),
+          enqueuedAt: expect.any(Date),
         }),
       }),
     );
+    // Attempts must NOT be incremented during enqueue claim (MeetingSyncProcessor increments on execution)
+    const claimCallData = prismaMock.outboxEvent.updateMany.mock.calls[0][0].data;
+    expect(claimCallData.attempts).toBeUndefined();
 
     expect(queueMock.add).toHaveBeenCalledWith(
       'sync-meeting',
@@ -86,7 +90,7 @@ describe('OutboxDispatcherService — Multi-Worker Outbox Claim & Recovery', () 
         }),
         data: expect.objectContaining({
           status: 'PENDING',
-          attempts: { increment: 1 },
+          leasedUntil: expect.any(Date),
         }),
       }),
     );
@@ -116,12 +120,12 @@ describe('OutboxDispatcherService — Multi-Worker Outbox Claim & Recovery', () 
     );
   });
 
-  it('handles concurrent recovery claims safely (skips when another worker claims row)', async () => {
+  it('handles concurrent recovery claims safely (skips when another worker or direct producer already leased row)', async () => {
     const candidate = [
       { id: 'event-race', action: 'CREATE', status: 'PENDING', payload: {} },
     ];
     prismaMock.outboxEvent.findMany.mockResolvedValueOnce(candidate);
-    // Concurrent worker won the updateMany race -> count is 0
+    // Concurrent worker or direct SessionsService lease won the updateMany race -> count is 0
     prismaMock.outboxEvent.updateMany.mockResolvedValueOnce({ count: 0 });
 
     const count = await dispatcher.claimAndDispatchPending(50);
@@ -145,7 +149,7 @@ describe('OutboxDispatcherService — Multi-Worker Outbox Claim & Recovery', () 
     );
   });
 
-  it('releases lease and schedules backoff when BullMQ enqueue fails', async () => {
+  it('releases lease, increments attempts, and schedules backoff when BullMQ enqueue fails', async () => {
     const mockEvents = [
       { id: 'event-err', action: 'CANCEL', status: 'PENDING', payload: {} },
     ];
@@ -161,6 +165,7 @@ describe('OutboxDispatcherService — Multi-Worker Outbox Claim & Recovery', () 
         data: expect.objectContaining({
           status: 'FAILED',
           leasedUntil: null,
+          attempts: { increment: 1 },
           lastError: 'Redis connection refused',
           nextAttemptAt: expect.any(Date),
         }),

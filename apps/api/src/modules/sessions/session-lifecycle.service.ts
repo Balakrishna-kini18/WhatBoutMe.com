@@ -70,6 +70,9 @@ export class SessionLifecycleService {
       return;
     }
     const version = session.scheduleVersion || 1;
+    if (version > 1) {
+      await this.removeScheduledSessionJobs(session.id, version - 1).catch(() => 0);
+    }
     const now = Date.now();
     const startMs = new Date(session.startTime).getTime();
     const endMs = new Date(session.endTime).getTime();
@@ -154,6 +157,43 @@ export class SessionLifecycleService {
   }
 
   /**
+   * Best-effort removal of delayed BullMQ lifecycle jobs for a superseded or cancelled session version.
+   * Only removes jobs matching the exact verified deterministic job IDs.
+   */
+  async removeScheduledSessionJobs(sessionId: string, version = 1): Promise<number> {
+    if (!this.lifecycleQueue || typeof (this.lifecycleQueue as any).getJob !== 'function') {
+      return 0;
+    }
+
+    const prefixes = [
+      'session-activate',
+      'session-complete',
+      'session-reminder-24h',
+      'session-reminder-1h',
+      'session-reminder-10m',
+    ];
+
+    let removedCount = 0;
+    for (const prefix of prefixes) {
+      const jobId = `${prefix}:${sessionId}:${version}`;
+      try {
+        const job = await this.lifecycleQueue.getJob(jobId);
+        if (job && typeof job.remove === 'function') {
+          await job.remove();
+          removedCount++;
+        }
+      } catch (err: any) {
+        this.logger.warn(`Could not remove superseded delayed job ${jobId}: ${err?.message || err}`);
+      }
+    }
+
+    if (removedCount > 0) {
+      this.logger.log(`Removed ${removedCount} superseded delayed lifecycle jobs for session ${sessionId} (v${version})`);
+    }
+    return removedCount;
+  }
+
+  /**
    * Activates a session upon its start time arriving via delayed BullMQ job.
    * Multi-worker safe: uses conditional database update matching status and scheduleVersion.
    */
@@ -217,8 +257,8 @@ export class SessionLifecycleService {
       this.logger.log(`Session [${sessionId}] "${session.title}" automatically transitioned to ACTIVE`);
       return true;
     } catch (err: any) {
-      this.logger.warn(`Failed to activate session ${sessionId}: ${err.message}`);
-      return false;
+      this.logger.error(`Failed to activate session ${sessionId}: ${err.message}`);
+      throw err;
     }
   }
 
@@ -263,10 +303,17 @@ export class SessionLifecycleService {
         if (liveStatus === 'started') {
           this.logger.log(`completeSession: Session ${sessionId} is still live on Zoom. Delaying completion check by 5 minutes.`);
           if (this.lifecycleQueue) {
+            const bucket = Math.floor(Date.now() / (5 * 60 * 1000));
+            const overtimeJobId = `session-complete-overtime:${session.id}:${session.scheduleVersion || 1}:${bucket}`;
             await this.lifecycleQueue.add(
               'complete-session',
               { sessionId: session.id, version: session.scheduleVersion },
-              { delay: 5 * 60 * 1000, removeOnComplete: true },
+              {
+                jobId: overtimeJobId,
+                delay: 5 * 60 * 1000,
+                removeOnComplete: { count: 100, age: 86400 },
+                removeOnFail: { count: 200, age: 7 * 86400 },
+              },
             );
           }
           return false;
@@ -316,8 +363,8 @@ export class SessionLifecycleService {
       await this.handlePostSessionProcessing(session);
       return true;
     } catch (err: any) {
-      this.logger.warn(`Failed to complete session ${sessionId}: ${err.message}`);
-      return false;
+      this.logger.error(`Failed to complete session ${sessionId}: ${err.message}`);
+      throw err;
     }
   }
 

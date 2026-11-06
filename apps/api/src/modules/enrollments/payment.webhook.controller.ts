@@ -77,12 +77,82 @@ function verifyStripeSignature(
 export class PaymentWebhookController {
   private readonly logger = new Logger(PaymentWebhookController.name);
 
+  private readonly inFlightEvents = new Map<string, Promise<any>>();
+
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly cacheHelper?: CacheHelperService,
     @Optional() private readonly emailService?: EmailService,
     @Optional() private readonly stripeClient?: Stripe,
-  ) {}
+  ) { }
+
+  private async isEventProcessedInDatabase(eventId: string): Promise<boolean> {
+    if (typeof (this.prisma as any)?.webhookEvent?.findUnique !== 'function') {
+      return false;
+    }
+    try {
+      const existing = await (this.prisma as any).webhookEvent.findUnique({
+        where: { eventKey: eventId },
+      });
+      return existing?.status === 'PROCESSED';
+    } catch {
+      return false;
+    }
+  }
+
+  private async recordWebhookEventInDb(
+    client: any,
+    eventId?: string,
+    eventType?: string,
+    stripeSessionId?: string,
+    enrolmentId?: string,
+  ): Promise<void> {
+    if (typeof eventId !== 'string' || !eventId.startsWith('evt_')) {
+      return;
+    }
+    const webhookEventRepo = client?.webhookEvent || (this.prisma as any)?.webhookEvent;
+    if (!webhookEventRepo) {
+      return;
+    }
+    const payloadSummary = {
+      id: eventId,
+      type: eventType || 'payment.succeeded',
+      ...(stripeSessionId ? { stripeSessionId } : {}),
+      ...(enrolmentId ? { enrolmentId } : {}),
+    };
+    if (typeof webhookEventRepo.upsert === 'function') {
+      await webhookEventRepo.upsert({
+        where: { eventKey: eventId },
+        update: {
+          status: 'PROCESSED',
+          payload: payloadSummary,
+        },
+        create: {
+          provider: 'STRIPE',
+          eventKey: eventId,
+          status: 'PROCESSED',
+          payload: payloadSummary,
+        },
+      });
+    } else if (typeof webhookEventRepo.create === 'function') {
+      await webhookEventRepo.create({
+        data: {
+          provider: 'STRIPE',
+          eventKey: eventId,
+          status: 'PROCESSED',
+          payload: payloadSummary,
+        },
+      });
+    }
+  }
+
+  private async markEventProcessedInCache(eventId?: string): Promise<void> {
+    if (this.cacheHelper && typeof eventId === 'string' && eventId.startsWith('evt_')) {
+      await this.cacheHelper
+        .set(`stripe_event_id:${eventId}`, { status: 'processed', at: new Date().toISOString() }, 86400)
+        .catch(() => { });
+    }
+  }
 
   @Post()
   async handlePaymentWebhook(
@@ -142,12 +212,23 @@ export class PaymentWebhookController {
     const eventType = payload?.type || payload?.event || payload?.action || 'payment.succeeded';
     this.logger.log(`Processing payment webhook event: ${eventType}`);
 
-    // 1.5 Stripe Event-Level Deduplication (Blocks duplicate / concurrent webhook replays)
+    // 1.5 Stripe Event-Level Deduplication (Durable PostgreSQL primary + post-commit cache)
     const eventId = payload?.id;
-    if (this.cacheHelper && typeof eventId === 'string' && eventId.startsWith('evt_')) {
-      const isDuplicateEvent = await this.cacheHelper.get(`stripe_event_id:${eventId}`).catch(() => null);
-      if (isDuplicateEvent) {
-        this.logger.log(`[Idempotent Bypass] Stripe event ${eventId} already processed or in-flight. Returning 200 OK.`);
+    const hasStripeEventId = typeof eventId === 'string' && eventId.startsWith('evt_');
+
+    if (hasStripeEventId) {
+      const existingInFlight = this.inFlightEvents.get(eventId);
+      if (existingInFlight) {
+        try {
+          await existingInFlight;
+        } catch {
+          // If the in-flight execution failed, allow this retry to proceed
+        }
+      }
+
+      if (await this.isEventProcessedInDatabase(eventId)) {
+        await this.markEventProcessedInCache(eventId);
+        this.logger.log(`[Idempotent Bypass] Stripe event ${eventId} already processed in PostgreSQL. Returning 200 OK.`);
         return {
           received: true,
           idempotent: true,
@@ -155,8 +236,67 @@ export class PaymentWebhookController {
           status: 'EVENT_ALREADY_PROCESSED',
         };
       }
-      await this.cacheHelper.set(`stripe_event_id:${eventId}`, { status: 'processing', at: new Date().toISOString() }, 86400).catch(() => {});
+
+      if (this.cacheHelper) {
+        const cachedEvent = await this.cacheHelper
+          .get<{ status?: string }>(`stripe_event_id:${eventId}`)
+          .catch(() => null);
+        if (cachedEvent?.status === 'processed') {
+          const hasWebhookEventTable = typeof (this.prisma as any)?.webhookEvent?.findUnique === 'function';
+          if (!hasWebhookEventTable) {
+            this.logger.log(`[Idempotent Bypass] Stripe event ${eventId} already processed. Returning 200 OK.`);
+            return {
+              received: true,
+              idempotent: true,
+              eventId,
+              status: 'EVENT_ALREADY_PROCESSED',
+            };
+          }
+          // Cache hit without matching durable DB record: evict stale cache key and proceed
+          await this.cacheHelper.del(`stripe_event_id:${eventId}`).catch(() => { });
+        } else if (cachedEvent) {
+          // Never allow an uncommitted 'processing' cache key to block retries
+          await this.cacheHelper.del(`stripe_event_id:${eventId}`).catch(() => { });
+        }
+      }
     }
+
+    const executeWebhook = async () => {
+      try {
+        const result = await this.processVerifiedWebhookPayload(payload, eventType, eventId, clientIp);
+        if (hasStripeEventId) {
+          await this.markEventProcessedInCache(eventId);
+        }
+        return result;
+      } catch (err) {
+        if (hasStripeEventId && this.cacheHelper) {
+          await this.cacheHelper.del(`stripe_event_id:${eventId}`).catch(() => { });
+        }
+        throw err;
+      }
+    };
+
+    if (hasStripeEventId) {
+      const executionPromise = executeWebhook();
+      this.inFlightEvents.set(eventId, executionPromise);
+      try {
+        return await executionPromise;
+      } finally {
+        if (this.inFlightEvents.get(eventId) === executionPromise) {
+          this.inFlightEvents.delete(eventId);
+        }
+      }
+    }
+
+    return executeWebhook();
+  }
+
+  private async processVerifiedWebhookPayload(
+    payload: any,
+    eventType: string,
+    eventId: string | undefined,
+    clientIp: string,
+  ) {
 
     // Extract identifiers from payload (supports both direct JSON payloads and standard Stripe event payloads)
     const dataObj = payload?.data?.object || payload || {};
@@ -182,8 +322,8 @@ export class PaymentWebhookController {
       typeof dataObj.amount_total === 'number'
         ? dataObj.amount_total / 100
         : typeof dataObj.amount === 'number'
-        ? dataObj.amount
-        : 0;
+          ? dataObj.amount
+          : 0;
     const currency = (dataObj.currency || 'USD').toUpperCase();
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -241,6 +381,7 @@ export class PaymentWebhookController {
               where: { id: reg.eventId },
               data: { seatsBooked: { increment: 1 } },
             });
+            await this.recordWebhookEventInDb(tx, eventId, eventType, stripeSessionId, reg.id);
           });
 
           this.logger.log(`Event registration ${reg.id} confirmed via Stripe webhook.`);
@@ -254,8 +395,26 @@ export class PaymentWebhookController {
         enrolment = await this.prisma.enrolment.findUnique({
           where: { id: enrolmentId },
           include: {
-            program: { select: { id: true, title: true, price: true } },
-            batch: { select: { id: true, name: true, startDate: true } },
+            program: {
+              select: {
+                id: true,
+                title: true,
+                price: true,
+                currency: true,
+                earlyBirdPrice: true,
+                earlyBirdCurrency: true,
+                earlyBirdDeadline: true,
+              },
+            },
+            batch: {
+              select: {
+                id: true,
+                name: true,
+                startDate: true,
+                price: true,
+                currency: true,
+              },
+            },
             user: { select: { id: true, name: true, email: true } },
             signedAgreement: true,
           },
@@ -264,8 +423,26 @@ export class PaymentWebhookController {
         enrolment = await this.prisma.enrolment.findUnique({
           where: { id: existingPayment.enrolmentId },
           include: {
-            program: { select: { id: true, title: true, price: true } },
-            batch: { select: { id: true, name: true, startDate: true } },
+            program: {
+              select: {
+                id: true,
+                title: true,
+                price: true,
+                currency: true,
+                earlyBirdPrice: true,
+                earlyBirdCurrency: true,
+                earlyBirdDeadline: true,
+              },
+            },
+            batch: {
+              select: {
+                id: true,
+                name: true,
+                startDate: true,
+                price: true,
+                currency: true,
+              },
+            },
             user: { select: { id: true, name: true, email: true } },
             signedAgreement: true,
           },
@@ -311,20 +488,20 @@ export class PaymentWebhookController {
       } else {
         const batch = enrolment.batchId
           ? await this.prisma.batch.findUnique({
-              where: { id: enrolment.batchId },
-              include: {
-                _count: {
-                  select: {
-                    enrolments: {
-                      where: {
-                        id: { not: enrolment.id },
-                        status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED] },
-                      },
+            where: { id: enrolment.batchId },
+            include: {
+              _count: {
+                select: {
+                  enrolments: {
+                    where: {
+                      id: { not: enrolment.id },
+                      status: { in: [EnrolmentStatus.ACTIVE, EnrolmentStatus.PENDING_AGREEMENT, EnrolmentStatus.COMPLETED] },
                     },
                   },
                 },
               },
-            })
+            },
+          })
           : null;
 
         const occupied = batch?._count?.enrolments ?? 0;
@@ -348,8 +525,23 @@ export class PaymentWebhookController {
       }
 
       // 5.5 INDEPENDENT AMOUNT AND CURRENCY VALIDATION (WITH ADAPTIVE PRICING SUPPORT)
-      const expectedAmount = existingPayment?.amount ?? enrolment.batch?.price ?? enrolment.program?.price;
-      const expectedCurrency = existingPayment?.currency ?? enrolment.program?.currency ?? 'USD';
+      const activeEarlyBirdPrice =
+        enrolment.program?.earlyBirdPrice != null &&
+          Number(enrolment.program.earlyBirdPrice) > 0 &&
+          enrolment.program?.earlyBirdDeadline &&
+          new Date() < new Date(enrolment.program.earlyBirdDeadline)
+          ? Number(enrolment.program.earlyBirdPrice)
+          : undefined;
+      const expectedAmount =
+        existingPayment?.amount ??
+        enrolment.batch?.price ??
+        activeEarlyBirdPrice ??
+        enrolment.program?.price;
+      const expectedCurrency =
+        existingPayment?.currency ??
+        enrolment.batch?.currency ??
+        enrolment.program?.currency ??
+        'USD';
 
       // Detect Stripe Adaptive Pricing (Customer charged locally in INR/AED while core settles in USD)
       const currencyConversion = dataObj.currency_conversion;
@@ -465,6 +657,8 @@ export class PaymentWebhookController {
             },
           });
 
+          await this.recordWebhookEventInDb(tx, eventId, eventType, stripeSessionId, enrolment.id);
+
           return { isDuplicate: true };
         }
 
@@ -518,11 +712,11 @@ export class PaymentWebhookController {
         const invoiceNumber = `INV-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
         const localPaymentDisclosure = isAdaptivePricing
           ? {
-              paidCurrency: currency.toUpperCase(),
-              paidAmount: amount,
-              fxRate: currencyConversion?.fx_rate || null,
-              provider: 'Stripe Adaptive Pricing',
-            }
+            paidCurrency: currency.toUpperCase(),
+            paidAmount: amount,
+            fxRate: currencyConversion?.fx_rate || null,
+            provider: 'Stripe Adaptive Pricing',
+          }
           : undefined;
 
         if (typeof (tx.invoice as any)?.upsert === 'function') {
@@ -598,6 +792,8 @@ export class PaymentWebhookController {
           },
         });
 
+        await this.recordWebhookEventInDb(tx, eventId, eventType, stripeSessionId, enrolment.id);
+
         return { isDuplicate: false };
       });
 
@@ -614,9 +810,9 @@ export class PaymentWebhookController {
 
       // Invalidate caches
       if (this.cacheHelper) {
-        await this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`).catch(() => {});
-        await this.cacheHelper.invalidateNamespace('enrolments').catch(() => {});
-        await this.cacheHelper.invalidateNamespace('batches').catch(() => {});
+        await this.cacheHelper.invalidateNamespace(`enrolment_progression:${enrolment.id}`).catch(() => { });
+        await this.cacheHelper.invalidateNamespace('enrolments').catch(() => { });
+        await this.cacheHelper.invalidateNamespace('batches').catch(() => { });
       }
 
       // Send confirmation email
@@ -698,6 +894,8 @@ export class PaymentWebhookController {
         },
       });
 
+      await this.recordWebhookEventInDb(this.prisma, eventId, eventType, stripeSessionId, enrolmentId);
+
       return {
         received: true,
         status: 'FAILED',
@@ -768,10 +966,12 @@ export class PaymentWebhookController {
         },
       });
 
+      await this.recordWebhookEventInDb(this.prisma, eventId, eventType, stripeSessionId, targetEnrolmentId);
+
       // Invalidate cache immediately so LMS locks down steps
       if (this.cacheHelper) {
-        await this.cacheHelper.invalidateNamespace(`enrolment_progression:${targetEnrolmentId}`).catch(() => {});
-        await this.cacheHelper.invalidateNamespace('enrolments').catch(() => {});
+        await this.cacheHelper.invalidateNamespace(`enrolment_progression:${targetEnrolmentId}`).catch(() => { });
+        await this.cacheHelper.invalidateNamespace('enrolments').catch(() => { });
       }
 
       return {

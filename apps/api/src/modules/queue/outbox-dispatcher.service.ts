@@ -21,9 +21,11 @@ export class OutboxDispatcherService {
   }
 
   /**
-   * Atomically claims eligible PENDING outbox events using a lease lock,
-   * then enqueues them into BullMQ with deterministic job IDs.
+   * Atomically claims eligible PENDING, stale PROCESSING, and retryable FAILED outbox events
+   * using a lease lock, then enqueues them into BullMQ with deterministic job IDs.
    * Multi-worker safe: updateMany condition on leasedUntil guarantees exactly one worker wins.
+   * Note: attempts is incremented by MeetingSyncProcessor when actual processing starts (or here
+   * only if BullMQ enqueue itself fails), preventing double-counting of a single attempt.
    */
   async claimAndDispatchPending(limit = 50): Promise<number> {
     if (this.isProcessing) return 0;
@@ -35,27 +37,16 @@ export class OutboxDispatcherService {
       const leaseUntil = new Date(now.getTime() + leaseDurationMs);
       const MAX_ATTEMPTS = 5;
 
-      // Find candidate outbox events:
-      // 1. Eligible PENDING (unleased or expired lease, nextAttemptAt elapsed)
-      // 2. Stale PROCESSING whose worker lease expired (attempts < MAX_ATTEMPTS)
-      // 3. Retryable FAILED after backoff (attempts < MAX_ATTEMPTS, nextAttemptAt elapsed)
-      // Note: Terminal events (attempts >= MAX_ATTEMPTS) are excluded and never retried.
       const candidates = await this.prisma.outboxEvent.findMany({
         where: {
           attempts: { lt: MAX_ATTEMPTS },
           OR: [
             {
               status: 'PENDING',
-              OR: [
-                { leasedUntil: null },
-                { leasedUntil: { lte: now } },
-              ],
+              OR: [{ leasedUntil: null }, { leasedUntil: { lte: now } }],
               AND: [
                 {
-                  OR: [
-                    { nextAttemptAt: null },
-                    { nextAttemptAt: { lte: now } },
-                  ],
+                  OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
                 },
               ],
             },
@@ -65,10 +56,7 @@ export class OutboxDispatcherService {
             },
             {
               status: 'FAILED',
-              OR: [
-                { nextAttemptAt: null },
-                { nextAttemptAt: { lte: now } },
-              ],
+              OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
             },
           ],
         },
@@ -94,16 +82,12 @@ export class OutboxDispatcherService {
             id: event.id,
             status: event.status,
             attempts: { lt: MAX_ATTEMPTS },
-            OR: [
-              { leasedUntil: null },
-              { leasedUntil: { lte: now } },
-            ],
+            OR: [{ leasedUntil: null }, { leasedUntil: { lte: now } }],
           },
           data: {
             status: 'PENDING',
             leasedUntil: leaseUntil,
             enqueuedAt: now,
-            attempts: { increment: 1 },
           },
         });
 
@@ -129,21 +113,27 @@ export class OutboxDispatcherService {
           dispatchedCount++;
         } catch (queueErr: any) {
           this.logger.error(`Failed to enqueue outbox event ${event.id}: ${queueErr.message}`);
-          // Release lease on immediate enqueue failure so next sweep or retry can pick it up
-          await this.prisma.outboxEvent.update({
-            where: { id: event.id },
-            data: {
-              status: 'FAILED',
-              leasedUntil: null,
-              lastError: queueErr.message,
-              nextAttemptAt: new Date(Date.now() + 15000), // Backoff 15s
-            },
-          }).catch(() => null);
+          // Release lease on immediate enqueue failure and increment attempts so backoff progresses
+          await this.prisma.outboxEvent
+            .update({
+              where: { id: event.id },
+              data: {
+                status: 'FAILED',
+                leasedUntil: null,
+                attempts: { increment: 1 },
+                lastError: queueErr.message,
+                error: queueErr.message,
+                nextAttemptAt: new Date(Date.now() + 15000),
+              },
+            })
+            .catch(() => null);
         }
       }
 
       if (dispatchedCount > 0) {
-        this.logger.log(`Atomically claimed and dispatched ${dispatchedCount} outbox events to BullMQ`);
+        this.logger.log(
+          `Atomically claimed and dispatched ${dispatchedCount} outbox events to BullMQ`,
+        );
       }
 
       return dispatchedCount;

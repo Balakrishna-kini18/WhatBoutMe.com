@@ -1,6 +1,7 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Logger, Inject, forwardRef } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { ZoomMeetingProvider } from './zoom.service.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import {
@@ -9,7 +10,54 @@ import {
 } from '../sessions/attendance-reconciliation.service.js';
 import { SessionsService } from '../sessions/sessions.service.js';
 
-@Processor('zoom-events')
+/**
+ * Generates a stable, deterministic idempotency key for a Zoom webhook event.
+ * Never falls back to Date.now() so retries of the same delivered event remain idempotent.
+ */
+export function buildZoomEventKey(payload: any, fallbackId?: string): string {
+  if (payload?.eventKey && typeof payload.eventKey === 'string') {
+    return payload.eventKey;
+  }
+  const eventType = payload?.event || 'unknown';
+  const obj = payload?.payload?.object || {};
+  const participantId =
+    obj.participant?.id ||
+    obj.participant?.user_id ||
+    obj.participant?.email ||
+    obj.participant?.user_name;
+  const baseIdentity = String(obj.uuid || obj.id || 'unknown');
+  const objectIdentity = participantId ? `${baseIdentity}:${participantId}` : baseIdentity;
+  const stableSuffix =
+    payload?.event_ts !== undefined && payload?.event_ts !== null
+      ? String(payload.event_ts)
+      : fallbackId
+        ? String(fallbackId)
+        : crypto
+            .createHash('sha256')
+            .update(
+              JSON.stringify({
+                eventType,
+                id: obj.id,
+                uuid: obj.uuid,
+                files: Array.isArray(obj.recording_files) ? obj.recording_files.length : 0,
+              }),
+            )
+            .digest('hex')
+            .slice(0, 16);
+
+  return `${eventType}:${objectIdentity}:${stableSuffix}`;
+}
+
+@Processor('zoom-events', {
+  concurrency: 3,
+  limiter: {
+    max: 10,
+    duration: 1000,
+  },
+  lockDuration: 60000,
+  stalledInterval: 30000,
+  maxStalledCount: 2,
+})
 export class ZoomProcessor extends WorkerHost {
   private readonly logger = new Logger(ZoomProcessor.name);
 
@@ -25,43 +73,38 @@ export class ZoomProcessor extends WorkerHost {
   }
 
   async process(job: Job<any, any, string>): Promise<any> {
-    return this.processPayload(job.data);
+    return this.processPayload(job.data, job.id ? String(job.id) : undefined);
   }
 
-  async processPayload(payload: any): Promise<any> {
+  async processPayload(payload: any, fallbackJobId?: string): Promise<any> {
     const eventType = payload?.event;
-    if (!eventType) return;
 
-    this.logger.log(`Processing Zoom event: ${eventType}`);
+    if (!eventType) {
+      this.logger.warn(`Zoom job [${fallbackJobId || 'inline'}] missing event type, skipping.`);
+      return { skipped: true, reason: 'missing event type' };
+    }
 
-    // Idempotency check via WebhookEvent table
-    const participantId =
-      payload.payload?.object?.participant?.user_id ||
-      payload.payload?.object?.participant?.id ||
-      '';
-    const eventKey = `${eventType}:${payload.payload?.object?.uuid || payload.payload?.object?.id || ''}:${participantId}:${payload.event_ts || Date.now()}`;
-    if (this.prisma.webhookEvent?.create) {
-      try {
-        await this.prisma.webhookEvent.create({
-          data: {
-            provider: 'ZOOM',
-            eventKey,
-            payload: payload as any,
-            status: 'PROCESSED',
-          },
-        });
-      } catch (err: any) {
-        if (err.code === 'P2002') {
-          this.logger.log(`Duplicate webhook event ${eventKey} already processed. Skipping.`);
-          return;
-        }
+    const eventKey = buildZoomEventKey(payload, fallbackJobId);
+    this.logger.log(`Processing Zoom event: ${eventType} [eventKey=${eventKey}]`);
+
+    // 1. Pre-check idempotency via WebhookEvent table without marking PROCESSED prematurely
+    if ((this.prisma as any).webhookEvent?.findUnique) {
+      const existing = await (this.prisma as any).webhookEvent.findUnique({
+        where: { eventKey },
+      });
+      if (existing && existing.status === 'PROCESSED') {
+        this.logger.log(`Duplicate webhook event ${eventKey} already processed. Skipping.`);
+        return { skipped: true, eventKey };
       }
     }
 
     try {
       const obj = payload.payload?.object;
-      if (!obj) return;
+      if (!obj) {
+        return { skipped: true, reason: 'missing payload object' };
+      }
 
+      // 2. Execute external side effects FIRST
       if (eventType === 'meeting.started') {
         await this.handleMeetingStarted(obj);
       } else if (eventType === 'meeting.participant_joined') {
@@ -72,9 +115,36 @@ export class ZoomProcessor extends WorkerHost {
         await this.handleMeetingEnded(obj);
       } else if (eventType === 'recording.completed') {
         await this.handleRecordingCompleted(obj);
+      } else {
+        this.logger.warn(`Unhandled Zoom webhook event type: ${eventType}`);
+        return { unhandled: true, eventType };
+      }
+
+      // 3. Mark webhook PROCESSED only AFTER external side effects complete successfully
+      if ((this.prisma as any).webhookEvent?.create) {
+        try {
+          await (this.prisma as any).webhookEvent.create({
+            data: {
+              provider: 'ZOOM',
+              eventKey,
+              payload: {
+                event: eventType,
+                meetingId: obj?.id,
+                uuid: obj?.uuid,
+              } as any,
+              status: 'PROCESSED',
+            },
+          });
+        } catch (err: any) {
+          if (err.code === 'P2002') {
+            this.logger.log(`Webhook event ${eventKey} already recorded as PROCESSED.`);
+            return { skipped: true, eventKey };
+          }
+          throw err;
+        }
       }
     } catch (error: any) {
-      this.logger.error(`Failed to process Zoom event ${eventType}: ${error.message}`);
+      this.logger.error(`Failed to process Zoom event ${eventType} [${eventKey}]: ${error.message}`);
       throw error;
     }
   }
@@ -296,8 +366,12 @@ export class ZoomProcessor extends WorkerHost {
   }
 
   private async handleMeetingEnded(zoomMeeting: any) {
+    if (!zoomMeeting?.id) {
+      this.logger.warn('Received meeting.ended without meeting ID, skipping.');
+      return;
+    }
     const meetingId = zoomMeeting.id.toString();
-    
+
     // 1. Find the session in our database
     const session = await this.prisma.session.findFirst({
       where: { providerMeetingId: meetingId },
@@ -321,45 +395,60 @@ export class ZoomProcessor extends WorkerHost {
       return;
     }
 
-    // 3. D2-032: Fetch participant report and reconcile attendance via AttendanceReconciliationService
-    const rawParticipants = await this.zoomService.getParticipantReport(meetingId);
-    const participants = Array.isArray(rawParticipants) ? rawParticipants : [];
+    try {
+      // 3. D2-032: Fetch participant report and reconcile attendance via AttendanceReconciliationService
+      const rawParticipants = await this.zoomService.getParticipantReport(meetingId);
+      const participants = Array.isArray(rawParticipants) ? rawParticipants : [];
 
-    if (participants.length === 0) {
-      this.logger.warn(
-        `Zoom participant report for session ${session.id} (meeting ${meetingId}) returned 0 participants right at meeting.ended; resetting attendancePulled=false for deferred sync.`,
-      );
-      if (this.prisma.session?.update) {
-        await this.prisma.session.update({
+      if (participants.length === 0) {
+        this.logger.warn(
+          `Zoom participant report for session ${session.id} (meeting ${meetingId}) returned 0 participants right at meeting.ended; resetting attendancePulled=false for deferred sync.`,
+        );
+        if (this.prisma.session?.update) {
+          await this.prisma.session.update({
+            where: { id: session.id },
+            data: { attendancePulled: false },
+          });
+        }
+        return;
+      }
+
+      const normalizedRecords: NormalizedParticipantRecord[] = participants.map((p) => {
+        const email =
+          p.participantEmail ||
+          (p.userEmail?.includes('@') ? p.userEmail.trim().toLowerCase() : undefined);
+        const name =
+          p.participantName ||
+          (!p.userEmail?.includes('@') ? p.userEmail?.trim() : undefined);
+        return {
+          provider: 'ZOOM',
+          participantEmail: email,
+          participantName: name,
+          joinTime: p.joinTime,
+          leaveTime: p.leaveTime,
+        };
+      });
+
+      await this.reconciliationService.reconcileSession(session.id, normalizedRecords);
+
+      this.logger.log(`Successfully processed meeting.ended for session ${session.id}`);
+    } catch (error: any) {
+      // Rollback attendancePulled claim so BullMQ retry can re-fetch report and reconcile!
+      await this.prisma.session
+        .updateMany({
           where: { id: session.id },
           data: { attendancePulled: false },
-        });
-      }
-      return;
+        })
+        .catch(() => undefined);
+      throw error;
     }
-
-    const normalizedRecords: NormalizedParticipantRecord[] = participants.map((p) => {
-      const email =
-        p.participantEmail ||
-        (p.userEmail?.includes('@') ? p.userEmail.trim().toLowerCase() : undefined);
-      const name =
-        p.participantName ||
-        (!p.userEmail?.includes('@') ? p.userEmail?.trim() : undefined);
-      return {
-        provider: 'ZOOM',
-        participantEmail: email,
-        participantName: name,
-        joinTime: p.joinTime,
-        leaveTime: p.leaveTime,
-      };
-    });
-
-    await this.reconciliationService.reconcileSession(session.id, normalizedRecords);
-
-    this.logger.log(`Successfully processed meeting.ended for session ${session.id}`);
   }
 
   private async handleRecordingCompleted(zoomMeeting: any) {
+    if (!zoomMeeting?.id) {
+      this.logger.warn('Received recording.completed without meeting ID, skipping.');
+      return;
+    }
     const meetingId = zoomMeeting.id.toString();
 
     // 1. Find the session in our database
@@ -374,12 +463,11 @@ export class ZoomProcessor extends WorkerHost {
 
     // 2. Extract the MP4 URL from the payload, or fetch it via D2-031 if not present
     let playUrl: string | null = null;
-    
+
     const mp4File = zoomMeeting.recording_files?.find((file: any) => file.file_type === 'MP4');
     if (mp4File && mp4File.play_url) {
       playUrl = mp4File.play_url;
     } else {
-      // Fallback: fetch via our Provider
       playUrl = await this.zoomService.getRecordingUrl(meetingId);
     }
 
@@ -388,16 +476,25 @@ export class ZoomProcessor extends WorkerHost {
         where: { id: session.id },
         data: {
           providerRecordingUrl: playUrl,
-          // If we had a Cloudinary upload step, we would trigger it here and set `recordingUrl`.
-          // For now, we will just link the raw provider URL.
-          recordingUrl: playUrl, 
+          recordingUrl: playUrl,
         },
       });
       this.logger.log(`Successfully processed recording.completed for session ${session.id}`);
-      // Trigger missed session notifications for all absent learners
       await this.sessionsService.triggerMissedSessionNotifications(session.id, playUrl);
     } else {
       this.logger.warn(`No MP4 recording found for Zoom meeting ID: ${meetingId}`);
     }
+  }
+
+  @OnWorkerEvent('failed')
+  onFailed(job: Job | undefined, error: Error) {
+    this.logger.error(
+      `[ZoomProcessor] Job ${job?.id} (${job?.data?.event || 'unknown'}) failed on attempt ${job?.attemptsMade}: ${error.message}`,
+    );
+  }
+
+  @OnWorkerEvent('stalled')
+  onStalled(jobId: string) {
+    this.logger.warn(`[ZoomProcessor] Job ${jobId} stalled and will be re-evaluated.`);
   }
 }

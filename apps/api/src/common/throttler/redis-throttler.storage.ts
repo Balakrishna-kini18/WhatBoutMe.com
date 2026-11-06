@@ -69,16 +69,21 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
 
     try {
       const isRediss = url?.startsWith('rediss://');
-      const isServerless = process.env.WORKER_MODE !== 'true';
+      const isServerlessRuntime =
+        process.env.WORKER_MODE !== 'true' &&
+        (process.env.VERCEL === '1' || Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME));
+      const allowInsecureTls =
+        process.env.REDIS_TLS_INSECURE === 'true' && process.env.NODE_ENV !== 'production';
 
       const options = {
-        tls: isRediss ? { rejectUnauthorized: false } : undefined,
+        tls: isRediss ? { rejectUnauthorized: !allowInsecureTls } : undefined,
         lazyConnect: true,
-        connectTimeout: isServerless ? 1500 : 5000,
+        connectTimeout: isServerlessRuntime ? 1500 : 5000,
         maxRetriesPerRequest: 1,
-        retryStrategy: () => null as any,
+        retryStrategy: (times: number) => Math.min(times * 500, 5000),
         autoResendUnfulfilledCommands: false,
-        reconnectOnError: () => false as any,
+        reconnectOnError: (err: Error) =>
+          /READONLY|ETIMEDOUT|ECONNRESET/i.test(err.message),
       };
 
       if (url) {

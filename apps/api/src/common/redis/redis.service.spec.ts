@@ -1,24 +1,29 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { RedisService } from './redis.service.js';
+import { buildBullRedisOptions, DEFAULT_BULL_JOB_OPTIONS } from '../../modules/queue/queue.module.js';
 import { Redis } from 'ioredis';
 
 vi.mock('ioredis', () => {
-  const RedisMock = vi.fn();
+  const RedisMock = vi.fn(function (this: any) {
+    this.status = 'ready';
+  });
   RedisMock.prototype.on = vi.fn();
   RedisMock.prototype.once = vi.fn();
   RedisMock.prototype.get = vi.fn();
   RedisMock.prototype.set = vi.fn();
   RedisMock.prototype.del = vi.fn();
-  RedisMock.prototype.quit = vi.fn();
+  RedisMock.prototype.ping = vi.fn().mockResolvedValue('PONG');
+  RedisMock.prototype.connect = vi.fn().mockResolvedValue(undefined);
+  RedisMock.prototype.quit = vi.fn().mockResolvedValue('OK');
+  RedisMock.prototype.disconnect = vi.fn();
   return { Redis: RedisMock, default: RedisMock };
 });
 
-describe('RedisService', () => {
+describe('RedisService & BullMQ Connection Lifecycle', () => {
   let service: RedisService;
   let redisClientMock: any;
 
   beforeEach(async () => {
-    // Isolate env vars
     const originalEnv = process.env;
     process.env = { ...originalEnv, REDIS_HOST: 'localhost', REDIS_PORT: '6379' };
 
@@ -35,63 +40,140 @@ describe('RedisService', () => {
     vi.clearAllMocks();
   });
 
-  describe('Connection & Setup (Edge Cases)', () => {
-    it('should connect using REDIS_URL with TLS if it starts with rediss://', () => {
+  describe('Connection & TLS Security', () => {
+    it('enables strict TLS certificate verification (rejectUnauthorized: true) by default for rediss:// URLs', () => {
       const originalEnv = process.env;
-      process.env = { ...originalEnv, REDIS_URL: 'rediss://user:pass@redis-server.example.com:6379' };
+      process.env = {
+        ...originalEnv,
+        NODE_ENV: 'production',
+        REDIS_URL: 'rediss://user:pass@redis-server.example.com:6379',
+      };
+      delete process.env.REDIS_TLS_INSECURE;
       vi.clearAllMocks();
-      
-      const newService = new RedisService();
-      
+
+      new RedisService();
+
+      expect(Redis).toHaveBeenCalledWith(
+        'rediss://user:pass@redis-server.example.com:6379',
+        expect.objectContaining({
+          tls: { rejectUnauthorized: true },
+        }),
+      );
+
+      process.env = originalEnv;
+    });
+
+    it('allows insecure TLS (rejectUnauthorized: false) only in non-production when REDIS_TLS_INSECURE=true', () => {
+      const originalEnv = process.env;
+      process.env = {
+        ...originalEnv,
+        NODE_ENV: 'development',
+        REDIS_TLS_INSECURE: 'true',
+        REDIS_URL: 'rediss://user:pass@redis-server.example.com:6379',
+      };
+      vi.clearAllMocks();
+
+      new RedisService();
+
       expect(Redis).toHaveBeenCalledWith(
         'rediss://user:pass@redis-server.example.com:6379',
         expect.objectContaining({
           tls: { rejectUnauthorized: false },
-        })
+        }),
       );
-      
+
       process.env = originalEnv;
     });
 
-    it('should connect without TLS if REDIS_URL is a standard redis://', () => {
+    it('connects without TLS if REDIS_URL is a standard redis://', () => {
       const originalEnv = process.env;
       process.env = { ...originalEnv, REDIS_URL: 'redis://localhost:6379' };
       vi.clearAllMocks();
-      
-      const newService = new RedisService();
-      
+
+      new RedisService();
+
       expect(Redis).toHaveBeenCalledWith(
         'redis://localhost:6379',
         expect.objectContaining({
           tls: undefined,
-        })
+        }),
       );
-      
+
+      process.env = originalEnv;
+    });
+
+    it('configures BullMQ worker connection with maxRetriesPerRequest: null and unbounded resilient retryStrategy', () => {
+      const originalEnv = process.env;
+      process.env = {
+        ...originalEnv,
+        WORKER_MODE: 'true',
+        REDIS_URL: 'redis://localhost:6379',
+      };
+
+      const workerOpts = buildBullRedisOptions(true);
+      expect(workerOpts.maxRetriesPerRequest).toBeNull();
+      expect(workerOpts.enableReadyCheck).toBe(false);
+      expect(typeof workerOpts.retryStrategy).toBe('function');
+
+      // Must survive > 5 attempts during temporary Redis outage without returning null
+      expect(workerOpts.retryStrategy!(1)).toBeGreaterThan(0);
+      expect(workerOpts.retryStrategy!(10)).toBe(5000);
+      expect(workerOpts.retryStrategy!(50)).toBe(10000);
+
+      process.env = originalEnv;
+    });
+
+    it('configures BullMQ producer connection to reconnect after transient outage instead of permanently self-destructing', () => {
+      const originalEnv = process.env;
+      process.env = {
+        ...originalEnv,
+        WORKER_MODE: 'false',
+        REDIS_URL: 'redis://localhost:6379',
+      };
+
+      const producerOpts = buildBullRedisOptions(false);
+      expect(producerOpts.maxRetriesPerRequest).toBeGreaterThan(0);
+      expect(typeof producerOpts.retryStrategy).toBe('function');
+      expect(producerOpts.retryStrategy!(1)).toBe(500);
+      expect(producerOpts.retryStrategy!(20)).toBe(5000);
+
+      // Verify bounded job retention defaults
+      expect(DEFAULT_BULL_JOB_OPTIONS.removeOnComplete).toEqual({ count: 100, age: 86400 });
+      expect(DEFAULT_BULL_JOB_OPTIONS.removeOnFail).toEqual({ count: 500, age: 604800 });
+
       process.env = originalEnv;
     });
   });
 
-  describe('Key-Value Operations', () => {
-    it('should gracefully handle setting values with a TTL (e.g. Idempotency Locks)', async () => {
+  describe('Key-Value & Health Operations', () => {
+    it('gracefully handles setting values with a TTL', async () => {
       await service.set('test-key', 'value', 60);
       expect(redisClientMock.set).toHaveBeenCalledWith('test-key', 'value', 'EX', 60);
     });
 
-    it('should handle setting values without a TTL', async () => {
+    it('handles setting values without a TTL', async () => {
       await service.set('perm-key', 'value');
       expect(redisClientMock.set).toHaveBeenCalledWith('perm-key', 'value');
     });
 
-    it('should safely return null for missing keys during get()', async () => {
+    it('safely returns null for missing keys during get()', async () => {
       redisClientMock.get.mockResolvedValue(null);
       const result = await service.get('missing-key');
       expect(result).toBeNull();
       expect(redisClientMock.get).toHaveBeenCalledWith('missing-key');
     });
 
-    it('should properly delegate delete requests', async () => {
-      await service.del('dirty-key');
-      expect(redisClientMock.del).toHaveBeenCalledWith('dirty-key');
+    it('properly delegates delete requests', async () => {
+      await service.del('test-key');
+      expect(redisClientMock.del).toHaveBeenCalledWith('test-key');
+    });
+
+    it('ping() returns true when Redis responds with PONG and false on error', async () => {
+      redisClientMock.ping.mockResolvedValueOnce('PONG');
+      expect(await service.ping(500)).toBe(true);
+
+      redisClientMock.ping.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+      expect(await service.ping(500)).toBe(false);
     });
   });
 });

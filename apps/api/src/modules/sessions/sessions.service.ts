@@ -398,6 +398,8 @@ export class SessionsService {
       });
 
       if (provider === MeetingProvider.ZOOM) {
+        const now = new Date();
+        const isPendingQueue = !finalJoinUrl && Boolean(this.meetingSyncQueue);
         syncOutboxEvent = await tx.outboxEvent.create({
           data: {
             type: 'sync-meeting',
@@ -405,6 +407,8 @@ export class SessionsService {
             payload: { sessionId: createdSession.id, joinUrl: finalJoinUrl, hostUrl: finalHostUrl },
             status: finalJoinUrl ? 'COMPLETED' : 'PENDING',
             providerId: finalZoomMeetingId,
+            leasedUntil: isPendingQueue ? new Date(now.getTime() + 5 * 60 * 1000) : null,
+            enqueuedAt: isPendingQueue ? now : null,
           }
         });
       }
@@ -416,13 +420,27 @@ export class SessionsService {
     const outboxToQueue = syncOutboxEvent as OutboxEvent | null;
     if (outboxToQueue && !session.joinUrl && this.meetingSyncQueue) {
       try {
-        await this.meetingSyncQueue.add('sync-meeting', {
-          outboxId: outboxToQueue.id,
-          type: 'CREATE',
-          sessionId: session.id,
-        });
+        await this.meetingSyncQueue.add(
+          'sync-meeting',
+          {
+            outboxId: outboxToQueue.id,
+            type: 'CREATE',
+            sessionId: session.id,
+          },
+          {
+            jobId: `outbox-${outboxToQueue.id}`,
+            removeOnComplete: { count: 100, age: 86400 },
+            removeOnFail: { count: 200, age: 7 * 86400 },
+          },
+        );
       } catch (err: any) {
         this.logger.error(`Failed to enqueue meeting sync for session ${session.id}: ${err.message}`);
+        await (this.prisma.outboxEvent as any)
+          ?.update?.({
+            where: { id: outboxToQueue.id },
+            data: { leasedUntil: null },
+          })
+          .catch(() => null);
       }
     }
 
@@ -807,10 +825,13 @@ export class SessionsService {
       // External meeting update if time changed
       if ((data.startTime || data.endTime || data.title) && session.providerMeetingId && this.meetingSyncQueue) {
         const durationMin = Math.round((end.getTime() - start.getTime()) / 60000);
+        const now = new Date();
         syncOutboxEvent = await tx.outboxEvent.create({
           data: {
             type: 'sync-meeting',
             action: 'UPDATE',
+            leasedUntil: new Date(now.getTime() + 5 * 60 * 1000),
+            enqueuedAt: now,
             payload: {
               sessionId: session.id,
               payload: {
@@ -829,13 +850,27 @@ export class SessionsService {
     const outboxToQueue = syncOutboxEvent as OutboxEvent | null;
     if (outboxToQueue && this.meetingSyncQueue) {
       try {
-        await this.meetingSyncQueue.add('sync-meeting', {
-          outboxId: outboxToQueue.id,
-          type: outboxToQueue.action,
-          ...(outboxToQueue.payload as any),
-        });
+        await this.meetingSyncQueue.add(
+          'sync-meeting',
+          {
+            outboxId: outboxToQueue.id,
+            type: outboxToQueue.action,
+            ...(outboxToQueue.payload as any),
+          },
+          {
+            jobId: `outbox-${outboxToQueue.id}`,
+            removeOnComplete: { count: 100, age: 86400 },
+            removeOnFail: { count: 200, age: 7 * 86400 },
+          },
+        );
       } catch (err: any) {
         this.logger.error(`Failed to enqueue meeting sync update for session ${sessionId}: ${err.message}`);
+        await (this.prisma.outboxEvent as any)
+          ?.update?.({
+            where: { id: outboxToQueue.id },
+            data: { leasedUntil: null },
+          })
+          .catch(() => null);
       }
     }
 
@@ -924,10 +959,13 @@ export class SessionsService {
       });
 
       if (session.providerMeetingId && this.meetingSyncQueue) {
+        const now = new Date();
         syncOutboxEvent = await tx.outboxEvent.create({
           data: {
             type: 'sync-meeting',
             action: 'CANCEL',
+            leasedUntil: new Date(now.getTime() + 5 * 60 * 1000),
+            enqueuedAt: now,
             payload: {
               providerMeetingId: session.providerMeetingId,
             }
@@ -941,14 +979,34 @@ export class SessionsService {
     const outboxToQueue = syncOutboxEvent as OutboxEvent | null;
     if (outboxToQueue && this.meetingSyncQueue) {
       try {
-        await this.meetingSyncQueue.add('sync-meeting', {
-          outboxId: outboxToQueue.id,
-          type: outboxToQueue.action,
-          ...(outboxToQueue.payload as any),
-        });
+        await this.meetingSyncQueue.add(
+          'sync-meeting',
+          {
+            outboxId: outboxToQueue.id,
+            type: outboxToQueue.action,
+            ...(outboxToQueue.payload as any),
+          },
+          {
+            jobId: `outbox-${outboxToQueue.id}`,
+            removeOnComplete: { count: 100, age: 86400 },
+            removeOnFail: { count: 200, age: 7 * 86400 },
+          },
+        );
       } catch (err: any) {
         this.logger.error(`Failed to enqueue meeting sync cancel for session ${sessionId}: ${err.message}`);
+        await (this.prisma.outboxEvent as any)
+          ?.update?.({
+            where: { id: outboxToQueue.id },
+            data: { leasedUntil: null },
+          })
+          .catch(() => null);
       }
+    }
+
+    if (this.sessionLifecycleService?.removeScheduledSessionJobs) {
+      await this.sessionLifecycleService
+        .removeScheduledSessionJobs(sessionId, (session as any).scheduleVersion || 1)
+        .catch(() => 0);
     }
 
     if (this.calendarProvider) {
@@ -1014,10 +1072,13 @@ export class SessionsService {
       }
 
       if (session.providerMeetingId && this.meetingSyncQueue) {
+        const now = new Date();
         syncOutboxEvent = await tx.outboxEvent.create({
           data: {
             type: 'sync-meeting',
             action: 'CANCEL',
+            leasedUntil: new Date(now.getTime() + 5 * 60 * 1000),
+            enqueuedAt: now,
             payload: {
               providerMeetingId: session.providerMeetingId,
             }
@@ -1031,14 +1092,34 @@ export class SessionsService {
     const outboxToQueue = syncOutboxEvent as OutboxEvent | null;
     if (outboxToQueue && this.meetingSyncQueue) {
       try {
-        await this.meetingSyncQueue.add('sync-meeting', {
-          outboxId: outboxToQueue.id,
-          type: outboxToQueue.action,
-          ...(outboxToQueue.payload as any),
-        });
+        await this.meetingSyncQueue.add(
+          'sync-meeting',
+          {
+            outboxId: outboxToQueue.id,
+            type: outboxToQueue.action,
+            ...(outboxToQueue.payload as any),
+          },
+          {
+            jobId: `outbox-${outboxToQueue.id}`,
+            removeOnComplete: { count: 100, age: 86400 },
+            removeOnFail: { count: 200, age: 7 * 86400 },
+          },
+        );
       } catch (err: any) {
         this.logger.error(`Failed to enqueue meeting sync cancel for session ${sessionId}: ${err.message}`);
+        await (this.prisma.outboxEvent as any)
+          ?.update?.({
+            where: { id: outboxToQueue.id },
+            data: { leasedUntil: null },
+          })
+          .catch(() => null);
       }
+    }
+
+    if (this.sessionLifecycleService?.removeScheduledSessionJobs) {
+      await this.sessionLifecycleService
+        .removeScheduledSessionJobs(sessionId, (session as any).scheduleVersion || 1)
+        .catch(() => 0);
     }
 
     if (this.calendarProvider) {

@@ -106,7 +106,7 @@ function streakOf(days: Day[], today: string) {
   const cursor = dayOf(today);
   if (!present.has(today)) cursor.setDate(cursor.getDate() - 1);
   let streak = 0;
-  for (;;) {
+  for (; ;) {
     const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
     if (!present.has(key)) return streak;
     streak++;
@@ -122,7 +122,7 @@ const formatKey = (d: Date) => {
 };
 
 const timeOf = (iso: string) =>
-  new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -293,10 +293,10 @@ export default function AttendancePage() {
   const selectedDaySessions = selectedKey ? sessionsMap.get(selectedKey) || [] : [];
   const selectedReasons = selectedDayAttendance
     ? [
-        selectedDayAttendance.visited && "Portal visit",
-        selectedDayAttendance.lessonDone && "Course step finished",
-        selectedDayAttendance.sessionJoined && "Live session joined",
-      ].filter(Boolean)
+      selectedDayAttendance.visited && "Portal visit",
+      selectedDayAttendance.lessonDone && "Course step finished",
+      selectedDayAttendance.sessionJoined && "Live session joined",
+    ].filter(Boolean)
     : [];
 
   const nowMs = Date.now();
@@ -337,20 +337,20 @@ export default function AttendancePage() {
                   >
                     {Icons.chevronLeft}
                   </button>
-                  <h2 className={styles.monthTitle}>
-                    {currentDate.toLocaleDateString([], { month: "long", year: "numeric" })}
-                  </h2>
-                  <button
-                    type="button"
-                    onClick={nextMonth}
-                    aria-label="Next month"
-                    className={styles.navBtn}
-                  >
-                    {Icons.chevronRight}
-                  </button>
-                  <button type="button" onClick={goToToday} className={styles.todayBtn}>
-                    Today
-                  </button>
+                    <h2 className={styles.monthTitle} suppressHydrationWarning>
+                      {currentDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+                    </h2>
+                    <button
+                      type="button"
+                      onClick={nextMonth}
+                      aria-label="Next month"
+                      className={styles.navBtn}
+                    >
+                      {Icons.chevronRight}
+                    </button>
+                    <button type="button" onClick={goToToday} className={styles.todayBtn}>
+                      Today
+                    </button>
                 </div>
 
                 {/* View Mode Switcher */}
@@ -392,7 +392,8 @@ export default function AttendancePage() {
                       role="gridcell"
                       tabIndex={0}
                       aria-selected={isSelectedCell}
-                      aria-label={`${cd.date.toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })}${cd.dayAttendance ? ", Present" : ""}${cd.sessions.length > 0 ? `, ${cd.sessions.length} sessions` : ""}`}
+                      aria-label={`${cd.date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}${cd.dayAttendance ? ", Present" : ""}${cd.sessions.length > 0 ? `, ${cd.sessions.length} sessions` : ""}`}
+                      suppressHydrationWarning
                       onClick={() => setSelectedKey(cd.dateKey)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
@@ -515,14 +516,14 @@ export default function AttendancePage() {
                     return (
                       <div key={day.date} className={styles.listItem}>
                         <div className={styles.listDateTile}>
-                          <span>{date.toLocaleDateString([], { month: "short" })}</span>
+                          <span suppressHydrationWarning>{date.toLocaleDateString("en-US", { month: "short" })}</span>
                           <strong>{date.getDate()}</strong>
                         </div>
                         <div className={styles.listItemBody}>
-                          <p className={styles.listItemTitle}>
-                            {date.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-                          </p>
-                          <p className={styles.listItemMeta}>{reasons.join(" · ")}</p>
+                            <p className={styles.listItemTitle} suppressHydrationWarning>
+                              {date.toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+                            </p>
+                            <p className={styles.listItemMeta}>{reasons.join(" · ")}</p>
                         </div>
                         <span className={styles.badgePresentPill}>Present</span>
                       </div>
@@ -546,7 +547,7 @@ export default function AttendancePage() {
                     return (
                       <div key={session.id} className={styles.listItem}>
                         <div className={styles.listDateTile}>
-                          <span>{start.toLocaleDateString([], { month: "short" })}</span>
+                          <span suppressHydrationWarning>{start.toLocaleDateString("en-US", { month: "short" })}</span>
                           <strong>{start.getDate()}</strong>
                         </div>
                         <div className={styles.listItemBody}>
@@ -632,12 +633,14 @@ export default function AttendancePage() {
               <div className={styles.activityHeader}>
                 <div className={styles.activityDateRow}>
                   <span className={styles.activityCalendarIcon}>{Icons.calendarSmall}</span>
-                  <h3 className={styles.activityDateTitle}>
-                    {selectedDateObj.toLocaleDateString([], {
-                      weekday: "short",
-                      month: "short",
-                      day: "numeric",
-                    })}
+                  < h3 className = { styles.activityDateTitle } suppressHydrationWarning >
+                    {
+                      selectedDateObj.toLocaleDateString("en-US", {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                      })
+                    }
                   </h3>
                 </div>
                 {selectedKey === today && (

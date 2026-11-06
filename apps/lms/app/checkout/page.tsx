@@ -71,12 +71,14 @@ function CheckoutContent() {
             setActiveProvider(data.activeProvider);
           }
         })
-        .catch(() => {});
+        .catch(() => { });
 
       fetch(`${API_URL}/programs`)
         .then((res) => res.json())
         .then((data) => {
-          const p = Array.isArray(data) ? data.find((x: any) => x.id === programId) : null;
+          const p = Array.isArray(data)
+            ? data.find((x: any) => x.id === programId || x.slug === programId)
+            : null;
           setProgram(p);
           if (p?.currency && (p.currency === "USD" || p.currency === "AED" || p.currency === "INR")) {
             setCurrency(p.currency);
@@ -135,8 +137,16 @@ function CheckoutContent() {
     }
   }, [programId]);
 
-  // Authoritative USD core pricing
-  const basePriceUSD = Number(program?.price) || 0;
+  // Authoritative USD core pricing (respecting active Early Bird window)
+  const isEarlyBirdActive = Boolean(
+    program?.earlyBirdPrice != null &&
+    Number(program.earlyBirdPrice) > 0 &&
+    program?.earlyBirdDeadline &&
+    new Date() < new Date(program.earlyBirdDeadline)
+  );
+  const basePriceUSD = isEarlyBirdActive
+    ? Number(program.earlyBirdPrice)
+    : Number(program?.price) || 0;
   const discountAmountUSD = appliedCoupon?.discountAmount ?? 0;
   const finalAmountUSD = Math.max(0, basePriceUSD - discountAmountUSD);
 
@@ -364,504 +374,409 @@ function CheckoutContent() {
             Review your order and finalize enrollment
           </h2>
 
-        {/* Currency Core Badge */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-          <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#1C1917" }}>Core Tuition Currency:</span>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", background: "#FEF3C7", padding: "5px 12px", borderRadius: "8px", border: "1px solid #FDE68A", fontSize: "0.82rem", fontWeight: 700, color: "#92400E" }}>
-            <span>$ USD Core</span>
-            <span style={{ fontWeight: 400, color: "#B45309", fontSize: "0.75rem" }}>• Converted live by Stripe at checkout</span>
-          </div>
-        </div>
-
-        {/* Order Summary Card */}
-        <div
-          style={{
-            background: "#FDFBF7",
-            padding: "1.5rem",
-            borderRadius: "16px",
-            textAlign: "left",
-            marginBottom: "1.25rem",
-            border: "1px solid #E7E0D6",
-          }}
-        >
-          {courseInfo?.image && (
-            <div style={{ width: "100%", height: "160px", borderRadius: "8px", overflow: "hidden", marginBottom: "1.25rem", background: "var(--bg-card)", border: "1px solid var(--border-light)" }}>
-              <Image
-                src={courseInfo.image}
-                alt={program.title}
-                width={480}
-                height={160}
-                quality={80}
-                loading="lazy"
-                unoptimized={!courseInfo.image.startsWith("/")}
-                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                onError={(e) => {
-                  if (e.currentTarget.parentElement) {
-                    e.currentTarget.parentElement.style.display = "none";
-                  }
-                }}
-              />
+          {/* Currency Core Badge */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+            <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "#1C1917" }}>Core Tuition Currency:</span>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", background: "#FEF3C7", padding: "5px 12px", borderRadius: "8px", border: "1px solid #FDE68A", fontSize: "0.82rem", fontWeight: 700, color: "#92400E" }}>
+              <span>$ USD Core</span>
+              <span style={{ fontWeight: 400, color: "#B45309", fontSize: "0.75rem" }}>• Converted live by Stripe at checkout</span>
             </div>
-          )}
+          </div>
 
+          {/* Order Summary Card */}
           <div
             style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "flex-start",
-              gap: "0.75rem",
-              marginBottom: "0.5rem",
-            }}
-          >
-            <h3 style={{ margin: 0, color: "#1C1917", fontSize: "1.25rem", fontWeight: 700 }}>
-              {program.title}
-            </h3>
-            {courseInfo?.type && (
-              <span
-                style={{
-                  fontSize: "0.75rem",
-                  fontWeight: 600,
-                  padding: "3px 10px",
-                  borderRadius: "9999px",
-                  background: "#F7F3EC",
-                  color: "#B86B11",
-                  border: "1px solid #E7E0D6",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {courseInfo.type}
-              </span>
-            )}
-          </div>
-
-          <p style={{ margin: "0 0 1rem 0", color: "#78716A", fontSize: "0.9rem", lineHeight: 1.55 }}>
-            {courseInfo?.summary || "A comprehensive personal and professional learning journey."}
-          </p>
-
-          {/* Pricing Breakdown */}
-          <div style={{ borderTop: "1px dashed #E7E0D6", paddingTop: "0.85rem", marginTop: "0.5rem", fontSize: "0.9rem" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.35rem", color: "#78716A" }}>
-              <span>Base Tuition:</span>
-              <span style={{ fontWeight: 600 }}>${basePriceUSD.toLocaleString()} USD</span>
-            </div>
-
-            {appliedCoupon && (
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.35rem", color: "#16A34A", fontWeight: 600 }}>
-                <span>Coupon ({appliedCoupon.code}):</span>
-                <span>-${discountAmountUSD.toLocaleString()} USD</span>
-              </div>
-            )}
-
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", color: "#78716A", fontSize: "0.8rem" }}>
-              <span>Taxes:</span>
-              <span>0% Export / Int'l Tax (WhatBoutMe FZE)</span>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                borderTop: "1px solid #E7E0D6",
-                paddingTop: "0.75rem",
-                marginTop: "0.35rem",
-              }}
-            >
-              <span style={{ color: "#1C1917", fontWeight: 700, fontSize: "1.05rem" }}>Total Due:</span>
-              <div style={{ textAlign: "right" }}>
-                <span style={{ color: "#B86B11", fontSize: "1.6rem", fontWeight: 700 }}>
-                  ${finalAmountUSD.toLocaleString()} USD
-                </span>
-              </div>
-            </div>
-
-            {/* Dynamic Stripe Adaptive Pricing Callout */}
-            <div
-              style={{
-                marginTop: "0.85rem",
-                background: "#F0FDF4",
-                border: "1px solid #BBF7D0",
-                borderRadius: "10px",
-                padding: "0.75rem 0.95rem",
-                fontSize: "0.8rem",
-                color: "#166534",
-                lineHeight: 1.45,
-                display: "flex",
-                alignItems: "flex-start",
-                gap: "0.5rem",
-              }}
-            >
-              <span style={{ fontSize: "1rem" }}>🌍</span>
-              <div>
-                <strong>Stripe Adaptive Pricing:</strong> When paying from India or UAE, Stripe automatically converts this to <strong>₹ INR (~₹{approxINR.toLocaleString()})</strong> with UPI &amp; Netbanking, or <strong>AED (~{approxAED.toLocaleString()} AED)</strong> on the secure checkout screen.
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Promo / Coupon Box */}
-        <div style={{ background: "#FFFFFF", border: "1px solid #E7E0D6", borderRadius: "12px", padding: "1rem", marginBottom: "1.25rem", textAlign: "left" }}>
-          <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, color: "#1C1917", marginBottom: "0.5rem" }}>
-            Have a Promo Code?
-          </label>
-          <div style={{ display: "flex", gap: "0.5rem" }}>
-            <input
-              type="text"
-              placeholder="Enter coupon code (e.g. WELCOME10)"
-              value={couponCode}
-              onChange={(e) => setCouponCode(e.target.value.toUpperCase().replace(/\s+/g, "-"))}
-              disabled={isApplyingCoupon || !!appliedCoupon}
-              style={{
-                flex: 1,
-                border: "1px solid #E7E0D6",
-                borderRadius: "8px",
-                padding: "0.55rem 0.85rem",
-                fontSize: "0.9rem",
-                textTransform: "uppercase",
-              }}
-            />
-            {appliedCoupon ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setAppliedCoupon(null);
-                  setCouponCode("");
-                }}
-                style={{
-                  background: "#EF4444",
-                  color: "#FFFFFF",
-                  border: "none",
-                  borderRadius: "8px",
-                  padding: "0.55rem 1rem",
-                  fontSize: "0.85rem",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Remove
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleApplyCoupon}
-                disabled={isApplyingCoupon || !couponCode.trim()}
-                style={{
-                  background: "#1C1917",
-                  color: "#FFFFFF",
-                  border: "none",
-                  borderRadius: "8px",
-                  padding: "0.55rem 1.15rem",
-                  fontSize: "0.85rem",
-                  fontWeight: 600,
-                  cursor: isApplyingCoupon || !couponCode.trim() ? "not-allowed" : "pointer",
-                  opacity: isApplyingCoupon || !couponCode.trim() ? 0.6 : 1,
-                }}
-              >
-                {isApplyingCoupon ? "Checking..." : "Apply"}
-              </button>
-            )}
-          </div>
-          {couponError && (
-            <p style={{ margin: "0.4rem 0 0 0", color: "#DC2626", fontSize: "0.8rem" }}>
-              {couponError}
-            </p>
-          )}
-          {appliedCoupon && (
-            <p style={{ margin: "0.4rem 0 0 0", color: "#16A34A", fontSize: "0.8rem", fontWeight: 600 }}>
-              ✓ Coupon applied! Saved ${discountAmountUSD.toLocaleString()} USD.
-            </p>
-          )}
-        </div>
-
-        {/* User & Agreement Verification Status Section */}
-        {!user ? (
-          <div
-            style={{
-              background: "#F7F3EC",
-              border: "1px solid #E7E0D6",
-              borderRadius: "12px",
-              padding: "1.25rem",
-              marginBottom: "1.5rem",
+              background: "#FDFBF7",
+              padding: "1.5rem",
+              borderRadius: "16px",
               textAlign: "left",
-              fontSize: "0.9rem",
-              color: "#1C1917",
+              marginBottom: "1.25rem",
+              border: "1px solid #E7E0D6",
             }}
           >
-            <div style={{ fontWeight: 700, marginBottom: "0.35rem" }}>Authentication Required</div>
-            <p style={{ margin: "0 0 0.85rem 0", color: "#78716A", lineHeight: 1.45 }}>
-              Please sign in to your account to sign the program agreement and finalize enrollment.
-            </p>
-            <div style={{ display: "flex", gap: "0.75rem" }}>
-              <Link
-                href={`/login?portal=${encodeURIComponent(`/checkout?programId=${programId || ""}`)}`}
-                style={{
-                  background: "#B86B11",
-                  color: "#FFFFFF",
-                  padding: "0.55rem 1.15rem",
-                  borderRadius: "8px",
-                  fontSize: "0.85rem",
-                  fontWeight: 600,
-                  textDecoration: "none",
-                }}
-              >
-                Log In
-              </Link>
-              <Link
-                href={`/signup?programId=${programId || ""}`}
-                style={{
-                  background: "#FFFFFF",
-                  border: "1px solid #E7E0D6",
-                  color: "#1C1917",
-                  padding: "0.55rem 1.15rem",
-                  borderRadius: "8px",
-                  fontSize: "0.85rem",
-                  fontWeight: 600,
-                  textDecoration: "none",
-                }}
-              >
-                Sign Up
-              </Link>
-            </div>
-          </div>
-        ) : (
-          <div style={{ marginBottom: "1.5rem" }}>
-            <div
-              style={{
-                fontSize: "0.85rem",
-                color: "#78716A",
-                marginBottom: "1rem",
-                textAlign: "left",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <span>
-                Account: <strong style={{ color: "#1C1917" }}>{user.email}</strong>
-              </span>
-            </div>
-
-            {/* Agreement State: Unsigned / Required -> Render single clean card with single CTA */}
-            {agreementStatus === "REQUIRED" && (
-              <div
-                style={{
-                  background: "#F7F3EC",
-                  borderLeft: "3px solid #B86B11",
-                  borderTop: "1px solid #E7E0D6",
-                  borderRight: "1px solid #E7E0D6",
-                  borderBottom: "1px solid #E7E0D6",
-                  borderRadius: "12px",
-                  padding: "1.25rem",
-                  textAlign: "left",
-                  marginBottom: "1.5rem",
-                }}
-              >
-                <div
-                  style={{
-                    fontWeight: 700,
-                    color: "#1C1917",
-                    marginBottom: "0.35rem",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.5rem",
+            {courseInfo?.image && (
+              <div style={{ width: "100%", height: "160px", borderRadius: "8px", overflow: "hidden", marginBottom: "1.25rem", background: "var(--bg-card)", border: "1px solid var(--border-light)" }}>
+                <Image
+                  src={courseInfo.image}
+                  alt={program.title}
+                  width={480}
+                  height={160}
+                  quality={80}
+                  loading="lazy"
+                  unoptimized={!courseInfo.image.startsWith("/")}
+                  style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                  onError={(e) => {
+                    if (e.currentTarget.parentElement) {
+                      e.currentTarget.parentElement.style.display = "none";
+                    }
                   }}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B86B11" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" y1="8" x2="12" y2="12" />
-                    <line x1="12" y1="16" x2="12.01" y2="16" />
-                  </svg>
-                  Action Required: Program Agreement
-                </div>
-                <p style={{ margin: "0 0 1rem 0", color: "#78716A", fontSize: "0.88rem", lineHeight: 1.5 }}>
-                  Under WhatBoutMe policies, you must review and digitally sign the program agreement before payment confirmation.
-                </p>
-                <Link
-                  href={agreementUrl}
-                  className={styles.submitBtn}
-                  style={{
-                    display: "block",
-                    width: "100%",
-                    textAlign: "center",
-                    textDecoration: "none",
-                    background: "#B86B11",
-                    color: "#FFFFFF",
-                    borderRadius: "10px",
-                    padding: "0.85rem",
-                    fontSize: "0.95rem",
-                    fontWeight: 600,
-                  }}
-                >
-                  Review &amp; Sign Agreement &rarr;
-                </Link>
+                />
               </div>
             )}
 
-            {/* Agreement State: Signed & Verified */}
-            {agreementStatus === "SIGNED" && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: "0.75rem",
+                marginBottom: "0.5rem",
+              }}
+            >
+              <h3 style={{ margin: 0, color: "#1C1917", fontSize: "1.25rem", fontWeight: 700 }}>
+                {program.title}
+              </h3>
+              {courseInfo?.type && (
+                <span
+                  style={{
+                    fontSize: "0.75rem",
+                    fontWeight: 600,
+                    padding: "3px 10px",
+                    borderRadius: "9999px",
+                    background: "#F7F3EC",
+                    color: "#B86B11",
+                    border: "1px solid #E7E0D6",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {courseInfo.type}
+                </span>
+              )}
+            </div>
+
+            <p style={{ margin: "0 0 1rem 0", color: "#78716A", fontSize: "0.9rem", lineHeight: 1.55 }}>
+              {courseInfo?.summary || "A comprehensive personal and professional learning journey."}
+            </p>
+
+            {/* Pricing Breakdown */}
+            <div style={{ borderTop: "1px dashed #E7E0D6", paddingTop: "0.85rem", marginTop: "0.5rem", fontSize: "0.9rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.35rem", color: "#78716A" }}>
+                <span>Base Tuition:</span>
+                <span style={{ fontWeight: 600 }}>${basePriceUSD.toLocaleString()} USD</span>
+              </div>
+
+              {appliedCoupon && (
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.35rem", color: "#16A34A", fontWeight: 600 }}>
+                  <span>Coupon ({appliedCoupon.code}):</span>
+                  <span>-${discountAmountUSD.toLocaleString()} USD</span>
+                </div>
+              )}
+
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", color: "#78716A", fontSize: "0.8rem" }}>
+                <span>Taxes:</span>
+                <span>0% Export / Int'l Tax (WhatBoutMe FZE)</span>
+              </div>
+
               <div
                 style={{
-                  background: "#F0FDF4",
-                  border: "1px solid #86EFAC",
-                  borderRadius: "12px",
-                  padding: "0.85rem 1.15rem",
-                  textAlign: "left",
-                  fontSize: "0.88rem",
-                  color: "#166534",
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
-                  gap: "0.75rem",
-                  marginBottom: "1.5rem",
+                  borderTop: "1px solid #E7E0D6",
+                  paddingTop: "0.75rem",
+                  marginTop: "0.35rem",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                  <span>
-                    <strong>Agreement Signed</strong> ({signedVersion})
+                <span style={{ color: "#1C1917", fontWeight: 700, fontSize: "1.05rem" }}>Total Due:</span>
+                <div style={{ textAlign: "right" }}>
+                  <span style={{ color: "#B86B11", fontSize: "1.6rem", fontWeight: 700 }}>
+                    ${finalAmountUSD.toLocaleString()} USD
                   </span>
                 </div>
-                <Link
-                  href={agreementUrl}
+              </div>
+
+              {/* Dynamic Stripe Adaptive Pricing Callout */}
+              <div
+                style={{
+                  marginTop: "0.85rem",
+                  background: "#F0FDF4",
+                  border: "1px solid #BBF7D0",
+                  borderRadius: "10px",
+                  padding: "0.75rem 0.95rem",
+                  fontSize: "0.8rem",
+                  color: "#166534",
+                  lineHeight: 1.45,
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "0.5rem",
+                }}
+              >
+                <span style={{ fontSize: "1rem" }}>🌍</span>
+                <div>
+                  <strong>Stripe Adaptive Pricing:</strong> When paying from India or UAE, Stripe automatically converts this to <strong>₹ INR (~₹{approxINR.toLocaleString()})</strong> with UPI &amp; Netbanking, or <strong>AED (~{approxAED.toLocaleString()} AED)</strong> on the secure checkout screen.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Promo / Coupon Box */}
+          <div style={{ background: "#FFFFFF", border: "1px solid #E7E0D6", borderRadius: "12px", padding: "1rem", marginBottom: "1.25rem", textAlign: "left" }}>
+            <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, color: "#1C1917", marginBottom: "0.5rem" }}>
+              Have a Promo Code?
+            </label>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <input
+                type="text"
+                placeholder="Enter coupon code (e.g. WELCOME10)"
+                value={couponCode}
+                onChange={(e) => setCouponCode(e.target.value.toUpperCase().replace(/\s+/g, "-"))}
+                disabled={isApplyingCoupon || !!appliedCoupon}
+                style={{
+                  flex: 1,
+                  border: "1px solid #E7E0D6",
+                  borderRadius: "8px",
+                  padding: "0.55rem 0.85rem",
+                  fontSize: "0.9rem",
+                  textTransform: "uppercase",
+                }}
+              />
+              {appliedCoupon ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAppliedCoupon(null);
+                    setCouponCode("");
+                  }}
                   style={{
-                    color: "#166534",
-                    fontSize: "0.8rem",
+                    background: "#EF4444",
+                    color: "#FFFFFF",
+                    border: "none",
+                    borderRadius: "8px",
+                    padding: "0.55rem 1rem",
+                    fontSize: "0.85rem",
                     fontWeight: 600,
-                    textDecoration: "underline",
+                    cursor: "pointer",
                   }}
                 >
-                  View Signed Details
-                </Link>
-              </div>
+                  Remove
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleApplyCoupon}
+                  disabled={isApplyingCoupon || !couponCode.trim()}
+                  style={{
+                    background: "#1C1917",
+                    color: "#FFFFFF",
+                    border: "none",
+                    borderRadius: "8px",
+                    padding: "0.55rem 1.15rem",
+                    fontSize: "0.85rem",
+                    fontWeight: 600,
+                    cursor: isApplyingCoupon || !couponCode.trim() ? "not-allowed" : "pointer",
+                    opacity: isApplyingCoupon || !couponCode.trim() ? 0.6 : 1,
+                  }}
+                >
+                  {isApplyingCoupon ? "Checking..." : "Apply"}
+                </button>
+              )}
+            </div>
+            {couponError && (
+              <p style={{ margin: "0.4rem 0 0 0", color: "#DC2626", fontSize: "0.8rem" }}>
+                {couponError}
+              </p>
+            )}
+            {appliedCoupon && (
+              <p style={{ margin: "0.4rem 0 0 0", color: "#16A34A", fontSize: "0.8rem", fontWeight: 600 }}>
+                ✓ Coupon applied! Saved ${discountAmountUSD.toLocaleString()} USD.
+              </p>
             )}
           </div>
-        )}
 
-        {/* Already Enrolled Guard Alert */}
-        {alreadyEnrolledError && (
-          <div
-            style={{
-              background: "#F0FDF4",
-              border: "1px solid #86EFAC",
-              borderRadius: "16px",
-              padding: "1.5rem",
-              marginBottom: "1.5rem",
-              textAlign: "center",
-            }}
-          >
-            <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "#DCFCE7", color: "#16A34A", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            </div>
-            <h3 style={{ margin: "0 0 0.5rem 0", color: "#166534", fontSize: "1.25rem", fontWeight: 700 }}>
-              Already Enrolled in Course
-            </h3>
-            <p style={{ margin: "0 0 1.25rem 0", color: "#15803D", fontSize: "0.92rem", lineHeight: 1.5 }}>
-              {alreadyEnrolledError}
-            </p>
-            <button
-              type="button"
-              onClick={() => router.push(`/programs/${programId}/steps`)}
+          {/* User & Agreement Verification Status Section */}
+          {!user ? (
+            <div
               style={{
-                width: "100%",
-                padding: "0.9rem",
-                borderRadius: "10px",
-                background: "#16A34A",
-                color: "#FFFFFF",
-                border: "none",
-                fontWeight: 700,
-                fontSize: "1rem",
-                cursor: "pointer",
+                background: "#F7F3EC",
+                border: "1px solid #E7E0D6",
+                borderRadius: "12px",
+                padding: "1.25rem",
+                marginBottom: "1.5rem",
+                textAlign: "left",
+                fontSize: "0.9rem",
+                color: "#1C1917",
               }}
             >
-              Go to Course Dashboard &amp; Step 1 &rarr;
-            </button>
-          </div>
-        )}
-
-        {/* Simulation Error Alert */}
-        {simulationError && (
-          <div
-            style={{
-              background: "#FEF2F2",
-              border: "1px solid #FECACA",
-              borderRadius: "12px",
-              padding: "1rem",
-              marginBottom: "1.25rem",
-              color: "#991B1B",
-              fontSize: "0.9rem",
-              textAlign: "left",
-            }}
-          >
-            <div style={{ fontWeight: 700, marginBottom: "0.25rem" }}>Simulated Failure:</div>
-            <div>{simulationError}</div>
-          </div>
-        )}
-
-        {/* Simulation Success Confirmation Card */}
-        {simulatedResult ? (
-          <div
-            style={{
-              background: "#F0FDF4",
-              border: "1px solid #86EFAC",
-              borderRadius: "16px",
-              padding: "1.5rem",
-              textAlign: "center",
-              marginBottom: "1rem",
-            }}
-          >
-            <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "#DCFCE7", color: "#16A34A", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            </div>
-            <h3 style={{ margin: "0 0 0.5rem 0", color: "#166534", fontSize: "1.3rem", fontWeight: 700 }}>
-              Payment Confirmed &amp; Verified!
-            </h3>
-            <p style={{ margin: "0 0 1rem 0", color: "#15803D", fontSize: "0.92rem", lineHeight: 1.5 }}>
-              Your test transaction was securely recognized. An official WhatBoutMe FZE Tax invoice has been generated.
-            </p>
-
-            {simulatedResult.invoiceNumber && (
-              <div style={{ background: "#FFFFFF", border: "1px solid #BBF7D0", borderRadius: "8px", padding: "0.6rem 1rem", display: "inline-block", marginBottom: "1.25rem", fontSize: "0.88rem", fontWeight: 600, color: "#166534" }}>
-                Invoice No: {simulatedResult.invoiceNumber}
-              </div>
-            )}
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              {simulatedResult.invoiceUrl && (
-                <a
-                  href={
-                    sanitizeExternalUrl(
-                      simulatedResult.invoiceUrl.startsWith("http")
-                        ? simulatedResult.invoiceUrl
-                        : `${API_URL}${simulatedResult.invoiceUrl.startsWith("/") ? "" : "/"}${simulatedResult.invoiceUrl}`
-                    ) || "#"
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
+              <div style={{ fontWeight: 700, marginBottom: "0.35rem" }}>Authentication Required</div>
+              <p style={{ margin: "0 0 0.85rem 0", color: "#78716A", lineHeight: 1.45 }}>
+                Please sign in to your account to sign the program agreement and finalize enrollment.
+              </p>
+              <div style={{ display: "flex", gap: "0.75rem" }}>
+                <Link
+                  href={`/login?portal=${encodeURIComponent(`/checkout?programId=${programId || ""}`)}`}
                   style={{
-                    display: "block",
-                    padding: "0.75rem",
-                    borderRadius: "10px",
-                    background: "#FFFFFF",
-                    border: "1px solid #16A34A",
-                    color: "#166534",
+                    background: "#B86B11",
+                    color: "#FFFFFF",
+                    padding: "0.55rem 1.15rem",
+                    borderRadius: "8px",
+                    fontSize: "0.85rem",
                     fontWeight: 600,
                     textDecoration: "none",
-                    fontSize: "0.95rem",
                   }}
                 >
-                  Download WhatBoutMe FZE Tax Invoice (PDF)
-                </a>
+                  Log In
+                </Link>
+                <Link
+                  href={`/signup?programId=${programId || ""}`}
+                  style={{
+                    background: "#FFFFFF",
+                    border: "1px solid #E7E0D6",
+                    color: "#1C1917",
+                    padding: "0.55rem 1.15rem",
+                    borderRadius: "8px",
+                    fontSize: "0.85rem",
+                    fontWeight: 600,
+                    textDecoration: "none",
+                  }}
+                >
+                  Sign Up
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div style={{ marginBottom: "1.5rem" }}>
+              <div
+                style={{
+                  fontSize: "0.85rem",
+                  color: "#78716A",
+                  marginBottom: "1rem",
+                  textAlign: "left",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <span>
+                  Account: <strong style={{ color: "#1C1917" }}>{user.email}</strong>
+                </span>
+              </div>
+
+              {/* Agreement State: Unsigned / Required -> Render single clean card with single CTA */}
+              {agreementStatus === "REQUIRED" && (
+                <div
+                  style={{
+                    background: "#F7F3EC",
+                    borderLeft: "3px solid #B86B11",
+                    borderTop: "1px solid #E7E0D6",
+                    borderRight: "1px solid #E7E0D6",
+                    borderBottom: "1px solid #E7E0D6",
+                    borderRadius: "12px",
+                    padding: "1.25rem",
+                    textAlign: "left",
+                    marginBottom: "1.5rem",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontWeight: 700,
+                      color: "#1C1917",
+                      marginBottom: "0.35rem",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                    }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B86B11" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="12" y1="8" x2="12" y2="12" />
+                      <line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                    Action Required: Program Agreement
+                  </div>
+                  <p style={{ margin: "0 0 1rem 0", color: "#78716A", fontSize: "0.88rem", lineHeight: 1.5 }}>
+                    Under WhatBoutMe policies, you must review and digitally sign the program agreement before payment confirmation.
+                  </p>
+                  <Link
+                    href={agreementUrl}
+                    className={styles.submitBtn}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      textAlign: "center",
+                      textDecoration: "none",
+                      background: "#B86B11",
+                      color: "#FFFFFF",
+                      borderRadius: "10px",
+                      padding: "0.85rem",
+                      fontSize: "0.95rem",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Review &amp; Sign Agreement &rarr;
+                  </Link>
+                </div>
               )}
+
+              {/* Agreement State: Signed & Verified */}
+              {agreementStatus === "SIGNED" && (
+                <div
+                  style={{
+                    background: "#F0FDF4",
+                    border: "1px solid #86EFAC",
+                    borderRadius: "12px",
+                    padding: "0.85rem 1.15rem",
+                    textAlign: "left",
+                    fontSize: "0.88rem",
+                    color: "#166534",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "0.75rem",
+                    marginBottom: "1.5rem",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    <span>
+                      <strong>Agreement Signed</strong> ({signedVersion})
+                    </span>
+                  </div>
+                  <Link
+                    href={agreementUrl}
+                    style={{
+                      color: "#166534",
+                      fontSize: "0.8rem",
+                      fontWeight: 600,
+                      textDecoration: "underline",
+                    }}
+                  >
+                    View Signed Details
+                  </Link>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Already Enrolled Guard Alert */}
+          {alreadyEnrolledError && (
+            <div
+              style={{
+                background: "#F0FDF4",
+                border: "1px solid #86EFAC",
+                borderRadius: "16px",
+                padding: "1.5rem",
+                marginBottom: "1.5rem",
+                textAlign: "center",
+              }}
+            >
+              <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "#DCFCE7", color: "#16A34A", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+              <h3 style={{ margin: "0 0 0.5rem 0", color: "#166534", fontSize: "1.25rem", fontWeight: 700 }}>
+                Already Enrolled in Course
+              </h3>
+              <p style={{ margin: "0 0 1.25rem 0", color: "#15803D", fontSize: "0.92rem", lineHeight: 1.5 }}>
+                {alreadyEnrolledError}
+              </p>
               <button
                 type="button"
                 onClick={() => router.push(`/programs/${programId}/steps`)}
                 style={{
+                  width: "100%",
                   padding: "0.9rem",
                   borderRadius: "10px",
                   background: "#16A34A",
@@ -872,131 +787,226 @@ function CheckoutContent() {
                   cursor: "pointer",
                 }}
               >
-                Proceed to Course Dashboard &amp; Step 1 &rarr;
+                Go to Course Dashboard &amp; Step 1 &rarr;
               </button>
             </div>
-          </div>
-        ) : (
-          /* Primary Checkout CTAs */
-          !alreadyEnrolledError && agreementStatus !== "REQUIRED" && (
-            <div>
-              <div
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "0.35rem",
-                  fontSize: "0.75rem",
-                  color: activeProvider === "STRIPE" ? "#15803D" : "#78716A",
-                  background: activeProvider === "STRIPE" ? "#F0FDF4" : "#F7F3EC",
-                  padding: "4px 12px",
-                  borderRadius: "9999px",
-                  marginBottom: "0.85rem",
-                  border: "1px solid #BBF7D0",
-                  fontWeight: 600,
-                }}
-              >
-                <span>
-                  🔒 Stripe Checkout: Bank-Grade Security • Adaptive Local Pricing
-                </span>
+          )}
+
+          {/* Simulation Error Alert */}
+          {simulationError && (
+            <div
+              style={{
+                background: "#FEF2F2",
+                border: "1px solid #FECACA",
+                borderRadius: "12px",
+                padding: "1rem",
+                marginBottom: "1.25rem",
+                color: "#991B1B",
+                fontSize: "0.9rem",
+                textAlign: "left",
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: "0.25rem" }}>Simulated Failure:</div>
+              <div>{simulationError}</div>
+            </div>
+          )}
+
+          {/* Simulation Success Confirmation Card */}
+          {simulatedResult ? (
+            <div
+              style={{
+                background: "#F0FDF4",
+                border: "1px solid #86EFAC",
+                borderRadius: "16px",
+                padding: "1.5rem",
+                textAlign: "center",
+                marginBottom: "1rem",
+              }}
+            >
+              <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "#DCFCE7", color: "#16A34A", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
               </div>
+              <h3 style={{ margin: "0 0 0.5rem 0", color: "#166534", fontSize: "1.3rem", fontWeight: 700 }}>
+                Payment Confirmed &amp; Verified!
+              </h3>
+              <p style={{ margin: "0 0 1rem 0", color: "#15803D", fontSize: "0.92rem", lineHeight: 1.5 }}>
+                Your test transaction was securely recognized. An official WhatBoutMe FZE Tax invoice has been generated.
+              </p>
+
+              {simulatedResult.invoiceNumber && (
+                <div style={{ background: "#FFFFFF", border: "1px solid #BBF7D0", borderRadius: "8px", padding: "0.6rem 1rem", display: "inline-block", marginBottom: "1.25rem", fontSize: "0.88rem", fontWeight: 600, color: "#166534" }}>
+                  Invoice No: {simulatedResult.invoiceNumber}
+                </div>
+              )}
 
               <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                {/* Official Stripe Checkout Button */}
+                {simulatedResult.invoiceUrl && (
+                  <a
+                    href={
+                      sanitizeExternalUrl(
+                        simulatedResult.invoiceUrl.startsWith("http")
+                          ? simulatedResult.invoiceUrl
+                          : `${API_URL}${simulatedResult.invoiceUrl.startsWith("/") ? "" : "/"}${simulatedResult.invoiceUrl}`
+                      ) || "#"
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: "block",
+                      padding: "0.75rem",
+                      borderRadius: "10px",
+                      background: "#FFFFFF",
+                      border: "1px solid #16A34A",
+                      color: "#166534",
+                      fontWeight: 600,
+                      textDecoration: "none",
+                      fontSize: "0.95rem",
+                    }}
+                  >
+                    Download WhatBoutMe FZE Tax Invoice (PDF)
+                  </a>
+                )}
                 <button
-                  className={styles.submitBtn}
-                  onClick={handleStripeCheckout}
-                  disabled={processing || !user || agreementStatus !== "SIGNED"}
+                  type="button"
+                  onClick={() => router.push(`/programs/${programId}/steps`)}
                   style={{
-                    width: "100%",
-                    background: "#635BFF",
+                    padding: "0.9rem",
+                    borderRadius: "10px",
+                    background: "#16A34A",
                     color: "#FFFFFF",
-                    borderRadius: "12px",
-                    padding: "1.1rem",
-                    fontSize: "1.05rem",
-                    fontWeight: 700,
                     border: "none",
-                    cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
-                    opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.65 : 1,
-                    display: "flex",
-                    justifyContent: "center",
-                    alignItems: "center",
-                    gap: "0.5rem",
-                    boxShadow: "0 2px 8px rgba(99, 91, 255, 0.3)",
-                    transition: "all 0.2s ease",
+                    fontWeight: 700,
+                    fontSize: "1rem",
+                    cursor: "pointer",
                   }}
                 >
-                  {processing ? (
-                    "Connecting to Stripe..."
-                  ) : !user ? (
-                    "Log In to Finalize Enrollment"
-                  ) : (
-                    <>
-                      <span>Pay with Stripe</span>
-                      <span>(${finalAmountUSD.toLocaleString()} USD)</span>
-                    </>
-                  )}
+                  Proceed to Course Dashboard &amp; Step 1 &rarr;
                 </button>
-
-                {/* Developer-Only Bypass Controls (visible only when ?dev_simulate=1) */}
-                {isDevSimulate && (
-                  <>
-                    <button
-                      className={styles.submitBtn}
-                      onClick={() => handleSimulatePayment("PAID")}
-                      disabled={processing || !user || agreementStatus !== "SIGNED"}
-                      style={{
-                        width: "100%",
-                        background: "#B86B11",
-                        color: "#FFFFFF",
-                        borderRadius: "12px",
-                        padding: "0.85rem",
-                        fontSize: "0.9rem",
-                        fontWeight: 700,
-                        border: "none",
-                        cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
-                        opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.65 : 1,
-                        display: "flex",
-                        justifyContent: "center",
-                        alignItems: "center",
-                        gap: "0.5rem",
-                      }}
-                    >
-                      {processing ? (
-                        "Processing Simulated Payment..."
-                      ) : (
-                        <>
-                          <span>Simulate Test Payment (Instant Paid)</span>
-                          <span>(${finalAmountUSD.toLocaleString()} USD)</span>
-                        </>
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleSimulatePayment("FAILED")}
-                      disabled={processing || !user || agreementStatus !== "SIGNED"}
-                      style={{
-                        width: "100%",
-                        background: "transparent",
-                        color: "#DC2626",
-                        borderRadius: "12px",
-                        padding: "0.65rem",
-                        fontSize: "0.82rem",
-                        fontWeight: 600,
-                        border: "1px dashed #FECACA",
-                        cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
-                        opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.5 : 0.8,
-                        transition: "all 0.15s ease",
-                      }}
-                    >
-                      Test Payment Failure Path (Decline Simulation)
-                    </button>
-                  </>
-                )}
               </div>
             </div>
-          )
-        )}
+          ) : (
+            /* Primary Checkout CTAs */
+            !alreadyEnrolledError && agreementStatus !== "REQUIRED" && (
+              <div>
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.35rem",
+                    fontSize: "0.75rem",
+                    color: activeProvider === "STRIPE" ? "#15803D" : "#78716A",
+                    background: activeProvider === "STRIPE" ? "#F0FDF4" : "#F7F3EC",
+                    padding: "4px 12px",
+                    borderRadius: "9999px",
+                    marginBottom: "0.85rem",
+                    border: "1px solid #BBF7D0",
+                    fontWeight: 600,
+                  }}
+                >
+                  <span>
+                    🔒 Stripe Checkout: Bank-Grade Security • Adaptive Local Pricing
+                  </span>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                  {/* Official Stripe Checkout Button */}
+                  <button
+                    className={styles.submitBtn}
+                    onClick={handleStripeCheckout}
+                    disabled={processing || !user || agreementStatus !== "SIGNED"}
+                    style={{
+                      width: "100%",
+                      background: "#635BFF",
+                      color: "#FFFFFF",
+                      borderRadius: "12px",
+                      padding: "1.1rem",
+                      fontSize: "1.05rem",
+                      fontWeight: 700,
+                      border: "none",
+                      cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
+                      opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.65 : 1,
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                      boxShadow: "0 2px 8px rgba(99, 91, 255, 0.3)",
+                      transition: "all 0.2s ease",
+                    }}
+                  >
+                    {processing ? (
+                      "Connecting to Stripe..."
+                    ) : !user ? (
+                      "Log In to Finalize Enrollment"
+                    ) : (
+                      <>
+                        <span>Pay with Stripe</span>
+                        <span>(${finalAmountUSD.toLocaleString()} USD)</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Developer-Only Bypass Controls (visible only when ?dev_simulate=1) */}
+                  {isDevSimulate && (
+                    <>
+                      <button
+                        className={styles.submitBtn}
+                        onClick={() => handleSimulatePayment("PAID")}
+                        disabled={processing || !user || agreementStatus !== "SIGNED"}
+                        style={{
+                          width: "100%",
+                          background: "#B86B11",
+                          color: "#FFFFFF",
+                          borderRadius: "12px",
+                          padding: "0.85rem",
+                          fontSize: "0.9rem",
+                          fontWeight: 700,
+                          border: "none",
+                          cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
+                          opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.65 : 1,
+                          display: "flex",
+                          justifyContent: "center",
+                          alignItems: "center",
+                          gap: "0.5rem",
+                        }}
+                      >
+                        {processing ? (
+                          "Processing Simulated Payment..."
+                        ) : (
+                          <>
+                            <span>Simulate Test Payment (Instant Paid)</span>
+                            <span>(${finalAmountUSD.toLocaleString()} USD)</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSimulatePayment("FAILED")}
+                        disabled={processing || !user || agreementStatus !== "SIGNED"}
+                        style={{
+                          width: "100%",
+                          background: "transparent",
+                          color: "#DC2626",
+                          borderRadius: "12px",
+                          padding: "0.65rem",
+                          fontSize: "0.82rem",
+                          fontWeight: 600,
+                          border: "1px dashed #FECACA",
+                          cursor: processing || !user || agreementStatus !== "SIGNED" ? "not-allowed" : "pointer",
+                          opacity: processing || !user || agreementStatus !== "SIGNED" ? 0.5 : 0.8,
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        Test Payment Failure Path (Decline Simulation)
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )
+          )}
         </div>
       </div>
     </div>

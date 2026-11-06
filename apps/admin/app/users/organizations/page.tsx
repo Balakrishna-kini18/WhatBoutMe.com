@@ -13,9 +13,9 @@ import {
   TableSkeleton,
   EmptyState,
   Pagination,
+  ActionMenu,
 } from "../../components";
 import { apiGet, apiPost, apiDelete } from "../../lib/api";
-import VolumePricingModal, { VolumePricingConfig } from "./components/VolumePricingModal";
 
 // --- Clean SVG Icon Helpers (Zero Emojis) ---
 function BuildingIcon({ size = 16, style }: { size?: number; style?: React.CSSProperties }) {
@@ -60,31 +60,6 @@ function CalendarIcon({ size = 16, style }: { size?: number; style?: React.CSSPr
       <line x1="16" y1="2" x2="16" y2="6" />
       <line x1="8" y1="2" x2="8" y2="6" />
       <line x1="3" y1="10" x2="21" y2="10" />
-    </svg>
-  );
-}
-
-function SlidersIcon({ size = 14, style }: { size?: number; style?: React.CSSProperties }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
-      <line x1="4" y1="21" x2="4" y2="14" />
-      <line x1="4" y1="10" x2="4" y2="3" />
-      <line x1="12" y1="21" x2="12" y2="12" />
-      <line x1="12" y1="8" x2="12" y2="3" />
-      <line x1="20" y1="21" x2="20" y2="16" />
-      <line x1="20" y1="12" x2="20" y2="3" />
-      <line x1="1" y1="14" x2="7" y2="14" />
-      <line x1="9" y1="8" x2="15" y2="8" />
-      <line x1="17" y1="16" x2="23" y2="16" />
-    </svg>
-  );
-}
-
-function CreditCardIcon({ size = 12, style }: { size?: number; style?: React.CSSProperties }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
-      <rect width="20" height="14" x="2" y="5" rx="2" />
-      <line x1="2" x2="22" y1="10" y2="10" />
     </svg>
   );
 }
@@ -135,11 +110,13 @@ function AlertTriangleIcon({ size = 16, style }: { size?: number; style?: React.
   );
 }
 
-function ClockIcon({ size = 12, style }: { size?: number; style?: React.CSSProperties }) {
+function TrashIcon({ size = 14, style }: { size?: number; style?: React.CSSProperties }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
-      <circle cx="12" cy="12" r="10" />
-      <polyline points="12 6 12 12 16 14" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <line x1="10" y1="11" x2="10" y2="17" />
+      <line x1="14" y1="11" x2="14" y2="17" />
     </svg>
   );
 }
@@ -248,19 +225,7 @@ function OrganizationsContent() {
 
   // Create Modal & Simplified Onboarding State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [pricingConfig, setPricingConfig] = useState<VolumePricingConfig>({
-    enabled: true,
-    tiers: [
-      { minSeats: 10, discountPercent: 10, label: "10+ seats" },
-      { minSeats: 25, discountPercent: 15, label: "25+ seats" },
-      { minSeats: 50, discountPercent: 25, label: "50+ seats" },
-    ],
-    quickPresets: [10, 25, 50, 100],
-    customNote: "Volume discounts: 10+ seats: 10% off • 25+ seats: 15% off • 50+ seats: 25% off",
-  });
-  const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showAdvancedCreate, setShowAdvancedCreate] = useState(false);
   const [showPasswordText, setShowPasswordText] = useState(false);
   const [createdResult, setCreatedResult] = useState<any>(null);
   const [copiedPassword, setCopiedPassword] = useState(false);
@@ -340,6 +305,7 @@ function OrganizationsContent() {
       });
       if (search.trim()) queryParams.set("search", search.trim());
       if (statusFilter !== "ALL") queryParams.set("status", statusFilter);
+      if (typeFilter !== "ALL") queryParams.set("orgType", typeFilter);
 
       const res = await apiGet<{
         items: OrganizationItem[];
@@ -348,12 +314,7 @@ function OrganizationsContent() {
         totalPages: number;
       }>(`/admin/organizations?${queryParams.toString()}`);
 
-      let filteredItems = res.items || [];
-      if (typeFilter !== "ALL") {
-        filteredItems = filteredItems.filter((o) => o.orgType === typeFilter);
-      }
-
-      setOrganizations(filteredItems);
+      setOrganizations(res.items || []);
       setTotalCount(res.total || 0);
     } catch (e: any) {
       console.error("Failed to load organizations", e);
@@ -401,7 +362,6 @@ function OrganizationsContent() {
     setCreatedResult(null);
     setCopiedPassword(false);
     setCopiedLink(false);
-    setShowAdvancedCreate(false);
     setCreateForm({
       name: "",
       orgType: "RESELLER_ACADEMY",
@@ -429,8 +389,8 @@ function OrganizationsContent() {
 
   if (!mounted) {
     return (
-      <div className={styles.dashboard}>
-        <div style={{ padding: "4rem 2rem", textAlign: "center", color: "#64748b" }}>
+      <div className={styles.dashboardContainer}>
+        <div style={{ padding: "4rem 2rem", textAlign: "center", color: "var(--text-muted, #64748b)" }}>
           <p style={{ fontWeight: 600, fontSize: "1rem" }}>Loading organizations...</p>
         </div>
       </div>
@@ -440,15 +400,15 @@ function OrganizationsContent() {
   if (!isPlatformAdmin) {
     if (orgId) {
       return (
-        <div className={styles.dashboard}>
-          <div style={{ padding: "4rem 2rem", textAlign: "center", color: "#64748b" }}>
+        <div className={styles.dashboardContainer}>
+          <div style={{ padding: "4rem 2rem", textAlign: "center", color: "var(--text-muted, #64748b)" }}>
             <p style={{ fontWeight: 600, fontSize: "1rem" }}>Redirecting to your organization workspace...</p>
           </div>
         </div>
       );
     }
     return (
-      <div className={styles.dashboard}>
+      <div className={styles.dashboardContainer}>
         <div style={{ maxWidth: 560, margin: "4rem auto", textAlign: "center" }}>
           <EmptyState
             icon="Building"
@@ -475,12 +435,12 @@ function OrganizationsContent() {
   }
 
   return (
-    <div className={styles.dashboard}>
+    <div className={styles.dashboardContainer} style={{ gap: "1.25rem" }}>
       {/* Top Header */}
       <header
         className={styles.header}
         style={{
-          marginBottom: 0,
+          margin: 0,
           alignItems: "center",
           display: "flex",
           justifyContent: "space-between",
@@ -493,18 +453,7 @@ function OrganizationsContent() {
             Organizations
           </h1>
         </div>
-        <div className={styles.headerActions} style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          {isPlatformAdmin && (
-            <button
-              type="button"
-              className={styles.secondaryBtn}
-              onClick={() => setIsPricingModalOpen(true)}
-              title="Configure dynamic volume discount tiers and offers"
-            >
-              <SlidersIcon size={14} />
-              <span>Pricing &amp; Volume Offers</span>
-            </button>
-          )}
+        <div className={styles.headerActions}>
           <button
             type="button"
             className={styles.primaryBtn}
@@ -516,7 +465,7 @@ function OrganizationsContent() {
       </header>
 
       {/* Top KPI Summary Cards */}
-      <section className={styles.kpiGrid} aria-label="Key Performance Indicators" style={{ marginBottom: "1.25rem" }}>
+      <section className={styles.kpiGrid} aria-label="Key Performance Indicators">
         <div className={styles.kpiCard}>
           <div className={styles.kpiTopRow}>
             <span className={styles.kpiLabel}>Total Organizations</span>
@@ -570,85 +519,131 @@ function OrganizationsContent() {
         </div>
       </section>
 
-      {/* Filter and Search Bar */}
-      <div
-        style={{
-          display: "flex",
-          gap: "12px",
-          alignItems: "center",
-          flexWrap: "wrap",
-          background: "#ffffff",
-          padding: "14px 18px",
-          borderRadius: "12px",
-          border: "1px solid #e2e8f0",
-          marginBottom: "1.25rem",
-        }}
-      >
-        <div style={{ flex: 1, minWidth: "220px" }}>
-          <input
-            type="text"
-            placeholder="Search by name, org code (e.g. WBM-ORG-0001), or email..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+      {/* Table Section */}
+      <section className={styles.tableSection}>
+        <div
+          className={styles.sectionHeader}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "0.6rem",
+          }}
+        >
+          {/* Left: Search Bar */}
+          <div
+            className={styles.searchContainer}
+            style={{ minWidth: "220px", flex: "1 1 240px", maxWidth: "340px" }}
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              style={{
+                color: "var(--text-muted)",
+                flexShrink: 0,
+                marginRight: "0.4rem",
+              }}
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search by name, org code, email..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              className={styles.searchInput}
+            />
+          </div>
+
+          {/* Right: Type Filter & Status Filter & Reset */}
+          <div
             style={{
-              width: "100%",
-              padding: "8px 14px",
-              borderRadius: "8px",
-              border: "1px solid #cbd5e1",
-              fontSize: "0.9rem",
+              display: "flex",
+              gap: "0.65rem",
+              alignItems: "center",
+              flexWrap: "wrap",
             }}
-          />
+          >
+            <CustomSelect
+              options={ORG_TYPES}
+              value={typeFilter}
+              onChange={(val) => {
+                setTypeFilter(val);
+                setPage(1);
+              }}
+              placeholder="Filter by Type"
+              minWidth="175px"
+              ariaLabel="Filter organizations by type"
+            />
+            <CustomSelect
+              options={ORG_STATUSES}
+              value={statusFilter}
+              onChange={(val) => {
+                setStatusFilter(val);
+                setPage(1);
+              }}
+              placeholder="Filter by Status"
+              minWidth="140px"
+              ariaLabel="Filter organizations by status"
+            />
+            {(search || typeFilter !== "ALL" || statusFilter !== "ALL") && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch("");
+                  setTypeFilter("ALL");
+                  setStatusFilter("ALL");
+                  setPage(1);
+                }}
+                className={styles.secondaryBtn}
+                style={{
+                  padding: "0.4rem 0.75rem",
+                  fontSize: "0.78rem",
+                  height: "36px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.35rem",
+                }}
+                title="Reset all filters"
+              >
+                <RefreshCwIcon size={12} />
+                <span>Reset</span>
+              </button>
+            )}
+          </div>
         </div>
 
-        <div style={{ width: "200px" }}>
-          <CustomSelect
-            options={ORG_TYPES}
-            value={typeFilter}
-            onChange={(val) => setTypeFilter(val)}
-            placeholder="Filter by Type"
-          />
-        </div>
-
-        <div style={{ width: "170px" }}>
-          <CustomSelect
-            options={ORG_STATUSES}
-            value={statusFilter}
-            onChange={(val) => setStatusFilter(val)}
-            placeholder="Filter by Status"
-          />
-        </div>
-      </div>
-
-      {/* Main Organizations Table */}
-      <div
-        style={{
-          background: "#ffffff",
-          borderRadius: "12px",
-          border: "1px solid #e2e8f0",
-          overflow: "hidden",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
-        }}
-      >
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "0.88rem" }}>
+        <div className={styles.tableWrapper}>
+          <table className={styles.adminTable}>
             <thead>
-              <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "#475569", fontWeight: 600 }}>
-                <th style={{ padding: "12px 18px" }}>Organization</th>
-                <th style={{ padding: "12px 18px" }}>Type</th>
-                <th style={{ padding: "12px 18px" }}>Licensed Slots</th>
-                <th style={{ padding: "12px 18px" }}>Batches</th>
-                <th style={{ padding: "12px 18px" }}>Institutional Billing</th>
-                <th style={{ padding: "12px 18px" }}>Primary Contact</th>
-                <th style={{ padding: "12px 18px" }}>Status</th>
-                <th style={{ padding: "12px 18px", textAlign: "right" }}>Action</th>
+              <tr>
+                <th>Organization</th>
+                <th>Primary Contact</th>
+                <th>Licensed Slots</th>
+                <th>Batches</th>
+                <th>Institutional Billing</th>
+                <th>Status</th>
+                <th style={{ textAlign: "right" }}>Action</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <TableSkeleton rows={5} columns={8} />
+                <TableSkeleton rows={5} columns={7} />
               ) : organizations.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: "3rem 1.5rem" }}>
+                  <td colSpan={7} style={{ padding: "3rem 1.5rem" }}>
                     <EmptyState
                       title="No organizations found"
                       description="Create your first organization or reseller partnership to license batch slots."
@@ -663,234 +658,109 @@ function OrganizationsContent() {
                     org.totalSlots > 0
                       ? Math.round(((org.assignedSlots + org.consumedSlots) / org.totalSlots) * 100)
                       : 0;
+                  const formattedType = (org.orgType || "CORPORATE")
+                    .toLowerCase()
+                    .replace(/_/g, " ")
+                    .replace(/\b\w/g, (c) => c.toUpperCase());
 
                   return (
-                    <tr
-                      key={org.id}
-                      style={{
-                        borderBottom: "1px solid #f1f5f9",
-                        transition: "background 0.15s ease",
-                      }}
-                      onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "#fafafa")}
-                      onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "transparent")}
-                    >
-                      {/* Name & OrgCode */}
-                      <td style={{ padding: "14px 18px" }}>
-                        <Link
-                          href={`/users/organizations/${org.id}`}
-                          style={{ fontWeight: 700, color: "#0f172a", textDecoration: "none", fontSize: "0.95rem" }}
-                        >
-                          {org.name}
-                        </Link>
-                        <div style={{ display: "flex", gap: "6px", alignItems: "center", marginTop: "3px" }}>
-                          <span
+                    <tr key={org.id}>
+                      {/* Organization Name & Details */}
+                      <td>
+                        <div>
+                          <Link
+                            href={`/users/organizations/${org.id}`}
                             style={{
-                              fontSize: "0.74rem",
                               fontWeight: 600,
-                              color: "#64748b",
-                              background: "#f1f5f9",
-                              padding: "1px 6px",
-                              borderRadius: "4px",
+                              color: "var(--accent-primary, #c97a1e)",
+                              textDecoration: "none",
+                              fontSize: "0.88rem",
                             }}
                           >
-                            {org.orgCode}
+                            {org.name}
+                          </Link>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-muted, #64748b)", marginTop: "2px" }}>
+                            {org.orgCode} &bull; {formattedType}
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Primary Contact Person */}
+                      <td>
+                        <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.85rem" }}>
+                          {org.contactPersonName || "—"}
+                        </div>
+                        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                          {org.contactEmail}
+                        </div>
+                      </td>
+
+                      {/* Licensed Slots */}
+                      <td>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.85rem" }}>
+                            {org.totalSlots > 0 ? `${org.assignedSlots + org.consumedSlots} / ${org.totalSlots} seats` : "0 seats"}
                           </span>
-                          {org.isAuthorizedReseller && (
-                            <span
-                              style={{
-                                fontSize: "0.72rem",
-                                fontWeight: 700,
-                                color: "#0284c7",
-                                background: "#e0f2fe",
-                                padding: "1px 6px",
-                                borderRadius: "4px",
-                              }}
-                            >
-                              RESELLER
+                          {org.totalSlots > 0 && (
+                            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 500 }}>
+                              ({utilization}%)
                             </span>
                           )}
                         </div>
                       </td>
 
-                      {/* Type */}
-                      <td style={{ padding: "14px 18px", color: "#334155", fontWeight: 500 }}>
-                        {org.orgType.replace(/_/g, " ")}
-                      </td>
-
-                      {/* Licensed Slots with visual bar */}
-                      <td style={{ padding: "14px 18px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <span style={{ fontWeight: 700, color: "#0f172a" }}>
-                            {org.assignedSlots + org.consumedSlots}
-                          </span>
-                          <span style={{ color: "#94a3b8" }}>/</span>
-                          <span style={{ color: "#64748b" }}>{org.totalSlots}</span>
-                          <span style={{ fontSize: "0.75rem", color: "#16a34a", fontWeight: 600 }}>
-                            ({utilization}%)
-                          </span>
-                        </div>
-                        <div
-                          style={{
-                            width: "120px",
-                            height: "5px",
-                            background: "#e2e8f0",
-                            borderRadius: "9999px",
-                            overflow: "hidden",
-                            marginTop: "5px",
-                          }}
-                        >
-                          <div
-                            style={{
-                              width: `${Math.min(100, utilization)}%`,
-                              height: "100%",
-                              background: utilization > 80 ? "#16a34a" : "#c97a1e",
-                              borderRadius: "9999px",
-                            }}
-                          />
-                        </div>
-                        {(org.pendingPaymentCount || 0) > 0 && (
-                          <div style={{ marginTop: "6px" }}>
-                            <span
-                              style={{
-                                fontSize: "0.72rem",
-                                fontWeight: 700,
-                                color: "#b45309",
-                                background: "#fef3c7",
-                                padding: "2px 7px",
-                                borderRadius: "4px",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "4px",
-                              }}
-                            >
-                              <span>💳</span> {org.pendingSlots} slots pending payment
-                            </span>
-                          </div>
-                        )}
-                        {(org.pendingApprovalCount || 0) > 0 && (
-                          <div style={{ marginTop: "6px" }}>
-                            <span
-                              style={{
-                                fontSize: "0.72rem",
-                                fontWeight: 700,
-                                color: "#1d4ed8",
-                                background: "#eff6ff",
-                                padding: "2px 7px",
-                                borderRadius: "4px",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "4px",
-                              }}
-                            >
-                              <span>⏳</span> {org.pendingSlots} slots pending review
-                            </span>
-                          </div>
-                        )}
-                      </td>
-
                       {/* Active Batches */}
-                      <td style={{ padding: "14px 18px", color: "#334155" }}>
-                        {org.activeBatchesCount > 0 ? (
-                          <span style={{ fontWeight: 600 }}>{org.activeBatchesCount} batches</span>
-                        ) : org.pendingBatchNames && org.pendingBatchNames.length > 0 ? (
-                          <div>
-                            <div style={{ fontWeight: 600, color: "#92400e" }}>{org.pendingBatchNames[0]}</div>
-                            <div style={{ fontSize: "0.72rem", color: "#b45309", fontWeight: 500 }}>
-                              {(org.pendingPaymentCount || 0) > 0 ? "Awaiting Payment" : "Awaiting Review"}
-                            </div>
-                          </div>
-                        ) : (
-                          <span style={{ color: "#94a3b8" }}>No active batch</span>
-                        )}
+                      <td>
+                        <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+                          {org.activeBatchesCount > 0
+                            ? `${org.activeBatchesCount} ${org.activeBatchesCount === 1 ? "batch" : "batches"}`
+                            : "—"}
+                        </span>
                       </td>
 
-                      {/* Billing / Revenue */}
-                      <td style={{ padding: "14px 18px" }}>
-                        <div style={{ fontWeight: 600, color: "#0f172a" }}>
+                      {/* Institutional Billing / Revenue */}
+                      <td>
+                        <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.85rem" }}>
                           {org.defaultCurrency}{" "}
                           {(org.revenueByCurrency?.[org.defaultCurrency] || 0).toLocaleString()}
-                        </div>
-                        <div style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                          {org.billingEmail}
-                        </div>
-                      </td>
-
-                      {/* Contact Person */}
-                      <td style={{ padding: "14px 18px" }}>
-                        <div style={{ fontWeight: 600, color: "#1e293b" }}>{org.contactPersonName}</div>
-                        <div style={{ fontSize: "0.75rem", color: "#64748b" }}>{org.contactEmail}</div>
+                        </span>
                       </td>
 
                       {/* Status Badge */}
-                      <td style={{ padding: "14px 18px" }}>
+                      <td>
                         <StatusBadge status={org.status} />
                       </td>
 
                       {/* Action */}
-                      <td style={{ padding: "14px 18px", textAlign: "right" }}>
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", justifyContent: "flex-end" }}>
+                      <td style={{ textAlign: "right" }}>
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", justifyContent: "flex-end" }}>
                           <Link
                             href={`/users/organizations/${org.id}`}
+                            className={styles.secondaryBtn}
                             style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "5px",
-                              padding: "6px 14px",
-                              borderRadius: "6px",
-                              background: (org.pendingApprovalCount || 0) > 0
-                                ? "#16a34a"
-                                : (org.pendingPaymentCount || 0) > 0
-                                  ? "#c97a1e"
-                                  : "#f1f5f9",
-                              color: ((org.pendingApprovalCount || 0) > 0 || (org.pendingPaymentCount || 0) > 0)
-                                ? "#ffffff"
-                                : "#0f172a",
+                              padding: "0.32rem 0.7rem",
+                              fontSize: "0.78rem",
                               fontWeight: 600,
-                              fontSize: "0.82rem",
                               textDecoration: "none",
-                              border: "1px solid #cbd5e1",
-                              transition: "all 0.15s ease",
-                            }}
-                          >
-                            {(org.pendingApprovalCount || 0) > 0
-                              ? "Review Request →"
-                              : (org.pendingPaymentCount || 0) > 0
-                                ? "View Workspace (Payment Pending) →"
-                                : "Workspace →"}
-                          </Link>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenDeleteModal(org)}
-                            style={{
                               display: "inline-flex",
                               alignItems: "center",
                               gap: "4px",
-                              padding: "6px 12px",
-                              borderRadius: "6px",
-                              background: "#fff1f2",
-                              color: "#e11d48",
-                              fontWeight: 600,
-                              fontSize: "0.82rem",
-                              border: "1px solid #fecdd3",
-                              cursor: "pointer",
-                              transition: "all 0.15s ease",
+                              whiteSpace: "nowrap",
                             }}
-                            onMouseEnter={(e) => {
-                              (e.currentTarget as HTMLElement).style.background = "#e11d48";
-                              (e.currentTarget as HTMLElement).style.color = "#ffffff";
-                            }}
-                            onMouseLeave={(e) => {
-                              (e.currentTarget as HTMLElement).style.background = "#fff1f2";
-                              (e.currentTarget as HTMLElement).style.color = "#e11d48";
-                            }}
-                            title={`Delete ${org.name}`}
                           >
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <polyline points="3 6 5 6 21 6" />
-                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                            </svg>
-                            Delete
-                          </button>
+                            <span>View Details</span>
+                            <span>&rarr;</span>
+                          </Link>
+                          <ActionMenu
+                            items={[
+                              {
+                                label: "Delete Organization",
+                                icon: <TrashIcon size={14} />,
+                                danger: true,
+                                onClick: () => handleOpenDeleteModal(org),
+                              },
+                            ]}
+                          />
                         </div>
                       </td>
                     </tr>
@@ -902,56 +772,106 @@ function OrganizationsContent() {
         </div>
 
         {totalCount > pageSize && (
-          <div style={{ padding: "12px 18px", borderTop: "1px solid #e2e8f0" }}>
+          <div style={{ padding: "12px 0 0", borderTop: "1px solid var(--border-light)" }}>
             <Pagination
               currentPage={page}
               totalItems={totalCount}
               pageSize={pageSize}
               onPageChange={(p) => setPage(p)}
+              pageSizeOptions={[10, 20, 50]}
+              itemLabel="organizations"
             />
           </div>
         )}
-      </div>
+      </section>
 
       {/* Create Organization Modal */}
       <Modal
         isOpen={isCreateModalOpen}
         onClose={handleCloseCreateModal}
+        maxWidth="620px"
         title={createdResult ? "Organization Created & Credentials Ready" : "Create New Organization"}
       >
         {createdResult ? (
           <div style={{ display: "flex", flexDirection: "column", gap: "16px", padding: "4px 0" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "12px", background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "12px 16px", borderRadius: "8px" }}>
-              <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#22c55e", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "12px",
+                background: "#f0fdf4",
+                border: "1px solid #bbf7d0",
+                padding: "12px 16px",
+                borderRadius: "8px",
+              }}
+            >
+              <div
+                style={{
+                  width: "36px",
+                  height: "36px",
+                  borderRadius: "50%",
+                  background: "#16a34a",
+                  color: "#ffffff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <CheckIcon size={20} />
               </div>
               <div>
                 <h4 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, color: "#166534" }}>
-                  {createdResult.name} ({createdResult.orgCode}) Created!
+                  {createdResult.name} ({createdResult.orgCode}) Created
                 </h4>
                 <p style={{ margin: "2px 0 0", fontSize: "0.82rem", color: "#15803d" }}>
                   {createdResult.resetUrl
-                    ? `Welcome email with 1-click password setup link sent to ${createdResult.ownerEmail || createdResult.contactEmail}.`
+                    ? `Welcome email with password setup link sent to ${createdResult.ownerEmail || createdResult.contactEmail}.`
                     : "Organization account is active."}
                 </p>
               </div>
             </div>
 
-            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "14px 16px", display: "flex", flexDirection: "column", gap: "12px" }}>
+            <div
+              style={{
+                background: "var(--bg-soft, #f8fafc)",
+                border: "1px solid var(--border-light, #e2e8f0)",
+                borderRadius: "8px",
+                padding: "14px 16px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "12px",
+              }}
+            >
               <div>
-                <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "0.75rem",
+                    fontWeight: 600,
+                    color: "var(--text-secondary, #64748b)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.03em",
+                  }}
+                >
                   Partner Sign-In Email
                 </label>
-                <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "#0f172a", marginTop: "2px" }}>
+                <div style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text-primary, #0f172a)", marginTop: "2px" }}>
                   {createdResult.ownerEmail || createdResult.contactEmail}
                 </div>
               </div>
 
               <div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <label style={{ fontSize: "0.75rem", fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                  <label
+                    style={{
+                      fontSize: "0.75rem",
+                      fontWeight: 600,
+                      color: "var(--text-secondary, #64748b)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.03em",
+                    }}
+                  >
                     Initial Temporary Password
                   </label>
                   <button
@@ -961,12 +881,44 @@ function OrganizationsContent() {
                       setCopiedPassword(true);
                       setTimeout(() => setCopiedPassword(false), 2000);
                     }}
-                    style={{ background: "none", border: "none", color: "#c97a1e", fontSize: "0.78rem", fontWeight: 600, cursor: "pointer" }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--accent-primary, #c97a1e)",
+                      fontSize: "0.78rem",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                    }}
                   >
-                    {copiedPassword ? "✓ Copied!" : "📋 Copy Password"}
+                    {copiedPassword ? (
+                      <>
+                        <CheckIcon size={12} />
+                        <span>Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <CopyIcon size={12} />
+                        <span>Copy Password</span>
+                      </>
+                    )}
                   </button>
                 </div>
-                <div style={{ fontFamily: "monospace", fontSize: "0.95rem", fontWeight: 700, color: "#334155", background: "#ffffff", padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", marginTop: "4px" }}>
+                <div
+                  style={{
+                    fontFamily: "monospace",
+                    fontSize: "0.95rem",
+                    fontWeight: 700,
+                    color: "#334155",
+                    background: "#ffffff",
+                    padding: "6px 10px",
+                    borderRadius: "6px",
+                    border: "1px solid #cbd5e1",
+                    marginTop: "4px",
+                  }}
+                >
                   {createdResult.temporaryPassword}
                 </div>
               </div>
@@ -974,8 +926,16 @@ function OrganizationsContent() {
               {createdResult.resetUrl && (
                 <div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <label style={{ fontSize: "0.75rem", fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.03em" }}>
-                      Direct Password Reset / Setup Link
+                    <label
+                      style={{
+                        fontSize: "0.75rem",
+                        fontWeight: 600,
+                        color: "var(--text-secondary, #64748b)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.03em",
+                      }}
+                    >
+                      Direct Password Setup Link
                     </label>
                     <button
                       type="button"
@@ -984,135 +944,157 @@ function OrganizationsContent() {
                         setCopiedLink(true);
                         setTimeout(() => setCopiedLink(false), 2000);
                       }}
-                      style={{ background: "none", border: "none", color: "#c97a1e", fontSize: "0.78rem", fontWeight: 600, cursor: "pointer" }}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "var(--accent-primary, #c97a1e)",
+                        fontSize: "0.78rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
                     >
-                      {copiedLink ? "✓ Copied!" : "📋 Copy Link"}
+                      {copiedLink ? (
+                        <>
+                          <CheckIcon size={12} />
+                          <span>Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <CopyIcon size={12} />
+                          <span>Copy Link</span>
+                        </>
+                      )}
                     </button>
                   </div>
-                  <div style={{ fontSize: "0.78rem", color: "#475569", background: "#ffffff", padding: "6px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", marginTop: "4px", wordBreak: "break-all" }}>
+                  <div
+                    style={{
+                      fontSize: "0.78rem",
+                      color: "#475569",
+                      background: "#ffffff",
+                      padding: "6px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid #cbd5e1",
+                      marginTop: "4px",
+                      wordBreak: "break-all",
+                    }}
+                  >
                     {createdResult.resetUrl}
                   </div>
                 </div>
               )}
             </div>
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "6px" }}>
+            <div className={styles.modalFooter} style={{ padding: "0.5rem 0 0", marginTop: "0.5rem" }}>
               <button
                 type="button"
+                className={styles.secondaryBtn}
                 onClick={handleCloseCreateModal}
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: "6px",
-                  border: "1px solid #cbd5e1",
-                  background: "#ffffff",
-                  color: "#475569",
-                  fontWeight: 600,
-                  fontSize: "0.85rem",
-                  cursor: "pointer",
-                }}
               >
                 Close
               </button>
               <Link
                 href={`/users/organizations/${createdResult.id}`}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  padding: "8px 18px",
-                  borderRadius: "6px",
-                  background: "#c97a1e",
-                  color: "#ffffff",
-                  fontWeight: 600,
-                  fontSize: "0.85rem",
-                  textDecoration: "none",
-                }}
+                className={styles.primaryBtn}
+                style={{ textDecoration: "none" }}
               >
-                Open Workspace &rarr;
+                <span>Open Workspace &rarr;</span>
               </Link>
             </div>
           </div>
         ) : (
-          <form onSubmit={handleCreateSubmit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-            <div>
-              <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "#1e293b", marginBottom: "4px" }}>
-                Organization / Company Name *
+          <form className={styles.modalForm} onSubmit={handleCreateSubmit} style={{ padding: 0 }}>
+            <div className={styles.formGroup}>
+              <label>
+                Organization / Company Name <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
               </label>
               <input
                 type="text"
                 required
-                placeholder="e.g. Apna College or Bright Minds Academy"
                 value={createForm.name}
                 onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
-                style={{ width: "100%", padding: "9px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "0.9rem" }}
               />
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-              <div>
-                <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "#1e293b", marginBottom: "4px" }}>
-                  Organization Type
-                </label>
-                <select
+            <div className={styles.formRow}>
+              <div className={styles.formGroup}>
+                <label>Organization Type</label>
+                <CustomSelect
                   value={createForm.orgType}
-                  onChange={(e) => setCreateForm({ ...createForm, orgType: e.target.value })}
-                  style={{ width: "100%", padding: "9px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", fontSize: "0.88rem" }}
-                >
-                  <option value="RESELLER_ACADEMY">Reseller Academy / Training Partner</option>
-                  <option value="CORPORATE">Corporate Enterprise</option>
-                  <option value="SCHOOL">K-12 School</option>
-                  <option value="UNIVERSITY">University / Higher Ed</option>
-                  <option value="CLINIC">Clinic / Healthcare</option>
-                  <option value="NGO">NGO / Non-Profit</option>
-                  <option value="GOVERNMENT">Government Agency</option>
-                </select>
+                  onChange={(val) => setCreateForm({ ...createForm, orgType: val })}
+                  options={[
+                    { value: "RESELLER_ACADEMY", label: "Reseller Academy / Training Partner" },
+                    { value: "CORPORATE", label: "Corporate Enterprise" },
+                    { value: "SCHOOL", label: "K-12 School" },
+                    { value: "UNIVERSITY", label: "University / Higher Ed" },
+                    { value: "CLINIC", label: "Clinic / Healthcare" },
+                    { value: "NGO", label: "NGO / Non-Profit" },
+                    { value: "GOVERNMENT", label: "Government Agency" },
+                  ]}
+                  fullWidth
+                  ariaLabel="Organization Type"
+                />
               </div>
 
-              <div>
-                <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "#1e293b", marginBottom: "4px" }}>
-                  Partner Contact Person *
+              <div className={styles.formGroup}>
+                <label>
+                  Contact Person Name <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Pryanch"
                   value={createForm.contactPersonName}
                   onChange={(e) => setCreateForm({ ...createForm, contactPersonName: e.target.value })}
-                  style={{ width: "100%", padding: "9px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "0.9rem" }}
                 />
               </div>
             </div>
 
-            <div>
-              <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "#1e293b", marginBottom: "4px" }}>
-                Organization Email Address *
+            <div className={styles.formGroup}>
+              <label>
+                Organization Email Address <span style={{ color: "var(--accent-primary, #c97a1e)" }}>*</span>
               </label>
               <input
                 type="email"
                 required
-                placeholder="e.g. partner@apnacollege.com"
                 value={createForm.contactEmail}
                 onChange={(e) => setCreateForm({ ...createForm, contactEmail: e.target.value })}
-                style={{ width: "100%", padding: "9px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "0.9rem" }}
               />
-              <span style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "3px", display: "block" }}>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted, #64748b)", marginTop: "2px" }}>
                 Used for sign-in, partner portal admin access, and billing notifications.
               </span>
             </div>
 
             {/* Initial Password & Invite Mode */}
-            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "12px 14px", display: "flex", flexDirection: "column", gap: "10px" }}>
-              <div>
+            <div
+              style={{
+                background: "#faf7f2",
+                border: "1px solid #e7decb",
+                borderRadius: "8px",
+                padding: "14px 16px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "12px",
+              }}
+            >
+              <div className={styles.formGroup}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                  <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "#1e293b" }}>
-                    Initial Temporary Password
-                  </label>
+                  <label style={{ margin: 0 }}>Initial Temporary Password</label>
                   <button
                     type="button"
                     onClick={() => setCreateForm({ ...createForm, initialPassword: generateRandomPassword() })}
-                    style={{ background: "none", border: "none", color: "#c97a1e", fontSize: "0.78rem", fontWeight: 600, cursor: "pointer" }}
+                    className={styles.secondaryBtn}
+                    style={{
+                      padding: "3px 8px",
+                      fontSize: "0.76rem",
+                      gap: "4px",
+                      display: "inline-flex",
+                      alignItems: "center",
+                    }}
                   >
-                    🎲 Generate New
+                    <RefreshCwIcon size={12} />
+                    <span>Generate New</span>
                   </button>
                 </div>
                 <div style={{ position: "relative" }}>
@@ -1120,157 +1102,67 @@ function OrganizationsContent() {
                     type={showPasswordText ? "text" : "password"}
                     value={createForm.initialPassword}
                     onChange={(e) => setCreateForm({ ...createForm, initialPassword: e.target.value })}
-                    style={{ width: "100%", padding: "8px 40px 8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", fontFamily: "monospace", fontSize: "0.9rem" }}
+                    style={{
+                      width: "100%",
+                      paddingRight: "54px",
+                      fontFamily: "monospace",
+                    }}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPasswordText(!showPasswordText)}
-                    style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: "0.75rem" }}
+                    style={{
+                      position: "absolute",
+                      right: "10px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "none",
+                      border: "none",
+                      color: "var(--text-muted, #64748b)",
+                      cursor: "pointer",
+                      fontSize: "0.78rem",
+                      fontWeight: 600,
+                    }}
                   >
                     {showPasswordText ? "Hide" : "Show"}
                   </button>
                 </div>
               </div>
 
-              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.84rem", cursor: "pointer", color: "#334155" }}>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  fontSize: "0.84rem",
+                  cursor: "pointer",
+                  color: "var(--text-secondary, #334155)",
+                  margin: 0,
+                }}
+              >
                 <input
                   type="checkbox"
                   checked={createForm.sendInviteEmail}
                   onChange={(e) => setCreateForm({ ...createForm, sendInviteEmail: e.target.checked })}
+                  style={{ accentColor: "var(--accent-primary, #c97a1e)", cursor: "pointer" }}
                 />
                 <span style={{ fontWeight: 600 }}>Send welcome email with password reset link to this email</span>
               </label>
             </div>
 
-            {/* Optional Advanced Settings Toggle */}
-            <div>
+            <div className={styles.modalFooter} style={{ padding: "1rem 0 0", marginTop: "0.5rem", borderTop: "1px solid var(--border-light, #e2e8f0)" }}>
               <button
                 type="button"
-                onClick={() => setShowAdvancedCreate(!showAdvancedCreate)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "#64748b",
-                  fontSize: "0.8rem",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "4px",
-                  padding: "4px 0",
-                }}
-              >
-                <span>{showAdvancedCreate ? "▾ Hide Advanced Settings" : "▸ Show Advanced Financial & Domain Settings (Optional)"}</span>
-              </button>
-
-              {showAdvancedCreate && (
-                <div style={{ marginTop: "10px", padding: "12px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0", display: "flex", flexDirection: "column", gap: "10px" }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                    <div>
-                      <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, marginBottom: "3px" }}>
-                        Legal Entity Name
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. Apna Education Pvt Ltd"
-                        value={createForm.legalName}
-                        onChange={(e) => setCreateForm({ ...createForm, legalName: e.target.value })}
-                        style={{ width: "100%", padding: "7px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "0.85rem" }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, marginBottom: "3px" }}>
-                        Tax ID / GST / VAT
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. 29AABCU9603R1ZM"
-                        value={createForm.taxId}
-                        onChange={(e) => setCreateForm({ ...createForm, taxId: e.target.value })}
-                        style={{ width: "100%", padding: "7px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "0.85rem" }}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                    <div>
-                      <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, marginBottom: "3px" }}>
-                        Default Currency
-                      </label>
-                      <select
-                        value={createForm.defaultCurrency}
-                        onChange={(e) => setCreateForm({ ...createForm, defaultCurrency: e.target.value })}
-                        style={{ width: "100%", padding: "7px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#fff", fontSize: "0.85rem" }}
-                      >
-                        <option value="USD">USD ($)</option>
-                        <option value="AED">AED (AED)</option>
-                        <option value="INR">INR (₹)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, marginBottom: "3px" }}>
-                        Separate Billing Email
-                      </label>
-                      <input
-                        type="email"
-                        placeholder="Leave blank to use main email"
-                        value={createForm.billingEmail}
-                        onChange={(e) => setCreateForm({ ...createForm, billingEmail: e.target.value })}
-                        style={{ width: "100%", padding: "7px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "0.85rem" }}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label style={{ display: "block", fontSize: "0.78rem", fontWeight: 600, marginBottom: "3px" }}>
-                      Allowed Email Domains (Optional Domain-Lock)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. @apnacollege.com, @apna.in"
-                      value={createForm.allowedEmailDomains}
-                      onChange={(e) => setCreateForm({ ...createForm, allowedEmailDomains: e.target.value })}
-                      style={{ width: "100%", padding: "7px 10px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "0.85rem" }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "8px" }}>
-              <button
-                type="button"
+                className={styles.secondaryBtn}
                 onClick={handleCloseCreateModal}
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: "6px",
-                  border: "1px solid #cbd5e1",
-                  background: "#f8fafc",
-                  color: "#475569",
-                  fontWeight: 600,
-                  fontSize: "0.85rem",
-                  cursor: "pointer",
-                }}
+                disabled={isSubmitting}
               >
                 Cancel
               </button>
               <button
                 type="submit"
+                className={styles.primaryBtn}
                 disabled={isSubmitting}
-                style={{
-                  padding: "8px 22px",
-                  borderRadius: "6px",
-                  border: "none",
-                  background: "#c97a1e",
-                  color: "#ffffff",
-                  fontWeight: 600,
-                  fontSize: "0.88rem",
-                  cursor: isSubmitting ? "not-allowed" : "pointer",
-                  opacity: isSubmitting ? 0.7 : 1,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                }}
               >
                 {isSubmitting ? "Creating & Sending Invite..." : "Create Organization & Send Invite"}
               </button>
@@ -1303,7 +1195,8 @@ function OrganizationsContent() {
               }}
             >
               <div style={{ fontWeight: 700, marginBottom: "4px", display: "flex", alignItems: "center", gap: "6px" }}>
-                <span>⚠️</span> High-Risk Destructive Action
+                <AlertTriangleIcon size={16} style={{ color: "#dc2626" }} />
+                <span>High-Risk Destructive Action</span>
               </div>
               Permanently deletes <strong>{orgToDelete.name}</strong> ({orgToDelete.orgCode}). All associated batch seat pools, prepaid vouchers, department seat allocations, and staff memberships will be permanently deleted.
             </div>
@@ -1315,8 +1208,8 @@ function OrganizationsContent() {
               </code>
             </div>
 
-            <div>
-              <label style={{ display: "block", fontSize: "0.84rem", fontWeight: 600, color: "#1e293b", marginBottom: "6px" }}>
+            <div className={styles.formGroup}>
+              <label>
                 To confirm deletion, please type this organization's email address below:
               </label>
               <input
@@ -1326,14 +1219,6 @@ function OrganizationsContent() {
                 placeholder={orgToDelete.billingEmail || orgToDelete.contactEmail}
                 value={confirmDeleteEmail}
                 onChange={(e) => setConfirmDeleteEmail(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "9px 12px",
-                  borderRadius: "6px",
-                  border: "1px solid #cbd5e1",
-                  fontSize: "0.9rem",
-                  fontFamily: "inherit",
-                }}
               />
             </div>
 
@@ -1343,24 +1228,15 @@ function OrganizationsContent() {
               </p>
             )}
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "8px" }}>
+            <div className={styles.modalFooter} style={{ padding: "0.5rem 0 0", marginTop: "0.5rem", borderTop: "1px solid var(--border-light, #e2e8f0)" }}>
               <button
                 type="button"
+                className={styles.secondaryBtn}
                 onClick={() => {
                   setIsDeleteModalOpen(false);
                   setOrgToDelete(null);
                 }}
                 disabled={isDeleting}
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: "6px",
-                  border: "1px solid #cbd5e1",
-                  background: "#ffffff",
-                  color: "#475569",
-                  fontWeight: 600,
-                  fontSize: "0.85rem",
-                  cursor: isDeleting ? "not-allowed" : "pointer",
-                }}
               >
                 Cancel
               </button>
@@ -1373,7 +1249,7 @@ function OrganizationsContent() {
                 }
                 style={{
                   padding: "8px 20px",
-                  borderRadius: "6px",
+                  borderRadius: "8px",
                   border: "none",
                   background: "#dc2626",
                   color: "#ffffff",

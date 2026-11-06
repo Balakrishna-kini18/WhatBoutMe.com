@@ -263,8 +263,8 @@ export class CreateSeatPoolDto {
 
 export class AssignSeatDto {
   @IsUUID()
-  @IsNotEmpty()
-  seatId: string;
+  @IsOptional()
+  seatId?: string;
 
   @IsEmail()
   @IsNotEmpty()

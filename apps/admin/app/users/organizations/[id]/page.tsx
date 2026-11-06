@@ -34,6 +34,80 @@ function normalizeLmsLink(rawUrl: string | null | undefined): string {
   }
 }
 
+function BuildingIcon({ size = 16, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <rect width="16" height="20" x="4" y="2" rx="2" ry="2" />
+      <path d="M9 22v-4h6v4" />
+      <path d="M8 6h.01" />
+      <path d="M16 6h.01" />
+      <path d="M8 10h.01" />
+      <path d="M16 10h.01" />
+      <path d="M8 14h.01" />
+      <path d="M16 14h.01" />
+    </svg>
+  );
+}
+
+function LayersIcon({ size = 16, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <polygon points="12 2 2 7 12 12 22 7 12 2" />
+      <polyline points="2 17 12 22 22 17" />
+      <polyline points="2 12 12 17 22 12" />
+    </svg>
+  );
+}
+
+function PercentIcon({ size = 16, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <line x1="19" y1="5" x2="5" y2="19" />
+      <circle cx="6.5" cy="6.5" r="2.5" />
+      <circle cx="17.5" cy="17.5" r="2.5" />
+    </svg>
+  );
+}
+
+function CheckIcon({ size = 16, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+function CalendarIcon({ size = 16, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <rect width="18" height="18" x="3" y="4" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  );
+}
+
+function TrashIcon({ size = 14, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <line x1="10" y1="11" x2="10" y2="17" />
+      <line x1="14" y1="11" x2="14" y2="17" />
+    </svg>
+  );
+}
+
+function SearchIcon({ size = 15, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+
 function CrownIcon({ size = 16, style }: { size?: number; style?: React.CSSProperties }) {
   return (
     <svg
@@ -825,9 +899,9 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
 
   if (!mounted) {
     return (
-      <div className={styles.dashboard}>
-        <div style={{ padding: "4rem 2rem", textAlign: "center", color: "#64748b" }}>
-          <p style={{ fontWeight: 600, fontSize: "1rem" }}>Loading organization workspace...</p>
+      <div className={styles.dashboardContainer}>
+        <div style={{ padding: "4rem 2rem", textAlign: "center", color: "var(--text-muted, #64748b)" }}>
+          <p style={{ fontWeight: 600, fontSize: "1rem" }}>Loading organization details...</p>
         </div>
       </div>
     );
@@ -835,7 +909,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
 
   if (accessError) {
     return (
-      <div className={styles.dashboard}>
+      <div className={styles.dashboardContainer}>
         <div
           style={{
             maxWidth: 580,
@@ -930,7 +1004,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                 gap: "6px",
               }}
             >
-              {isRetrying ? "Retrying..." : "🔄 Retry Connection"}
+              {isRetrying ? "Retrying..." : "Retry Connection"}
             </button>
 
             {isPlatformAdmin ? (
@@ -997,7 +1071,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
 
   if (isLoading || !org) {
     return (
-      <div className={styles.dashboard}>
+      <div className={styles.dashboardContainer}>
         <div style={{ padding: "40px 0" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <tbody>
@@ -1061,57 +1135,55 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
   const estimatedNetAmount = subtotalAmount - calculatedDiscount;
 
   return (
-    <div className={styles.dashboard}>
-      {/* Back Link - Only visible to platform staff */}
+    <div className={styles.dashboardContainer} style={{ gap: "1.25rem" }}>
+      {/* Breadcrumbs */}
       {!isOrgUser && (
-        <div style={{ marginBottom: "1rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem" }}>
           <Link
             href="/users/organizations"
             style={{
+              color: "var(--text-muted, #64748b)",
+              textDecoration: "none",
+              fontWeight: 500,
               display: "inline-flex",
               alignItems: "center",
-              gap: "6px",
-              color: "#64748b",
-              fontSize: "0.85rem",
-              fontWeight: 600,
-              textDecoration: "none",
+              gap: "4px",
             }}
           >
-            &larr; Back to Organizations Directory
+            <span>&larr;</span>
+            <span>Organizations</span>
           </Link>
+          <span style={{ color: "var(--border-light, #cbd5e1)" }}>/</span>
+          <span style={{ color: "var(--text-secondary, #475569)", fontWeight: 600 }}>{org.name}</span>
         </div>
       )}
 
       {/* Organization Header */}
       <header
+        className={styles.header}
         style={{
-          background: "#ffffff",
-          border: "1px solid #e2e8f0",
-          borderRadius: "14px",
-          padding: "24px 28px",
+          margin: 0,
+          alignItems: "center",
           display: "flex",
           justifyContent: "space-between",
-          alignItems: "flex-start",
           flexWrap: "wrap",
-          gap: "20px",
-          marginBottom: "1.5rem",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+          gap: "1rem",
         }}
       >
-        <div style={{ flex: "1 1 520px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-            <h1 style={{ margin: 0, fontSize: "1.65rem", fontWeight: 700, color: "#0f172a" }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+            <h1 className={styles.title} style={{ margin: 0 }}>
               {org.name}
             </h1>
             <span
               style={{
-                fontSize: "0.8rem",
+                fontSize: "0.75rem",
                 fontWeight: 600,
-                color: "#475569",
-                background: "#f1f5f9",
-                padding: "3px 10px",
+                color: "var(--text-muted, #64748b)",
+                background: "var(--bg-soft, #f1f5f9)",
+                padding: "2px 8px",
                 borderRadius: "6px",
-                border: "1px solid #e2e8f0",
+                border: "1px solid var(--border-light, #e2e8f0)",
               }}
             >
               {org.orgCode}
@@ -1120,12 +1192,12 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
             {org.isAuthorizedReseller && (
               <span
                 style={{
-                  fontSize: "0.75rem",
+                  fontSize: "0.7rem",
                   fontWeight: 700,
                   color: "#0369a1",
                   background: "#e0f2fe",
                   border: "1px solid #bae6fd",
-                  padding: "3px 10px",
+                  padding: "2px 8px",
                   borderRadius: "6px",
                   letterSpacing: "0.5px",
                 }}
@@ -1134,102 +1206,13 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
               </span>
             )}
           </div>
-
-          {/* Prominent Executive Owner Badge */}
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "10px",
-              background: "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)",
-              border: "1px solid #fde68a",
-              padding: "7px 14px",
-              borderRadius: "8px",
-              marginTop: "12px",
-              boxShadow: "0 1px 2px rgba(217, 119, 6, 0.08)",
-            }}
-          >
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: "24px",
-                height: "24px",
-                borderRadius: "6px",
-                background: "rgba(217, 119, 6, 0.15)",
-                color: "#b45309",
-                flexShrink: 0,
-              }}
-              aria-label="Owner Icon"
-            >
-              <CrownIcon size={15} />
-            </span>
-            <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#92400e" }}>
-              Organization Owner:
-            </span>
-            <span style={{ fontSize: "0.88rem", fontWeight: 700, color: "#78350f" }}>
-              {ownerName}
-            </span>
-            <code style={{ fontSize: "0.82rem", background: "rgba(255,255,255,0.7)", padding: "1px 6px", borderRadius: "4px", color: "#b45309" }}>
-              {ownerEmail}
-            </code>
-            <span
-              style={{
-                fontSize: "0.7rem",
-                fontWeight: 700,
-                background: "#b45309",
-                color: "#ffffff",
-                padding: "2px 7px",
-                borderRadius: "4px",
-                textTransform: "uppercase",
-                letterSpacing: "0.5px",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "4px",
-              }}
-            >
-              <CrownIcon size={11} />
-              Owner
-            </span>
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              gap: "16px",
-              marginTop: "12px",
-              color: "#64748b",
-              fontSize: "0.84rem",
-              flexWrap: "wrap",
-              alignItems: "center",
-            }}
-          >
-            <span>
-              <strong>Primary Contact:</strong> {org.contactPersonName || ownerName} ({org.contactEmail || ownerEmail})
-            </span>
-            <span>&bull;</span>
-            <span>
-              <strong>Billing Email:</strong> {org.billingEmail || ownerEmail}
-            </span>
-            <span>&bull;</span>
-            <span>
-              <strong>Currency:</strong> <span style={{ fontWeight: 700, color: "#0f172a" }}>{org.defaultCurrency || "USD"}</span>
-            </span>
-            {org.allowedEmailDomains?.length > 0 && (
-              <>
-                <span>&bull;</span>
-                <span>
-                  <strong>Allowed Domains:</strong> {org.allowedEmailDomains.join(", ")}
-                </span>
-              </>
-            )}
-          </div>
+          <p className={styles.subtitle} style={{ marginTop: "4px" }}>
+            Primary Contact: {org.contactPersonName || ownerName} ({org.contactEmail || ownerEmail}) &bull; Currency: {org.defaultCurrency || "USD"} &bull; Type: {(org.orgType || "CORPORATE").replace(/_/g, " ")}
+          </p>
         </div>
 
         {/* Header Action Buttons */}
-        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-          {/* Primary Action Button: Purchase / Request Course Slots */}
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
           <button
             type="button"
             onClick={() => {
@@ -1245,46 +1228,28 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
               }
               setIsRequestModalOpen(true);
             }}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              padding: "10px 20px",
-              borderRadius: "8px",
-              border: "none",
-              background: "linear-gradient(135deg, #c97a1e 0%, #b45309 100%)",
-              color: "#ffffff",
-              fontWeight: 700,
-              fontSize: "0.88rem",
-              cursor: "pointer",
-              boxShadow: "0 2px 6px rgba(201, 122, 30, 0.3)",
-              transition: "transform 0.1s ease, box-shadow 0.1s ease",
-            }}
+            className={styles.primaryBtn}
           >
-            <span>+ Purchase / Request Course Slots</span>
+            <span>+ Purchase Slots</span>
           </button>
-
+          {isPlatformAdmin && (
+            <button
+              type="button"
+              onClick={() => setIsAllocateModalOpen(true)}
+              className={styles.secondaryBtn}
+            >
+              <span>Direct Allocate</span>
+            </button>
+          )}
           <a
             href={`${API_URL}/admin/organizations/${orgId}/export-csv`}
             target="_blank"
             rel="noreferrer"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "6px",
-              padding: "9px 16px",
-              borderRadius: "8px",
-              border: "1px solid #cbd5e1",
-              background: "#ffffff",
-              color: "#0f172a",
-              fontWeight: 600,
-              fontSize: "0.85rem",
-              textDecoration: "none",
-            }}
+            className={styles.secondaryBtn}
+            style={{ textDecoration: "none" }}
           >
-            <span>Export CSV Report</span>
+            <span>Export CSV</span>
           </a>
-
           {isPlatformAdmin && (
             <button
               type="button"
@@ -1293,177 +1258,104 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                 setDeleteError(null);
                 setIsDeleteModalOpen(true);
               }}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                padding: "9px 14px",
-                borderRadius: "8px",
-                border: "1px solid #fecdd3",
-                background: "#fff1f2",
-                color: "#e11d48",
-                fontWeight: 600,
-                fontSize: "0.85rem",
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-              }}
-              title={`Permanently delete ${org?.name}`}
+              className={styles.secondaryBtn}
+              style={{ color: "#dc2626", borderColor: "#fecaca" }}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              </svg>
-              <span>Delete Organization</span>
-            </button>
-          )}
-
-          {isPlatformAdmin && (
-            <button
-              type="button"
-              onClick={() => setIsAllocateModalOpen(true)}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                padding: "9px 16px",
-                borderRadius: "8px",
-                border: "1px solid #cbd5e1",
-                background: "#f8fafc",
-                color: "#334155",
-                fontWeight: 600,
-                fontSize: "0.85rem",
-                cursor: "pointer",
-              }}
-            >
-              <span>Direct Allocate</span>
+              <TrashIcon size={14} />
+              <span>Delete</span>
             </button>
           )}
         </div>
       </header>
 
-      {/* KPI Cards */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
-          gap: "1rem",
-          marginBottom: "1.5rem",
-        }}
-      >
-        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "14px 18px" }}>
-          <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#64748b", textTransform: "uppercase" }}>
-            Total Licensed Slots
+      {/* KPI Cards: Unified Core System (Zero Subtitles) */}
+      <section className={styles.kpiGrid} aria-label="Organization Key Metrics">
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiHeader}>
+            <span className={styles.kpiLabel}>Total Licensed Slots</span>
+            <div className={styles.kpiIcon}>
+              <LayersIcon size={16} />
+            </div>
           </div>
-          <div style={{ fontSize: "1.6rem", fontWeight: 700, color: "#0f172a", marginTop: "2px" }}>
-            {totalSlots}
-          </div>
-          <div style={{ fontSize: "0.78rem", color: "#94a3b8" }}>Capacity across all pools</div>
+          <div className={styles.kpiValue}>{totalSlots}</div>
         </div>
 
-        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "14px 18px" }}>
-          <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#64748b", textTransform: "uppercase" }}>
-            Available Slots
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiHeader}>
+            <span className={styles.kpiLabel}>Available Slots</span>
+            <div className={styles.kpiIcon}>
+              <CheckIcon size={16} />
+            </div>
           </div>
-          <div style={{ fontSize: "1.6rem", fontWeight: 700, color: "#16a34a", marginTop: "2px" }}>
-            {availableSlots}
-          </div>
-          <div style={{ fontSize: "0.78rem", color: "#94a3b8" }}>Ready for student assignment</div>
+          <div className={styles.kpiValue} style={{ color: "#16a34a" }}>{availableSlots}</div>
         </div>
 
-        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "14px 18px" }}>
-          <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#64748b", textTransform: "uppercase" }}>
-            Assigned & Consumed
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiHeader}>
+            <span className={styles.kpiLabel}>Assigned & Consumed</span>
+            <div className={styles.kpiIcon}>
+              <PercentIcon size={16} />
+            </div>
           </div>
-          <div style={{ fontSize: "1.6rem", fontWeight: 700, color: "#c97a1e", marginTop: "2px" }}>
-            {assignedSlots + consumedSlots} ({utilization}%)
+          <div className={styles.kpiValue}>
+            {assignedSlots + consumedSlots}
+            {totalSlots > 0 && (
+              <span style={{ fontSize: "0.85rem", color: "var(--accent-primary, #c97a1e)", marginLeft: "6px" }}>
+                ({utilization}%)
+              </span>
+            )}
           </div>
-          <div style={{ fontSize: "0.78rem", color: "#94a3b8" }}>{consumedSlots} active in curriculum</div>
         </div>
 
-        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "14px 18px" }}>
-          <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#64748b", textTransform: "uppercase" }}>
-            Active Batches
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiHeader}>
+            <span className={styles.kpiLabel}>Active Batches</span>
+            <div className={styles.kpiIcon}>
+              <CalendarIcon size={16} />
+            </div>
           </div>
-          <div style={{ fontSize: "1.6rem", fontWeight: 700, color: "#0f172a", marginTop: "2px" }}>
-            {activeBatchesCount}
-          </div>
-          <div style={{ fontSize: "0.78rem", color: "#94a3b8" }}>Allocated cohort batches</div>
+          <div className={styles.kpiValue}>{activeBatchesCount}</div>
         </div>
-      </div>
+      </section>
 
-      {/* Segmented Workspace Tabs */}
-      <div
-        style={{
-          display: "flex",
-          gap: "8px",
-          borderBottom: "1px solid #e2e8f0",
-          marginBottom: "1.25rem",
-        }}
-      >
+      {/* Unified Tab Bar */}
+      <div className={styles.tabsContainer} role="tablist" aria-label="Organization Views">
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === "students"}
+          className={`${styles.tabBtn} ${activeTab === "students" ? styles.tabBtnActive : ""}`}
           onClick={() => setActiveTab("students")}
-          style={{
-            padding: "10px 18px",
-            fontSize: "0.9rem",
-            fontWeight: 600,
-            background: "transparent",
-            border: "none",
-            borderBottom: activeTab === "students" ? "2px solid #c97a1e" : "2px solid transparent",
-            color: activeTab === "students" ? "#c97a1e" : "#64748b",
-            cursor: "pointer",
-          }}
         >
-          Enrolled Students & Slot Tracker ({learners.length})
+          Enrolled Students & Slots ({learners.length})
         </button>
 
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === "pools"}
+          className={`${styles.tabBtn} ${activeTab === "pools" ? styles.tabBtnActive : ""}`}
           onClick={() => setActiveTab("pools")}
-          style={{
-            padding: "10px 18px",
-            fontSize: "0.9rem",
-            fontWeight: 600,
-            background: "transparent",
-            border: "none",
-            borderBottom: activeTab === "pools" ? "2px solid #c97a1e" : "2px solid transparent",
-            color: activeTab === "pools" ? "#c97a1e" : "#64748b",
-            cursor: "pointer",
-          }}
         >
           Batch Slot Pools ({org.seatPools?.length || 0})
         </button>
 
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === "billing"}
+          className={`${styles.tabBtn} ${activeTab === "billing" ? styles.tabBtnActive : ""}`}
           onClick={() => setActiveTab("billing")}
-          style={{
-            padding: "10px 18px",
-            fontSize: "0.9rem",
-            fontWeight: 600,
-            background: "transparent",
-            border: "none",
-            borderBottom: activeTab === "billing" ? "2px solid #c97a1e" : "2px solid transparent",
-            color: activeTab === "billing" ? "#c97a1e" : "#64748b",
-            cursor: "pointer",
-          }}
         >
           Invoices & Billing ({org.invoices?.length || 0})
         </button>
 
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === "team"}
+          className={`${styles.tabBtn} ${activeTab === "team" ? styles.tabBtnActive : ""}`}
           onClick={() => setActiveTab("team")}
-          style={{
-            padding: "10px 18px",
-            fontSize: "0.9rem",
-            fontWeight: 600,
-            background: "transparent",
-            border: "none",
-            borderBottom: activeTab === "team" ? "2px solid #c97a1e" : "2px solid transparent",
-            color: activeTab === "team" ? "#c97a1e" : "#64748b",
-            cursor: "pointer",
-          }}
         >
           Organization Team ({org.members?.length || 0})
         </button>
@@ -1471,92 +1363,56 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
 
       {/* Tab 1: Enrolled Students & Slot Tracker */}
       {activeTab === "students" && (
-        <div>
-          {/* Sub-filters */}
-          <div
-            style={{
-              display: "flex",
-              gap: "12px",
-              alignItems: "center",
-              flexWrap: "wrap",
-              background: "#ffffff",
-              padding: "12px 16px",
-              borderRadius: "10px",
-              border: "1px solid #e2e8f0",
-              marginBottom: "1rem",
-            }}
-          >
-            <div style={{ flex: 1, minWidth: "220px" }}>
+        <section className={styles.tableSection}>
+          <div className={styles.sectionHeader} style={{ flexWrap: "wrap", gap: "0.75rem" }}>
+            <div className={styles.searchContainer} style={{ flex: 1, minWidth: "260px" }}>
+              <SearchIcon size={15} />
               <input
                 type="text"
-                placeholder="Search students by name, email, slot label, department or order ref..."
+                className={styles.searchInput}
+                placeholder="Search students by name, email, slot label, department or ref..."
                 value={studentSearch}
                 onChange={(e) => setStudentSearch(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "7px 12px",
-                  borderRadius: "6px",
-                  border: "1px solid #cbd5e1",
-                  fontSize: "0.85rem",
-                }}
               />
             </div>
 
             <div style={{ width: "240px" }}>
-              <select
+              <CustomSelect
                 value={selectedBatchId}
-                onChange={(e) => setSelectedBatchId(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "7px 12px",
-                  borderRadius: "6px",
-                  border: "1px solid #cbd5e1",
-                  fontSize: "0.85rem",
-                  background: "#fff",
-                }}
-              >
-                <option value="ALL">All Cohort Batches</option>
-                {Array.from(
-                  new Map<string, string>(
-                    (org.seatPools || [])
-                      .filter((p: any) => Boolean(p.batchId))
-                      .map((p: any) => [String(p.batchId), String(p.batch?.name || p.poolCode || p.batchId)])
-                  ).entries()
-                ).map(([batchId, batchName]) => (
-                  <option key={batchId} value={batchId}>
-                    {batchName}
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setSelectedBatchId(val)}
+                options={[
+                  { value: "ALL", label: "All Cohort Batches" },
+                  ...Array.from(
+                    new Map<string, string>(
+                      (org.seatPools || [])
+                        .filter((p: any) => Boolean(p.batchId))
+                        .map((p: any) => [String(p.batchId), String(p.batch?.name || p.poolCode || p.batchId)])
+                    ).entries()
+                  ).map(([bId, bName]) => ({ value: bId, label: bName })),
+                ]}
+                fullWidth
+                ariaLabel="Select Cohort Batch"
+              />
             </div>
           </div>
 
-          {/* 6-Gate Academic Tracker Table */}
-          <div
-            style={{
-              background: "#ffffff",
-              borderRadius: "12px",
-              border: "1px solid #e2e8f0",
-              overflow: "hidden",
-            }}
-          >
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "0.82rem" }}>
-                <thead>
-                  <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "#475569" }}>
-                    <th style={{ padding: "10px 14px" }}>Slot #</th>
-                    <th style={{ padding: "10px 14px" }}>Student</th>
-                    <th style={{ padding: "10px 14px" }}>Status</th>
-                    <th style={{ padding: "10px 14px" }}>Dept / Order Ref</th>
-                    <th style={{ padding: "10px 14px" }}>Gate 1 (Agreement)</th>
-                    <th style={{ padding: "10px 14px" }}>Gate 2 (Curriculum)</th>
-                    <th style={{ padding: "10px 14px" }}>Gate 3 (Live)</th>
-                    <th style={{ padding: "10px 14px" }}>Gate 4 (1-on-1 Session)</th>
-                    <th style={{ padding: "10px 14px" }}>Gate 5 (Exam)</th>
-                    <th style={{ padding: "10px 14px" }}>Gate 6 (Certificate)</th>
-                    <th style={{ padding: "10px 14px", textAlign: "right" }}>Actions</th>
-                  </tr>
-                </thead>
+          <div className={styles.tableWrapper}>
+            <table className={styles.adminTable}>
+              <thead>
+                <tr>
+                  <th>Slot #</th>
+                  <th>Student</th>
+                  <th>Status</th>
+                  <th>Dept / Ref</th>
+                  <th>Agreement</th>
+                  <th>Curriculum</th>
+                  <th>Attendance</th>
+                  <th>1-on-1</th>
+                  <th>Exam</th>
+                  <th>Certificate</th>
+                  <th style={{ textAlign: "right" }}>Actions</th>
+                </tr>
+              </thead>
                 <tbody>
                   {isLearnersLoading ? (
                     <TableSkeleton rows={5} columns={11} />
@@ -1826,8 +1682,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                 </tbody>
               </table>
             </div>
-          </div>
-        </div>
+        </section>
       )}
 
       {/* Tab 2: Batch Slot Pools */}
@@ -1850,7 +1705,8 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
             >
               <div>
                 <div style={{ fontWeight: 700, color: "#92400e", fontSize: "0.88rem", display: "flex", alignItems: "center", gap: "6px" }}>
-                  <span>⏳</span> Course Slot Request Awaiting Admin Review
+                  <ClockIcon size={14} style={{ color: "#b45309" }} />
+                  <span>Course Slot Request Awaiting Admin Review</span>
                 </div>
                 <div style={{ fontSize: "0.82rem", color: "#b45309", marginTop: "3px" }}>
                   {isOrgUser
@@ -1877,16 +1733,8 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
             >
               <div>
                 <div style={{ fontWeight: 700, color: "#1e40af", fontSize: "0.88rem", display: "flex", alignItems: "center", gap: "6px" }}>
-                  {isOrgUser ? (
-                    <>
-                      <span>🎉</span> Slot Request Approved — Payment Required
-                    </>
-                  ) : (
-                    <>
-                      <ClockIcon size={15} style={{ color: "#1e40af" }} />
-                      Slot Request Approved — Awaiting Organization Payment
-                    </>
-                  )}
+                  <ClockIcon size={15} style={{ color: "#1e40af" }} />
+                  <span>Slot Request Approved — Payment Required</span>
                 </div>
                 <div style={{ fontSize: "0.82rem", color: "#1e3a8a", marginTop: "3px" }}>
                   {isOrgUser
@@ -1898,18 +1746,19 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
           )}
 
           {/* Table Container */}
-          <div style={{ background: "#ffffff", borderRadius: "12px", border: "1px solid #e2e8f0", overflow: "hidden" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "0.85rem" }}>
-              <thead>
-                <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "#475569" }}>
-                  <th style={{ padding: "12px 16px" }}>Pool Code</th>
-                  <th style={{ padding: "12px 16px" }}>Batch & Program</th>
-                  <th style={{ padding: "12px 16px" }}>Seats Allocated</th>
-                  <th style={{ padding: "12px 16px" }}>Commercial Terms</th>
-                  <th style={{ padding: "12px 16px" }}>Status</th>
-                  <th style={{ padding: "12px 16px", textAlign: "right" }}>Actions</th>
-                </tr>
-              </thead>
+          <section className={styles.tableSection}>
+            <div className={styles.tableWrapper}>
+              <table className={styles.adminTable}>
+                <thead>
+                  <tr>
+                    <th>Pool Code</th>
+                    <th>Batch & Program</th>
+                    <th>Seats Allocated</th>
+                    <th>Commercial Terms</th>
+                    <th>Status</th>
+                    <th style={{ textAlign: "right" }}>Actions</th>
+                  </tr>
+                </thead>
               <tbody>
                 {(!org.seatPools || org.seatPools.length === 0) ? (
                   <tr>
@@ -2189,102 +2038,107 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
               </tbody>
             </table>
           </div>
+          </section>
         </div>
       )}
 
       {/* Tab 3: Invoices & Billing */}
       {activeTab === "billing" && (
-        <div style={{ background: "#ffffff", borderRadius: "12px", border: "1px solid #e2e8f0", overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "0.85rem" }}>
-            <thead>
-              <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "#475569" }}>
-                <th style={{ padding: "12px 16px" }}>Invoice Number</th>
-                <th style={{ padding: "12px 16px" }}>Amount</th>
-                <th style={{ padding: "12px 16px" }}>Currency</th>
-                <th style={{ padding: "12px 16px" }}>Status</th>
-                <th style={{ padding: "12px 16px" }}>Date Issued</th>
-              </tr>
-            </thead>
-            <tbody>
-              {org.invoices?.length === 0 ? (
+        <section className={styles.tableSection}>
+          <div className={styles.tableWrapper}>
+            <table className={styles.adminTable}>
+              <thead>
                 <tr>
-                  <td colSpan={5} style={{ padding: "24px", textAlign: "center", color: "#94a3b8" }}>
-                    No invoices generated yet. Invoices are issued automatically upon seat pool activation.
-                  </td>
+                  <th>Invoice Number</th>
+                  <th>Amount</th>
+                  <th>Currency</th>
+                  <th>Status</th>
+                  <th>Date Issued</th>
                 </tr>
-              ) : (
-                org.invoices?.map((inv: any) => (
-                  <tr key={inv.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                    <td style={{ padding: "12px 16px", fontWeight: 700 }}>{inv.invoiceNumber}</td>
-                    <td style={{ padding: "12px 16px", fontWeight: 600 }}>{inv.amount.toLocaleString()}</td>
-                    <td style={{ padding: "12px 16px" }}>{inv.currency}</td>
-                    <td style={{ padding: "12px 16px" }}>
-                      <StatusBadge status={inv.status} />
-                    </td>
-                    <td style={{ padding: "12px 16px", color: "#64748b" }}>
-                      {new Date(inv.createdAt).toLocaleDateString()}
+              </thead>
+              <tbody>
+                {org.invoices?.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: "24px", textAlign: "center", color: "var(--text-muted)" }}>
+                      No invoices generated yet. Invoices are issued automatically upon seat pool activation.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                ) : (
+                  org.invoices?.map((inv: any) => (
+                    <tr key={inv.id}>
+                      <td style={{ fontWeight: 700 }}>{inv.invoiceNumber}</td>
+                      <td style={{ fontWeight: 600 }}>{inv.amount.toLocaleString()}</td>
+                      <td>{inv.currency}</td>
+                      <td>
+                        <StatusBadge status={inv.status} />
+                      </td>
+                      <td style={{ color: "var(--text-muted)" }}>
+                        {new Date(inv.createdAt).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
       {/* Tab 4: Team Admins */}
       {activeTab === "team" && (
-        <div style={{ background: "#ffffff", borderRadius: "12px", border: "1px solid #e2e8f0", overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "0.85rem" }}>
-            <thead>
-              <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "#475569" }}>
-                <th style={{ padding: "12px 16px" }}>Member Name</th>
-                <th style={{ padding: "12px 16px" }}>Email</th>
-                <th style={{ padding: "12px 16px" }}>Role</th>
-                <th style={{ padding: "12px 16px" }}>Title</th>
-                <th style={{ padding: "12px 16px" }}>Joined</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(!org.members || org.members.length === 0) ? (
+        <section className={styles.tableSection}>
+          <div className={styles.tableWrapper}>
+            <table className={styles.adminTable}>
+              <thead>
                 <tr>
-                  <td colSpan={5} style={{ padding: "24px", textAlign: "center", color: "#94a3b8" }}>
-                    No team members assigned yet.
-                  </td>
+                  <th>Member Name</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Title</th>
+                  <th>Joined</th>
                 </tr>
-              ) : (
-                org.members.map((m: any) => (
-                <tr key={m.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
-                  <td style={{ padding: "12px 16px", fontWeight: 600 }}>{m.user?.name || "Member"}</td>
-                  <td style={{ padding: "12px 16px", color: "#475569" }}>{m.user?.email}</td>
-                  <td style={{ padding: "12px 16px" }}>
-                    <span
-                      style={{
-                        padding: "2px 8px",
-                        borderRadius: "4px",
-                        fontSize: "0.75rem",
-                        fontWeight: 700,
-                        background: m.role === "OWNER" ? "#fef3c7" : "#f1f5f9",
-                        color: m.role === "OWNER" ? "#b45309" : "#475569",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "4px",
-                      }}
-                    >
-                      {m.role === "OWNER" && <CrownIcon size={12} />}
-                      {m.role}
-                    </span>
-                  </td>
-                  <td style={{ padding: "12px 16px", color: "#64748b" }}>{m.title || "—"}</td>
-                  <td style={{ padding: "12px 16px", color: "#94a3b8" }}>
-                    {new Date(m.createdAt).toLocaleDateString()}
-                  </td>
-                </tr>
-              ))
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {(!org.members || org.members.length === 0) ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: "24px", textAlign: "center", color: "var(--text-muted)" }}>
+                      No team members assigned yet.
+                    </td>
+                  </tr>
+                ) : (
+                  org.members.map((m: any) => (
+                    <tr key={m.id}>
+                      <td style={{ fontWeight: 600 }}>{m.user?.name || "Member"}</td>
+                      <td style={{ color: "var(--text-secondary)" }}>{m.user?.email}</td>
+                      <td>
+                        <span
+                          style={{
+                            padding: "2px 8px",
+                            borderRadius: "4px",
+                            fontSize: "0.75rem",
+                            fontWeight: 700,
+                            background: m.role === "OWNER" ? "#fef3c7" : "var(--bg-soft)",
+                            color: m.role === "OWNER" ? "#b45309" : "var(--text-secondary)",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
+                          }}
+                        >
+                          {m.role === "OWNER" && <CrownIcon size={12} />}
+                          {m.role}
+                        </span>
+                      </td>
+                      <td style={{ color: "var(--text-secondary)" }}>{m.title || "—"}</td>
+                      <td style={{ color: "var(--text-muted)" }}>
+                        {new Date(m.createdAt).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
       {/* Modal: Allocate Batch Slots */}
@@ -2599,8 +2453,21 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
       >
         {assignedResult ? (
           <div style={{ textAlign: "center", padding: "12px 0" }}>
-            <div style={{ fontSize: "2.8rem", marginBottom: "8px" }}>
-              {assignedResult.isNewUser ? "🎉" : "✅"}
+            <div
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "50%",
+                background: "#f0fdf4",
+                border: "1px solid #bbf7d0",
+                color: "#16a34a",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: "12px",
+              }}
+            >
+              <CheckIcon size={24} />
             </div>
             <h3 style={{ fontSize: "1.15rem", fontWeight: 700, color: "#0f172a", marginBottom: "6px" }}>
               {assignedResult.isNewUser ? "Student Enrolled & Account Setup Required!" : "Student Enrolled into Cohort!"}
@@ -2698,7 +2565,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                       gap: "6px",
                     }}
                   >
-                    📋 {assignedResult.isNewUser ? "Copy Setup Link" : "Copy Login Link"}
+                    <span>{assignedResult.isNewUser ? "Copy Setup Link" : "Copy Login Link"}</span>
                   </button>
                   <a
                     href={normalizeLmsLink(
@@ -3443,7 +3310,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                     )}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "0.78rem", color: "#64748b" }}>
-                    <span>📅 Starts: {selectedBatchForRequest.startDate ? new Date(selectedBatchForRequest.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "TBD"}</span>
+                    <span>Starts: {selectedBatchForRequest.startDate ? new Date(selectedBatchForRequest.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "TBD"}</span>
                     <span>&bull;</span>
                     <span style={{ color: selectedBatchForRequest.availableSeats > 0 ? "#16a34a" : "#dc2626", fontWeight: 600 }}>
                       {selectedBatchForRequest.availableSeats > 0 ? `✓ ${selectedBatchForRequest.availableSeats.toLocaleString()} seats available` : "Sold Out (0 seats)"}
@@ -3572,7 +3439,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                               </span>
                               {hasPending && (
                                 <span style={{ fontSize: "0.7rem", fontWeight: 700, background: "#fef3c7", color: "#b45309", padding: "1px 7px", borderRadius: "10px" }}>
-                                  ⏳ Request Pending
+                                  Request Pending
                                 </span>
                               )}
                               {hasActive && (
@@ -3582,7 +3449,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                               )}
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.76rem", color: "#64748b" }}>
-                              <span>📅 Starts {b.startDate ? new Date(b.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "TBD"}</span>
+                              <span>Starts {b.startDate ? new Date(b.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "TBD"}</span>
                               <span>&bull;</span>
                               <span style={{ color: isSoldOut ? "#dc2626" : "#16a34a", fontWeight: 600 }}>
                                 {isSoldOut ? "0 seats remaining" : `${b.availableSeats?.toLocaleString()} seats remaining`}
@@ -3873,7 +3740,6 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                   gap: "8px",
                 }}
               >
-                <span style={{ fontSize: "1.1rem" }}>🚫</span>
                 <span>
                   <strong>Cohort Sold Out:</strong> <em>{selectedBatchForRequest?.name}</em> has reached maximum capacity (0 seats available).
                   Please choose another cohort batch from the dropdown above or contact WhatBoutMe admin to increase the batch capacity.
@@ -4006,7 +3872,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
               }}
             >
               <span>
-                💡 {pricingConfig.customNote || `Volume discounts: ${pricingConfig.tiers.map((t: { minSeats: number; discountPercent: number }) => `${t.minSeats}+ seats: ${t.discountPercent}% off`).join(" • ")}`}
+                {pricingConfig.customNote || `Volume discounts: ${pricingConfig.tiers.map((t: { minSeats: number; discountPercent: number }) => `${t.minSeats}+ seats: ${t.discountPercent}% off`).join(" • ")}`}
               </span>
               {isPlatformAdmin && (
                 <button

@@ -62,30 +62,29 @@ export class PaymentsController {
 
   /**
    * TEST_BYPASS WEBHOOK SIMULATION ENDPOINT
-   * Strictly restricted: Only accessible in non-production development/staging when
-   * running under TEST_BYPASS / MOCK_TEST mode, or by authenticated SUPER_ADMINs.
+   * Strictly restricted: Completely blocked in live production environments.
+   * In non-production, only permitted when PAYMENT_PROVIDER === 'MOCK_TEST' or by verified SUPER_ADMIN/ADMIN users.
+   * Never decodes or trusts unverified Authorization headers.
    */
   @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('webhook/test-simulate')
   @HttpCode(HttpStatus.OK)
   simulateTestWebhook(@Body() dto: TestSimulateWebhookDto, @Req() req: any) {
     const isProd = process.env.NODE_ENV === 'production';
-    let userRole = req?.user?.role;
-    if (!userRole && req?.headers?.authorization?.startsWith('Bearer ')) {
-      try {
-        const token = req.headers.authorization.split(' ')[1];
-        const base64Payload = token.split('.')[1];
-        if (base64Payload) {
-          const payload = JSON.parse(Buffer.from(base64Payload, 'base64').toString('utf8'));
-          userRole = payload?.role;
-        }
-      } catch {}
-    }
-    const isSuperAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ADMIN';
-
-    if (isProd && !isSuperAdmin) {
+    if (isProd) {
       throw new ForbiddenException(
-        'Webhook test simulation is disabled in live production environments. Please use real Stripe checkout.',
+        'Webhook test simulation is strictly disabled in live production environments. Please use real Stripe checkout.',
+      );
+    }
+
+    const provider = (process.env.PAYMENT_PROVIDER || 'MOCK_TEST').toUpperCase();
+    const userRole = req?.user?.role;
+    const isStaff = userRole === 'SUPER_ADMIN' || userRole === 'ADMIN';
+
+    if (provider !== 'MOCK_TEST' && !isStaff) {
+      throw new ForbiddenException(
+        'Webhook test simulation is only permitted when PAYMENT_PROVIDER=MOCK_TEST or by authenticated administrators.',
       );
     }
 

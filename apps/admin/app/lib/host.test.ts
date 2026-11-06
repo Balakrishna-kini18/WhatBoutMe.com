@@ -15,11 +15,18 @@ describe("Admin Host and Domain Family Isolation Suite", () => {
   });
 
   describe("1. deriveVercelUrl handles dynamic Vercel project naming", () => {
-    it("handles prefix-based naming: admin-whataboutme.vercel.app", () => {
+    it("handles active WhatBoutMe Vercel family: admin-whataboutme.vercel.app & lms-whatboutme.vercel.app", () => {
       expect(deriveVercelUrl("admin-whataboutme.vercel.app", "admin")).toBe("https://admin-whataboutme.vercel.app");
-      expect(deriveVercelUrl("admin-whataboutme.vercel.app", "api")).toBe("https://api-whataboutme.vercel.app");
-      expect(deriveVercelUrl("admin-whataboutme.vercel.app", "lms")).toBe("https://lms-whataboutme.vercel.app");
-      expect(deriveVercelUrl("admin-whataboutme.vercel.app", "marketing")).toBe("https://whataboutme.vercel.app");
+      expect(deriveVercelUrl("admin-whataboutme.vercel.app", "api")).toBe("https://what-bout-me-com-backend.vercel.app");
+      expect(deriveVercelUrl("admin-whataboutme.vercel.app", "lms")).toBe("https://lms-whatboutme.vercel.app");
+      expect(deriveVercelUrl("admin-whataboutme.vercel.app", "marketing")).toBe("https://marketing-whatboutme.vercel.app");
+    });
+
+    it("handles generic prefix-based naming: admin-acme.vercel.app", () => {
+      expect(deriveVercelUrl("admin-acme.vercel.app", "admin")).toBe("https://admin-acme.vercel.app");
+      expect(deriveVercelUrl("admin-acme.vercel.app", "api")).toBe("https://api-acme.vercel.app");
+      expect(deriveVercelUrl("admin-acme.vercel.app", "lms")).toBe("https://lms-acme.vercel.app");
+      expect(deriveVercelUrl("admin-acme.vercel.app", "marketing")).toBe("https://acme.vercel.app");
     });
 
     it("handles suffix-based naming: whataboutme-admin.vercel.app", () => {
@@ -78,9 +85,9 @@ describe("Admin Host and Domain Family Isolation Suite", () => {
       delete process.env.NEXT_PUBLIC_API_URL;
 
       expect(getAdminUrl()).toBe("https://admin-whataboutme.vercel.app");
-      expect(getApiBaseUrl()).toBe("https://api-whataboutme.vercel.app");
-      expect(getLmsUrl()).toBe("https://lms-whataboutme.vercel.app");
-      expect(getMarketingUrl()).toBe("https://whataboutme.vercel.app");
+      expect(getApiBaseUrl()).toBe("https://what-bout-me-com-backend.vercel.app");
+      expect(getLmsUrl()).toBe("https://lms-whatboutme.vercel.app");
+      expect(getMarketingUrl()).toBe("https://marketing-whatboutme.vercel.app");
     });
 
     it("honors explicitly configured NEXT_PUBLIC_API_URL when on vercel.app", () => {

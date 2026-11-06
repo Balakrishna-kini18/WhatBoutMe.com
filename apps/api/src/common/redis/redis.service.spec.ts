@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
 import { RedisService } from './redis.service.js';
 import { buildBullRedisOptions, DEFAULT_BULL_JOB_OPTIONS } from '../../modules/queue/queue.module.js';
@@ -174,6 +175,32 @@ describe('RedisService & BullMQ Connection Lifecycle', () => {
 
       redisClientMock.ping.mockRejectedValueOnce(new Error('ECONNREFUSED'));
       expect(await service.ping(500)).toBe(false);
+    });
+
+    it('isReady() returns true only when status is ready, and false during connect/reconnecting/wait', () => {
+      redisClientMock.status = 'ready';
+      expect(service.isReady()).toBe(true);
+
+      redisClientMock.status = 'connect';
+      expect(service.isReady()).toBe(false);
+
+      redisClientMock.status = 'reconnecting';
+      expect(service.isReady()).toBe(false);
+
+      redisClientMock.status = 'wait';
+      expect(service.isReady()).toBe(false);
+    });
+
+    it('ping() enforces bounded timeout even when lazy connect() hangs', async () => {
+      redisClientMock.status = 'wait';
+      redisClientMock.connect.mockImplementation(() => new Promise(() => {})); // hangs indefinitely
+
+      const start = Date.now();
+      const ok = await service.ping(150);
+      const elapsed = Date.now() - start;
+
+      expect(ok).toBe(false);
+      expect(elapsed).toBeLessThan(350);
     });
   });
 });

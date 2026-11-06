@@ -30,6 +30,21 @@ export class CacheHelperService implements OnModuleDestroy {
   private readonly maxCapacity: number;
   private sweepTimer: NodeJS.Timeout | null = null;
   private lastWarnTime = 0;
+  private redisCircuitOpenUntil = 0;
+  private redisCircuitWasOpen = false;
+  private redisProbeInFlight = false;
+  private redisConnecting = false;
+  /**
+   * Strict 250ms per-operation timeout for cache-only Redis commands.
+   * Fast enough that a cache miss + namespace lookup remains imperceptible (<300ms)
+   * while accommodating healthy cloud Redis round-trips.
+   */
+  public static readonly REDIS_OP_TIMEOUT_MS = 250;
+  /**
+   * Cooldown window (20s) after a Redis timeout/error during which requests
+   * bypass Redis immediately (0ms) and use local in-memory LRU + PostgreSQL.
+   */
+  public static readonly REDIS_CIRCUIT_COOLDOWN_MS = 20000;
 
   private readonly inFlightPromises = new Map<string, Promise<any>>();
 
@@ -40,8 +55,16 @@ export class CacheHelperService implements OnModuleDestroy {
 
     if (this.redisService) {
       try {
-        this.redis = this.redisService.getClient();
-        this.logger.log('Standard Redis / Valkey initialized for LMS caching via REDIS_URL');
+        const isConfigured =
+          typeof this.redisService.isConfigured === 'function'
+            ? this.redisService.isConfigured()
+            : true;
+        if (isConfigured) {
+          this.redis = this.redisService.getClient();
+          this.logger.log('Standard Redis / Valkey initialized for LMS caching via REDIS_URL');
+        } else {
+          this.redis = null;
+        }
       } catch (err: any) {
         this.warnRateLimited(
           `Redis client retrieval error (degrading to in-memory cache): ${err?.message || err}`,
@@ -94,6 +117,108 @@ export class CacheHelperService implements OnModuleDestroy {
     if (now - this.lastWarnTime > 15000) {
       this.lastWarnTime = now;
       this.logger.warn(message);
+    }
+  }
+
+  private triggerBackgroundConnectIfIdle(): void {
+    if (!this.redis) return;
+    const status = (this.redis as any).status;
+    if (status === 'wait' && !this.redisConnecting && typeof (this.redis as any).connect === 'function') {
+      this.redisConnecting = true;
+      const connectPromise = Promise.resolve().then(() => (this.redis as any).connect());
+      connectPromise
+        .catch((err: any) => {
+          this.tripCircuit(`connect failed: ${err?.message || err}`);
+        })
+        .finally(() => {
+          this.redisConnecting = false;
+        });
+    }
+  }
+
+  /**
+   * Non-blocking readiness & circuit-breaker check.
+   * Ensures active HTTP requests never stall on connecting/reconnecting Redis sockets.
+   */
+  private canUseRedis(): boolean {
+    if (!this.redis) return false;
+    if (Date.now() < this.redisCircuitOpenUntil) return false;
+
+    // If RedisService provides an explicit readiness check, honor it
+    if (typeof this.redisService?.isReady === 'function' && !this.redisService.isReady()) {
+      this.triggerBackgroundConnectIfIdle();
+      return false;
+    }
+
+    const status = (this.redis as any).status;
+    // Allow ready clients or unit-test mocks where status is undefined
+    if (status !== undefined && status !== 'ready') {
+      this.triggerBackgroundConnectIfIdle();
+      return false;
+    }
+
+    // Half-open state: allow only a single recovery probe at a time after cooldown
+    if (this.redisCircuitWasOpen && this.redisProbeInFlight) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private tripCircuit(reason: string): void {
+    this.redisCircuitOpenUntil = Date.now() + CacheHelperService.REDIS_CIRCUIT_COOLDOWN_MS;
+    this.redisCircuitWasOpen = true;
+    this.warnRateLimited(
+      `Redis circuit opened for ${CacheHelperService.REDIS_CIRCUIT_COOLDOWN_MS / 1000}s (using in-memory LRU): ${reason}`,
+    );
+  }
+
+  private async execRedis<T>(op: () => Promise<T>, label: string): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    const isProbe = this.redisCircuitWasOpen;
+    if (isProbe) {
+      this.redisProbeInFlight = true;
+    }
+
+    try {
+      const opPromise = Promise.resolve().then(op);
+      // Attach no-op catch handler so if the timeout wins the race and the abandoned
+      // ioredis promise rejects later, Node.js never raises UnhandledPromiseRejection.
+      opPromise.catch(() => undefined);
+
+      const result = await Promise.race([
+        opPromise,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `Redis ${label} timed out after ${CacheHelperService.REDIS_OP_TIMEOUT_MS}ms`,
+                ),
+              ),
+            CacheHelperService.REDIS_OP_TIMEOUT_MS,
+          );
+          if (typeof timer.unref === 'function') timer.unref();
+        }),
+      ]);
+
+      if (this.redisCircuitWasOpen) {
+        this.redisCircuitWasOpen = false;
+        this.redisCircuitOpenUntil = 0;
+        this.logger.log(
+          `Redis cache circuit closed after successful ${label} recovery probe; distributed caching restored.`,
+        );
+      }
+
+      return result;
+    } catch (err: any) {
+      this.tripCircuit(`${label}: ${err?.message || err}`);
+      throw err;
+    } finally {
+      if (isProbe) {
+        this.redisProbeInFlight = false;
+      }
+      if (timer) clearTimeout(timer);
     }
   }
 
@@ -188,10 +313,10 @@ export class CacheHelperService implements OnModuleDestroy {
     }
 
     const promise = (async () => {
-      // 3. Check Redis tier if online (Fail-Open: errors fall through to DB fetcher)
-      if (this.redis) {
+      // 3. Check Redis tier if online and ready (Fail-Open: errors/offline fall through in 0ms to DB fetcher)
+      if (this.canUseRedis() && this.redis) {
         try {
-          const raw = await this.redis.get(key);
+          const raw = await this.execRedis(() => this.redis!.get(key), 'GET');
           if (raw !== null && raw !== undefined) {
             let parsed: any = null;
             let isCorrupt = false;
@@ -236,14 +361,14 @@ export class CacheHelperService implements OnModuleDestroy {
         });
         this.registerKeyTags(key, tags);
 
-        // Populate Redis asynchronously if online
-        if (this.redis) {
+        // Populate Redis asynchronously if online and ready
+        if (this.canUseRedis() && this.redis) {
           try {
             const serialized = JSON.stringify(data);
             this.redis
               .set(key, serialized, 'EX', ttlSeconds)
               .catch((e: any) => {
-                this.warnRateLimited(`Redis SET background notice for key ${key}: ${e.message}`);
+                this.tripCircuit(`SET: ${e?.message || e}`);
               });
           } catch (e: any) {
             this.warnRateLimited(`Redis SET serialize warning for key ${key}: ${e.message}`);
@@ -270,9 +395,9 @@ export class CacheHelperService implements OnModuleDestroy {
       this.memoryCache.delete(key);
       this.unregisterKeyTags(key);
     }
-    if (!this.redis) return null;
+    if (!this.canUseRedis() || !this.redis) return null;
     try {
-      const raw = await this.redis.get(key);
+      const raw = await this.execRedis(() => this.redis!.get(key), 'GET');
       if (raw !== null && raw !== undefined) {
         try {
           return JSON.parse(raw) as T;
@@ -305,10 +430,10 @@ export class CacheHelperService implements OnModuleDestroy {
     });
     this.registerKeyTags(key, tags);
 
-    if (!this.redis) return;
+    if (!this.canUseRedis() || !this.redis) return;
     try {
       const serialized = JSON.stringify(value);
-      await this.redis.set(key, serialized, 'EX', ttlSeconds);
+      await this.execRedis(() => this.redis!.set(key, serialized, 'EX', ttlSeconds), 'SET');
     } catch (e: any) {
       this.warnRateLimited(`Redis SET notice for key ${key}: ${e.message}`);
     }
@@ -317,9 +442,9 @@ export class CacheHelperService implements OnModuleDestroy {
   async invalidate(key: string): Promise<void> {
     this.memoryCache.delete(key);
     this.unregisterKeyTags(key);
-    if (!this.redis) return;
+    if (!this.canUseRedis() || !this.redis) return;
     try {
-      await this.redis.del(key);
+      await this.execRedis(() => this.redis!.del(key), 'DEL');
     } catch (e: any) {
       this.warnRateLimited(`Redis DEL notice for key ${key}: ${e.message}`);
     }
@@ -349,9 +474,9 @@ export class CacheHelperService implements OnModuleDestroy {
         purgedCount++;
       }
 
-      if (this.redis) {
+      if (this.canUseRedis() && this.redis) {
         try {
-          await this.redis.del(...keyList);
+          await this.execRedis(() => this.redis!.del(...keyList), 'DEL');
         } catch (e: any) {
           this.warnRateLimited(`Redis tag DEL notice for tag ${tag}: ${e.message}`);
         }
@@ -384,26 +509,26 @@ export class CacheHelperService implements OnModuleDestroy {
     const env = getEnvPrefix();
     const versionKey = `wbm:${env}:ns_version:${namespace}`;
 
-    if (!this.redis) {
-      const version = this.nsVersions.get(namespace) || 1;
-      return `wbm:${env}:ns:${namespace}:v${version}:${keySuffix}`;
-    }
-
     const now = Date.now();
     const local = this.nsVersionCache.get(namespace);
     if (local && local.expiresAt > now) {
       return `wbm:${env}:ns:${namespace}:v${local.value}:${keySuffix}`;
     }
 
+    if (!this.canUseRedis() || !this.redis) {
+      const version = this.nsVersions.get(namespace) || 1;
+      return `wbm:${env}:ns:${namespace}:v${version}:${keySuffix}`;
+    }
+
     try {
-      const rawVersion = await this.redis.get(versionKey);
+      const rawVersion = await this.execRedis(() => this.redis!.get(versionKey), 'GET_VERSION');
       let version = rawVersion ? parseInt(rawVersion, 10) : 0;
       if (!version || isNaN(version)) {
         version = 1;
-        await this.redis.set(versionKey, '1');
+        this.redis.set(versionKey, '1').catch(() => {});
       }
 
-      this.nsVersionCache.set(namespace, { value: version, expiresAt: now + 5000 });
+      this.nsVersionCache.set(namespace, { value: version, expiresAt: now + 30000 });
       return `wbm:${env}:ns:${namespace}:v${version}:${keySuffix}`;
     } catch (e: any) {
       this.warnRateLimited(`Redis version fetch notice for ${namespace}: ${e.message}`);
@@ -417,14 +542,16 @@ export class CacheHelperService implements OnModuleDestroy {
    */
   async invalidateNamespace(namespace: string): Promise<void> {
     const currentVer = this.nsVersions.get(namespace) || 1;
-    this.nsVersions.set(namespace, currentVer + 1);
+    const nextLocalVer = currentVer + 1;
+    this.nsVersions.set(namespace, nextLocalVer);
+    this.nsVersionCache.set(namespace, { value: nextLocalVer, expiresAt: Date.now() + 30000 });
 
-    if (!this.redis) return;
+    if (!this.canUseRedis() || !this.redis) return;
     try {
       const env = getEnvPrefix();
       const versionKey = `wbm:${env}:ns_version:${namespace}`;
-      const newVersion = await this.redis.incr(versionKey);
-      this.nsVersionCache.set(namespace, { value: newVersion, expiresAt: Date.now() + 5000 });
+      const newVersion = await this.execRedis(() => this.redis!.incr(versionKey), 'INCR_VERSION');
+      this.nsVersionCache.set(namespace, { value: newVersion, expiresAt: Date.now() + 30000 });
     } catch (e: any) {
       this.warnRateLimited(`Redis namespace invalidate notice for ${namespace}: ${e.message}`);
     }

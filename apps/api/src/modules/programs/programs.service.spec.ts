@@ -34,7 +34,11 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
         findFirst: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         delete: vi.fn(),
+      },
+      auditLog: {
+        create: vi.fn().mockResolvedValue({}),
       },
       batch: {
         count: vi.fn().mockResolvedValue(0),
@@ -199,7 +203,12 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
         },
         include: {
           _count: {
-            select: { steps: true },
+            select: {
+              steps: true,
+              batches: true,
+              enrolments: true,
+              resourceItems: true,
+            },
           },
         },
         orderBy: { createdAt: 'desc' },
@@ -577,9 +586,9 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
 
       expect(result.deleted).toBe(true);
       expect(prismaMock.lesson.delete).toHaveBeenCalledWith({ where: { id: 'l2' } });
-      expect(prismaMock.lesson.update).toHaveBeenCalledWith({
-        where: { id: 'l3' },
-        data: { order: 2 },
+      expect(prismaMock.lesson.updateMany).toHaveBeenCalledWith({
+        where: { stepId: 'step-1', order: { gt: 2 } },
+        data: { order: { decrement: 1 } },
       });
     });
 
@@ -696,6 +705,59 @@ describe('D1-030: ProgramsService - Content Studio Authoring & Hierarchy', () =>
       );
       expect(prismaMock.step.create).toHaveBeenCalled();
       expect(prismaMock.lesson.create).toHaveBeenCalled();
+    });
+
+    it('getStep completes rapidly from PostgreSQL when Redis cache hangs or is degraded', async () => {
+      const hangingRedis: any = {
+        status: 'ready',
+        get: vi.fn().mockImplementation(() => new Promise(() => {})), // simulates wedged Redis offline queue
+        set: vi.fn().mockImplementation(() => new Promise(() => {})),
+      };
+      const degradedRedisService: any = {
+        isConfigured: () => true,
+        isReady: () => true,
+        getClient: () => hangingRedis,
+      };
+      const realCacheHelper = new CacheHelperService(degradedRedisService);
+      const resilientService = new ProgramsService(
+        prismaMock as unknown as PrismaService,
+        realCacheHelper,
+        mediaProviderMock as any,
+      );
+
+      prismaMock.step.findUnique.mockResolvedValue({
+        id: 'step-resilient-1',
+        programId: 'prog-1',
+        sequence: 1,
+        title: 'Step 1: Foundations',
+        status: ContentStatus.PUBLISHED,
+        lessons: [],
+        resources: [],
+        quiz: {
+          questions: [
+            {
+              id: 'q1',
+              options: [
+                { id: 'o1', text: 'Answer A', isCorrect: true },
+                { id: 'o2', text: 'Answer B', isCorrect: false },
+              ],
+            },
+          ],
+        },
+      });
+      prismaMock.resourceItem.findMany.mockResolvedValue([]);
+
+      const start = Date.now();
+      const step = await resilientService.getStep('step-resilient-1', Role.USER);
+      const elapsed = Date.now() - start;
+
+      expect(step.id).toBe('step-resilient-1');
+      // Learner role must still have quiz answer keys stripped
+      expect((step.quiz!.questions[0].options[0] as any).isCorrect).toBeUndefined();
+      // Even with a completely wedged Redis socket, total time must be bounded (<500ms, never 30s)
+      expect(elapsed).toBeLessThan(CacheHelperService.REDIS_OP_TIMEOUT_MS * 2 + 150);
+
+      realCacheHelper.onModuleDestroy();
     });
   });
 });

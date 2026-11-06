@@ -392,8 +392,12 @@ export class EventsService {
               attendeeEmail,
               attendeePhone,
             },
-            success_url: `${marketingUrl}/events/${event.slug || event.id}?session_id={CHECKOUT_SESSION_ID}&registrationId=${registration.id}`,
-            cancel_url: `${marketingUrl}/events/${event.slug || event.id}?canceled=1`,
+            success_url: dto.returnUrl
+              ? (dto.returnUrl.includes('{CHECKOUT_SESSION_ID}')
+                  ? dto.returnUrl
+                  : `${dto.returnUrl}${dto.returnUrl.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}&registrationId=${registration.id}`)
+              : `${marketingUrl}/events/${event.slug || event.id}?session_id={CHECKOUT_SESSION_ID}&registrationId=${registration.id}`,
+            cancel_url: dto.cancelUrl || `${marketingUrl}/events/${event.slug || event.id}?canceled=1`,
           });
 
           orderId = session.id;

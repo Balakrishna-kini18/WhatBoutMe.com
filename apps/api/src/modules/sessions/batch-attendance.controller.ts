@@ -85,11 +85,18 @@ export class BatchAttendanceController {
       throw new NotFoundException('Session not found for the specified batch');
     }
 
-    const sessionDurationMin =
+    const scheduledDurationMin =
       session.durationMinutes ||
       (session.startTime && session.endTime
         ? Math.max(1, Math.round((session.endTime.getTime() - session.startTime.getTime()) / 60000))
         : 60);
+
+    const maxLearnerMinutes = (attendanceRecords || []).reduce(
+      (max, r) => Math.max(max, r.minutesPresent ?? r.durationMin ?? 0),
+      0,
+    );
+
+    const sessionDurationMin = Math.max(scheduledDurationMin, maxLearnerMinutes);
 
     const minAttendancePercentage =
       session.batch?.program?.minAttendancePercentage ??
@@ -101,8 +108,65 @@ export class BatchAttendanceController {
       attendanceMap.set(record.userId, record);
     }
 
+    const staleUpdates: Promise<any>[] = [];
+
     const learners = (session.batch?.enrolments || []).map((enrolment) => {
       const att = attendanceMap.get(enrolment.userId);
+      const minutesPresent = att?.minutesPresent ?? att?.durationMin ?? 0;
+
+      const isManual =
+        att &&
+        (att.source === AttendanceSource.MANUAL ||
+          att.status === AttendanceStatus.PRESENT_MANUAL ||
+          att.status === AttendanceStatus.CORRECTED ||
+          att.status === (AttendanceStatus as any).EXCUSED);
+
+      let effectivePct =
+        att?.attendancePercentage ??
+        (minutesPresent && sessionDurationMin > 0
+          ? Math.min(100, (minutesPresent / sessionDurationMin) * 100)
+          : 0);
+      let effectiveStatus = att?.status ?? AttendanceStatus.ABSENT;
+
+      // Self-heal auto-tracked records when session ran longer than when the learner left mid-session
+      if (att && !isManual && sessionDurationMin > 0 && minutesPresent > 0) {
+        const recalculatedPct = Math.min(
+          100,
+          Math.round((minutesPresent / sessionDurationMin) * 10000) / 100,
+        );
+        // If stored percentage exceeds what their minutesPresent justifies against the true sessionDurationMin
+        if ((att.attendancePercentage ?? 0) > recalculatedPct + 0.5 || att.attendancePercentage == null) {
+          effectivePct = recalculatedPct;
+          const minMinutes = session.minAttendanceMinutes;
+          const meetsThreshold =
+            minMinutes && minMinutes > 0
+              ? minutesPresent >= minMinutes
+              : effectivePct >= minAttendancePercentage;
+          effectiveStatus = meetsThreshold
+            ? att.status === AttendanceStatus.PRESENT
+              ? AttendanceStatus.PRESENT
+              : AttendanceStatus.PRESENT_AUTO
+            : AttendanceStatus.ABSENT;
+
+          if (
+            this.prisma.attendance?.update &&
+            att.id &&
+            (att.status !== effectiveStatus || Math.abs((att.attendancePercentage ?? 0) - effectivePct) >= 0.5)
+          ) {
+            staleUpdates.push(
+              this.prisma.attendance
+                .update({
+                  where: { id: att.id },
+                  data: {
+                    attendancePercentage: effectivePct,
+                    status: effectiveStatus,
+                  },
+                })
+                .catch(() => null),
+            );
+          }
+        }
+      }
 
       return {
         userId: enrolment.userId,
@@ -112,19 +176,22 @@ export class BatchAttendanceController {
         avatar: (enrolment.user as any)?.avatar || null,
         joinTimeUtc: att?.joinTime ? att.joinTime.toISOString() : null,
         leaveTimeUtc: att?.leaveTime ? att.leaveTime.toISOString() : null,
-        minutesPresent: att?.minutesPresent ?? att?.durationMin ?? 0,
+        minutesPresent,
         liveMinutes: att?.liveMinutes ?? null,
         recordedMinutes: att?.recordedMinutes ?? null,
-        attendancePercentage:
-          att?.attendancePercentage ??
-          (att?.minutesPresent && sessionDurationMin > 0
-            ? Math.min(100, (att.minutesPresent / sessionDurationMin) * 100)
-            : 0),
-        status: att?.status ?? AttendanceStatus.ABSENT,
+        attendancePercentage: effectivePct,
+        status: effectiveStatus,
         source: att?.source ?? null,
-        overrideReason: att?.overrideReason ?? att?.correctionReason ?? null,
+        overrideReason:
+          att?.source === AttendanceSource.MANUAL
+            ? (att?.overrideReason ?? att?.correctionReason ?? null)
+            : (att?.overrideReason ?? null),
       };
     });
+
+    if (staleUpdates.length > 0) {
+      await Promise.all(staleUpdates);
+    }
 
     const presentCount = learners.filter(
       (l) =>
@@ -159,11 +226,7 @@ export class BatchAttendanceController {
         status: session.status,
         startTimeUtc: session.startTime.toISOString(),
         endTimeUtc: session.endTime.toISOString(),
-        durationMinutes:
-          session.durationMinutes ||
-          (session.startTime && session.endTime
-            ? Math.max(1, Math.round((session.endTime.getTime() - session.startTime.getTime()) / 60000))
-            : 60),
+        durationMinutes: sessionDurationMin,
         minAttendanceMinutes: session.minAttendanceMinutes ?? null,
         meetingProvider: session.meetingProvider,
         meetingLink: session.meetingLink || session.joinUrl,
@@ -414,6 +477,7 @@ export class BatchAttendanceController {
               participantName: p.participantName || p.name,
               joinTime: new Date(p.joinTimeUtc || p.joinTime || session.startTime),
               leaveTime: new Date(p.leaveTimeUtc || p.leaveTime || session.endTime),
+              durationMinutes: typeof p.durationMinutes === 'number' ? p.durationMinutes : undefined,
               rawPayload: p.rawPayload || p,
             }));
           }
@@ -428,16 +492,23 @@ export class BatchAttendanceController {
 
     // If the Zoom call has finished or past startTime and not 'started', mark COMPLETED & attach recordingUrl
     const now = new Date();
+    const isLive = liveStatus === 'started';
+    const isFinished = liveStatus === 'finished';
+    const pastEndTimeWithGrace = now.getTime() >= new Date(session.endTime).getTime() + 15 * 60000;
+
+    const shouldActivate = session.status === 'SCHEDULED' && now >= new Date(session.startTime);
     const shouldComplete =
       (session.status === 'ACTIVE' || session.status === 'SCHEDULED') &&
-      now >= new Date(session.startTime) &&
-      (rawParticipants.length > 0 || liveStatus === 'finished' || (liveStatus === 'waiting' && now >= new Date(session.endTime)));
+      !isLive &&
+      (isFinished || (pastEndTimeWithGrace && (rawParticipants.length > 0 || liveStatus === 'waiting')));
 
-    if (shouldComplete || (syncedRecordingUrl && syncedRecordingUrl !== session.recordingUrl)) {
+    const nextStatus = shouldComplete ? 'COMPLETED' : shouldActivate ? 'ACTIVE' : undefined;
+
+    if (nextStatus || (syncedRecordingUrl && syncedRecordingUrl !== session.recordingUrl)) {
       await this.prisma.session.update({
         where: { id: sessionId },
         data: {
-          ...(shouldComplete ? { status: 'COMPLETED' as any } : {}),
+          ...(nextStatus ? { status: nextStatus as any } : {}),
           ...(syncedRecordingUrl && syncedRecordingUrl !== session.recordingUrl ? { recordingUrl: syncedRecordingUrl } : {}),
         },
       });

@@ -11,13 +11,17 @@ interface SessionRescheduledEmailProps {
   dashboardUrl: string;
 }
 
+const defaultLmsUrl =
+  process.env.NEXT_PUBLIC_LMS_URL ||
+  'https://learn.whatboutme.com';
+
 export const SessionRescheduledEmail = ({
   firstName = 'Student',
   sessionTitle = 'Advanced Grammar Workshop',
   oldDate = 'October 10, 2026',
   newDate = 'October 12, 2026',
   newTime = '02:00 PM EST',
-  dashboardUrl = 'https://whatboutme.com/dashboard/sessions',
+  dashboardUrl = `${defaultLmsUrl.replace(/\/+$/, '')}/dashboard/sessions`,
 }: SessionRescheduledEmailProps) => {
   return (
     <WhatBoutMeEmailLayout previewText={`Your session ${sessionTitle} has been rescheduled`} heading="Session Rescheduled">

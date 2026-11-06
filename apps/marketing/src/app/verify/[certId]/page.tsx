@@ -94,7 +94,8 @@ export default async function VerifyCertificatePage({
     const issueDateObj = new Date(certData.issueDate);
     const issueYear = certData.linkedInParameters?.issueYear || issueDateObj.getFullYear();
     const issueMonth = certData.linkedInParameters?.issueMonth || issueDateObj.getMonth() + 1;
-    const certUrl = certData.linkedInParameters?.certUrl || `https://whatboutme.com/verify/${certData.certificateCode}`;
+    const marketingBase = process.env.NEXT_PUBLIC_MARKETING_URL || process.env.NEXT_PUBLIC_SITE_URL || (typeof window !== "undefined" ? window.location.origin : "https://whatboutme.com");
+    const certUrl = certData.linkedInParameters?.certUrl || `${marketingBase.replace(/\/+$/, "")}/verify/${certData.certificateCode}`;
 
     linkedInUrl = `https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=${encodeURIComponent(
       certName,

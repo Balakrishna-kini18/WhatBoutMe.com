@@ -5,7 +5,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import page from "../../page.module.css";
 import styles from "../Certificate.module.css";
-import { API_URL } from "../../lib/api";
+import { API_URL, getMarketingUrl } from "../../lib/api";
 import { DatePicker } from "../../components";
 
 const Certificate = dynamic(() => import("../Certificate"), { ssr: false });
@@ -50,7 +50,7 @@ export default function IssueCertificatesPage() {
   };
 
   const handleCopyLink = (certNum: string, index: number) => {
-    const url = `https://whatboutme.com/verify/${certNum}`;
+    const url = `${getMarketingUrl()}/verify/${certNum}`;
     navigator.clipboard.writeText(url);
     setCopiedIndex(index);
     setTimeout(() => setCopiedIndex(null), 2500);
@@ -218,7 +218,7 @@ export default function IssueCertificatesPage() {
         <div className={styles.stack}>
           {people.map((name, i) => {
             const certNum = `${prefix}${String(i + 1).padStart(3, "0")}`;
-            const verifyUrl = `https://whatboutme.com/verify/${certNum}`;
+            const verifyUrl = `${getMarketingUrl()}/verify/${certNum}`;
 
             return (
               <div key={`${name}-${i}`} style={{ marginBottom: "2.5rem" }}>

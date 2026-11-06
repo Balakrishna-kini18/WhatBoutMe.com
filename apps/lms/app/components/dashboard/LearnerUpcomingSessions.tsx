@@ -81,14 +81,12 @@ export default function LearnerUpcomingSessions({
                 </div>
               </div>
               {sanitizeExternalUrl(s.joinUrl) ? (
-                <a
-                  href={sanitizeExternalUrl(s.joinUrl)!}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <Link
+                  href={`/live?autoJoin=${s.id}`}
                   className={styles.sessionJoinBtn}
                 >
                   Join &rarr;
-                </a>
+                </Link>
               ) : (
                 <Link href="/live" className={styles.sessionJoinBtn}>
                   Details &rarr;

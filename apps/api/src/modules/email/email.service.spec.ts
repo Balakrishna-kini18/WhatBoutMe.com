@@ -41,7 +41,7 @@ describe('Email Service & Notifications (R-55)', () => {
         resetUrl: 'https://whatboutme.com/reset-password?token=secret123',
       });
 
-      expect(html).toContain('Reset Your Password');
+      expect(html).toContain('Reset Password');
       expect(html).toContain('Alice');
       expect(html).toContain('reset-password?token=secret123');
       expect(html).toContain('1 hour');

@@ -131,6 +131,7 @@ export class AttendanceService {
       durationMin?: number;
       attendancePercentage?: number;
       status?: AttendanceStatus;
+      authoritative?: boolean;
     },
   ) {
     const targetStatus = data?.status ?? AttendanceStatus.PRESENT_AUTO;
@@ -158,32 +159,43 @@ export class AttendanceService {
         return existing;
       }
 
-      // Preserve earliest joinTime and latest leaveTime to protect against disconnections & reloads
-      const earlierJoinTime =
-        existing?.joinTime && data?.joinTime
+      // When authoritative (e.g. from official Zoom / Meet participant report reconciliation),
+      // use the reconciled joinTime and leaveTime directly so stale browser-tab heartbeat timestamps are overwritten.
+      const effectiveJoinTime = data?.authoritative
+        ? (data.joinTime ?? existing?.joinTime)
+        : existing?.joinTime && data?.joinTime
           ? new Date(existing.joinTime) < new Date(data.joinTime)
             ? existing.joinTime
             : data.joinTime
           : (existing?.joinTime ?? data?.joinTime);
 
-      const laterLeaveTime =
-        existing?.leaveTime && data?.leaveTime
+      const effectiveLeaveTime = data?.authoritative
+        ? (data.leaveTime ?? existing?.leaveTime)
+        : existing?.leaveTime && data?.leaveTime
           ? new Date(existing.leaveTime) > new Date(data.leaveTime)
             ? existing.leaveTime
             : data.leaveTime
           : (data?.leaveTime ?? existing?.leaveTime);
+
+      const clampedPercentage =
+        typeof data?.attendancePercentage === 'number'
+          ? Math.min(100, Math.max(0, data.attendancePercentage))
+          : existing?.attendancePercentage;
 
       const result = await tx.attendance.upsert({
         where: { sessionId_userId: { sessionId, userId } },
         update: {
           status: targetStatus,
           source: AttendanceSource.AUTO,
-          joinTime: earlierJoinTime,
-          leaveTime: laterLeaveTime,
+          joinTime: effectiveJoinTime,
+          leaveTime: effectiveLeaveTime,
           durationMin: data?.durationMin ?? existing?.durationMin,
           minutesPresent: data?.durationMin ?? existing?.minutesPresent,
           liveMinutes: data?.durationMin ?? existing?.liveMinutes,
-          attendancePercentage: data?.attendancePercentage ?? existing?.attendancePercentage,
+          attendancePercentage: clampedPercentage,
+          ...(existing?.correctionReason === 'ZOOM_LEFT' || existing?.correctionReason === 'ZOOM_JOINED'
+            ? { correctionReason: null }
+            : {}),
         },
         create: {
           sessionId,
@@ -191,12 +203,12 @@ export class AttendanceService {
           enrolmentId,
           status: targetStatus,
           source: AttendanceSource.AUTO,
-          joinTime: earlierJoinTime,
-          leaveTime: laterLeaveTime,
+          joinTime: effectiveJoinTime,
+          leaveTime: effectiveLeaveTime,
           durationMin: data?.durationMin,
           minutesPresent: data?.durationMin,
           liveMinutes: data?.durationMin,
-          attendancePercentage: data?.attendancePercentage,
+          attendancePercentage: clampedPercentage,
         },
       });
 
@@ -339,7 +351,10 @@ export class AttendanceService {
           : 60);
 
       if (typeof updateData.minutesPresent === 'number' && durationMinutes > 0) {
-        calculatedPercentage = (updateData.minutesPresent / durationMinutes) * 100;
+        calculatedPercentage = Math.min(
+          100,
+          Math.round(((updateData.minutesPresent / durationMinutes) * 100) * 100) / 100,
+        );
       }
 
       const result = await tx.attendance.upsert({
@@ -512,11 +527,20 @@ export class AttendanceService {
 
       const { enrolmentId } = await this.resolveUserAndEnrolment(sessionId, { userId }, tx);
 
+      const sessionDurationMin =
+        session.durationMinutes ||
+        (session.startTime && session.endTime
+          ? Math.max(1, Math.round((session.endTime.getTime() - session.startTime.getTime()) / 60000))
+          : 60);
+
       const result = await tx.attendance.upsert({
         where: { sessionId_userId: { sessionId, userId } },
         update: {
           status: AttendanceStatus.PRESENT,
           source: AttendanceSource.QR_CHECKIN,
+          minutesPresent: sessionDurationMin,
+          durationMin: sessionDurationMin,
+          attendancePercentage: 100,
           joinTime: new Date(),
         },
         create: {
@@ -525,6 +549,9 @@ export class AttendanceService {
           enrolmentId,
           status: AttendanceStatus.PRESENT,
           source: AttendanceSource.QR_CHECKIN,
+          minutesPresent: sessionDurationMin,
+          durationMin: sessionDurationMin,
+          attendancePercentage: 100,
           joinTime: new Date(),
         },
       });

@@ -829,11 +829,23 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   );
   const examBestScore = examAttempt?.score ?? stage2State?.details?.examScore ?? null;
 
+  const stage3State = stagesEval?.stages?.STAGE_3_ATTENDANCE;
+  const isAttendanceRequired = stage3State?.details?.thresholdPercent !== undefined && (progression as any)?.program?.attendanceRequired !== false;
+  const isAttendanceSatisfied = Boolean(
+    !isAttendanceRequired ||
+    stage3State?.isCompleted ||
+    stage3State?.isOverridden === true ||
+    stage3State?.details?.complianceStatus === "COMPLIANT" ||
+    stage3State?.details?.complianceStatus === "NOT_APPLICABLE"
+  );
+
   const stage4State = stagesEval?.stages?.STAGE_4_ONE_ON_ONE;
   const stage4Details = stage4State?.details as any;
   const isCoachingRequired = stage4Details?.isRequired !== false;
   const isCoachingUnlocked = Boolean(
-    (isExamUnlocked && isExamPassed) || stage4State?.isOverridden === true
+    stage4State?.isUnlocked ||
+    stage4State?.isOverridden === true ||
+    (isExamUnlocked && isExamPassed && isAttendanceSatisfied)
   );
   const coachingRequestsSorted = [...coachingRequests].sort(
     (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
@@ -861,7 +873,9 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
   const stage5Details = stage5State?.details as any;
   const isMissionRequired = stage5Details?.isRequired !== false;
   const isMissionUnlocked = Boolean(
-    (isCoachingUnlocked && isCoachingRequirementMet) || stage5State?.isOverridden === true
+    stage5State?.isUnlocked ||
+    stage5State?.isOverridden === true ||
+    (isCoachingUnlocked && isCoachingRequirementMet)
   );
   const latestMission = missionSubmissions[0] || null;
 
@@ -887,6 +901,7 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
     isCertificateClaimed ||
     (allStepsCompleted &&
       isExamPassed &&
+      isAttendanceSatisfied &&
       isCoachingRequirementMet &&
       isMissionRequirementMet)
   );
@@ -1360,7 +1375,11 @@ export default function ProgramStepsPage({ params }: { params: Promise<{ id: str
                       {!isCoachingUnlocked && (
                         <div className={styles.lockMessage}>
                           {InfoCircle}
-                          <span>Requires passing the Final Examination</span>
+                          <span>
+                            {stage4State?.unmetPrerequisites?.[0] ||
+                              stage4State?.unmetRequirements?.[0] ||
+                              "Requires completing previous milestones (Curriculum, Exam & Live Attendance)"}
+                          </span>
                         </div>
                       )}
 

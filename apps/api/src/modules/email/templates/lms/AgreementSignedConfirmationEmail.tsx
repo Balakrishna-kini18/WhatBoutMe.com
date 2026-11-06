@@ -9,11 +9,15 @@ interface AgreementSignedConfirmationEmailProps {
   documentUrl: string;
 }
 
+const defaultApiUrl =
+  process.env.NEXT_PUBLIC_API_URL ||
+  'https://api.whatboutme.com';
+
 export const AgreementSignedConfirmationEmail = ({
   firstName = 'Student',
   agreementName = 'Student Code of Conduct',
   signedDate = 'October 5, 2026',
-  documentUrl = 'https://whatboutme.com/api/agreements/123/download',
+  documentUrl = `${defaultApiUrl.replace(/\/+$/, '')}/agreements/123/download`,
 }: AgreementSignedConfirmationEmailProps) => {
   return (
     <WhatBoutMeEmailLayout previewText="Copy of your signed agreement" heading="Agreement Signed">

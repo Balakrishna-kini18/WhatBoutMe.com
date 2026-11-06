@@ -408,7 +408,7 @@ export default function Certificate({
       : `having fulfilled all curriculum milestones, video hours, self-reflections, and knowledge assessments for the ${finalCourse}, accredited for ${effectiveCpdHours} CPD Hours, delivered by ${finalBrand} and facilitated by ${finalIssuer}, Brain Health Coach.`);
 
   const publicVerifyUrl =
-    verificationUrl || `https://whatboutme.com/verify/${finalCertNo}`;
+    verificationUrl || `${(process.env.NEXT_PUBLIC_MARKETING_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://whatboutme.com").replace(/\/+$/, "")}/verify/${finalCertNo}`;
 
   // Parse issue year & month for LinkedIn certificate addition
   const issueDateObj = issueDate || issuedAt ? new Date(issueDate || issuedAt!) : new Date();

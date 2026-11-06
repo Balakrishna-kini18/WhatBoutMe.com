@@ -174,8 +174,12 @@ export class SessionsController {
    */
   @RequirePermission(Permission.ATTENDANCE_MARK)
   @Post(':id/live-heartbeat')
-  recordLiveHeartbeat(@Param('id') id: string, @Request() req: any) {
-    return this.sessionsService.recordLiveHeartbeat(id, req.user.sub);
+  recordLiveHeartbeat(
+    @Param('id') id: string,
+    @Request() req: any,
+    @Body() body?: { action?: string },
+  ) {
+    return this.sessionsService.recordLiveHeartbeat(id, req.user.sub, body?.action);
   }
 
   /**

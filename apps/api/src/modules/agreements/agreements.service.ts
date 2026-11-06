@@ -1380,25 +1380,8 @@ export class AgreementsService {
       ]);
     }
 
-    if (this.emailService && user?.email) {
-      const recipientEmail = user.email;
-      const { lmsUrl } = getAppUrls();
-      try {
-        await this.emailService.sendTemplateEmail({
-          to: recipientEmail,
-          subject: 'Agreement Signed Confirmation - WhatBoutMe',
-          template: 'AgreementSignedConfirmationEmail',
-          props: {
-            learnerName: result.typedName || user.name || 'Learner',
-            agreementTitle: template.title || 'Student Agreement',
-            signedAt: result.signedAt ? new Date(result.signedAt).toISOString() : new Date().toISOString(),
-            dashboardUrl: `${lmsUrl}/dashboard`,
-          },
-        });
-      } catch (e: any) {
-        console.warn('[AgreementsService] Agreement email error:', e?.message);
-      }
-    }
+    // Production email policy: AgreementSignedConfirmationEmail is stripped out.
+    // Learners download their signed PDF agreement anytime under LMS > Profile > Agreements.
 
     const finalEnrolmentStatus = enrolment.status === EnrolmentStatus.PENDING_AGREEMENT
       ? EnrolmentStatus.ACTIVE

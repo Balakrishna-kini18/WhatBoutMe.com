@@ -1,3 +1,4 @@
+import { getAppUrls } from '../../common/config/app-urls.js';
 import {
   Injectable,
   Logger,
@@ -12,6 +13,7 @@ import {
   SessionType,
   NotificationChannel,
   DeliveryStatus,
+  AttendanceStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { AttendanceReconciliationService } from './attendance-reconciliation.service.js';
@@ -662,19 +664,21 @@ export class SessionLifecycleService {
       return;
     }
 
-    // 1. Fetch participant report if available
-    try {
-      if (typeof this.meetingProvider.getParticipantReport === 'function') {
-        const participants = await this.meetingProvider.getParticipantReport(meetingId);
-        if (participants && Array.isArray(participants) && participants.length > 0) {
-          await this.attendanceReconciliationService.reconcileSession(session.id, participants);
-          this.logger.log(
-            `Reconciled ${participants.length} attendance records for completed session ${session.id}`,
-          );
+    // 1. Fetch participant report if available (skip if already pulled via webhook or manual sync)
+    if (!session.attendancePulled) {
+      try {
+        if (typeof this.meetingProvider.getParticipantReport === 'function') {
+          const participants = await this.meetingProvider.getParticipantReport(meetingId);
+          if (participants && Array.isArray(participants) && participants.length > 0) {
+            await this.attendanceReconciliationService.reconcileSession(session.id, participants);
+            this.logger.log(
+              `Reconciled ${participants.length} attendance records for completed session ${session.id}`,
+            );
+          }
         }
+      } catch (err: any) {
+        this.logger.warn(`Could not pull participant report for session ${session.id}: ${err.message}`);
       }
-    } catch (err: any) {
-      this.logger.warn(`Could not pull participant report for session ${session.id}: ${err.message}`);
     }
 
     // 2. Fetch recording URL if available
@@ -723,6 +727,29 @@ export class SessionLifecycleService {
       }
 
       if (!learnerUserId) return;
+
+      // Verify that learner actually attended the 1-on-1 session before granting stage gate completion!
+      const attendance = await this.prisma.attendance.findUnique({
+        where: { sessionId_userId: { sessionId: session.id, userId: learnerUserId } },
+      });
+
+      const isAttended =
+        attendance &&
+        ([
+          AttendanceStatus.PRESENT,
+          AttendanceStatus.PRESENT_AUTO,
+          AttendanceStatus.PRESENT_MANUAL,
+          AttendanceStatus.CORRECTED,
+          (AttendanceStatus as any).PRESENT_LIVE,
+          (AttendanceStatus as any).PRESENT_RECORDED,
+        ] as AttendanceStatus[]).includes(attendance.status);
+
+      if (!isAttended) {
+        this.logger.warn(
+          `Learner ${learnerUserId} did not attend 1-on-1 session ${session.id}. oneOnOneCompletedAt will not be set.`,
+        );
+        return;
+      }
 
       const enrolment = await this.prisma.enrolment.findFirst({
         where: {
@@ -847,7 +874,7 @@ export class SessionLifecycleService {
     const formatted = toTimezone(session.startTime, userTz);
 
     const firstName = recipient.name?.split(' ')[0] || 'Learner';
-    const lmsUrl = process.env.LMS_URL || process.env.NEXT_PUBLIC_LMS_URL || 'https://lms.whatboutme.com';
+    const { lmsUrl } = getAppUrls();
     const joinUrl = session.joinUrl || session.meetingLink || `${lmsUrl}/live?autoJoin=${session.id}`;
     const subject = `Reminder: ${session.title} starts in ${timeframe}`;
     const message = `Your live session "${session.title}" starts in ${timeframe}. Click here to join on time.`;
@@ -860,7 +887,7 @@ export class SessionLifecycleService {
         await this.prisma.notification.update({
           where: { id: notifId },
           data: {
-            deliveryStatus: DeliveryStatus.SENT,
+            deliveryStatus: DeliveryStatus.DELIVERED,
             sentAt: new Date(),
             title: subject,
             message,
@@ -877,9 +904,9 @@ export class SessionLifecycleService {
             title: subject,
             message,
             link: joinUrl,
-            template: 'SessionReminderEmail',
-            channel: NotificationChannel.BOTH,
-            deliveryStatus: DeliveryStatus.SENT,
+            template: 'SessionReminderNotification',
+            channel: NotificationChannel.IN_APP,
+            deliveryStatus: DeliveryStatus.DELIVERED,
             sentAt: new Date(),
             dedupeKey,
           },
@@ -896,40 +923,12 @@ export class SessionLifecycleService {
       }
     }
 
-    // 3. Send email via template provider
-    try {
-      await this.emailService.sendTemplateEmail({
-        to: recipient.email,
-        subject,
-        template: 'SessionReminderEmail',
-        props: {
-          firstName,
-          sessionTitle: session.title,
-          timeframe,
-          date: formatted.date,
-          time: `${formatted.time} (${userTz})`,
-          joinUrl,
-        },
-      });
-
-      this.logger.log(
-        `Sent ${timeframe} reminder for session "${session.title}" to ${recipient.email} in timezone ${userTz}`,
-      );
-      return true;
-    } catch (err: any) {
-      this.logger.warn(
-        `Failed to send ${timeframe} reminder to ${recipient.email} for session ${session.id}: ${err.message}`,
-      );
-      // Mark FAILED so next retry sweep or job can retry sending
-      if (notifId && this.prisma.notification?.update) {
-        await this.prisma.notification.update({
-          where: { id: notifId },
-          data: {
-            deliveryStatus: DeliveryStatus.FAILED,
-          },
-        }).catch(() => null);
-      }
-      return false;
-    }
+    // 3. Production email policy: 24h & 1h reminders are stripped from email to prevent spam.
+    // Learners rely on 1-click 'Add to Google Calendar' from SessionScheduledEmail (#6).
+    // In-app notifications continue to be stored for the dashboard notification bell.
+    this.logger.log(
+      `Recorded ${timeframe} in-app reminder for session "${session.title}" to ${recipient.email} in timezone ${userTz}`,
+    );
+    return true;
   }
 }

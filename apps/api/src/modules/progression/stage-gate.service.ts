@@ -227,13 +227,15 @@ export class StageGateService {
         select: { id: true, status: true, passed: true, overallScore: true, completedAt: true, scheduledDate: true, trainerNotes: true },
       }),
 
-      // 7. Exam configured entity
+      // 7. Exam configured entity or count
       this.prisma.exam?.findFirst
         ? this.prisma.exam.findFirst({
             where: { programId: enrolment.programId },
             select: { id: true, passMark: true },
           })
-        : Promise.resolve(null),
+        : (typeof (this.prisma.exam as any)?.count === 'function'
+            ? (this.prisma.exam as any).count({ where: { programId: enrolment.programId } }).then((c: number) => (c > 0 ? { id: 'exam-config', passMark: 75 } : null)).catch(() => null)
+            : Promise.resolve(null)),
 
       // 8. Oral configured count
       this.prisma.oralAssessment.count({
@@ -374,11 +376,30 @@ export class StageGateService {
         .catch((err) => this.logger.warn(`Failed to update curriculumCompletedAt: ${err.message}`));
     }
 
+    // Auto-heal: If curriculum is not met but has completed timestamp, clear phantom timestamp
+    if (!stage1Met && !stage1Overridden && enrolment.curriculumCompletedAt && this.prisma.enrolment?.update) {
+      await this.prisma.enrolment
+        .update({
+          where: { id: enrolment.id },
+          data: { curriculumCompletedAt: null },
+        })
+        .catch((err) => this.logger.warn(`Failed to clear phantom curriculumCompletedAt: ${err.message}`));
+      enrolment.curriculumCompletedAt = null;
+    }
+
     // ── PROGRAM MILESTONE TOGGLES ────────────────────────────────────────────
     const isSequential = programConfig?.sequentialProgressionEnabled !== false;
-    const programExamCount = programExam ? 1 : 0;
+    let programExamCount = programExam ? 1 : 0;
+    if (!programExam && typeof (this.prisma.exam as any)?.count === 'function') {
+      try {
+        const count = await (this.prisma.exam as any).count({ where: { programId: enrolment.programId } });
+        if (count > 0) programExamCount = count;
+      } catch {
+        // ignore
+      }
+    }
     const examPassMark = (programExam?.passMark && programExam.passMark !== 75) ? programExam.passMark : 80;
-    const isExamRequired = (programConfig?.requireExam !== false) && !isCorporateTrack && programExamCount > 0;
+    const isExamRequired = (programConfig?.requireExam !== false) && !isCorporateTrack && (programExamCount > 0 || programExam !== null);
 
     const bestExamScore = examAttempts.length > 0
       ? Math.max(...examAttempts.map((a) => (typeof a.score === 'number' ? a.score : 0)))
@@ -406,7 +427,6 @@ export class StageGateService {
     const stage2Met =
       stage2Overridden ||
       isCorporateTrack ||
-      !isExamRequired ||
       (stage2Unlocked && examMet && oralMet);
 
     const stage2CompletedAt = stage2Met
@@ -422,6 +442,17 @@ export class StageGateService {
         .catch((err) => this.logger.warn(`Failed to update examPassedAt: ${err.message}`));
     }
 
+    // Auto-heal: If exam is not met but has passed timestamp, clear phantom timestamp
+    if (!stage2Met && !stage2Overridden && enrolment.examPassedAt && this.prisma.enrolment?.update) {
+      await this.prisma.enrolment
+        .update({
+          where: { id: enrolment.id },
+          data: { examPassedAt: null },
+        })
+        .catch((err) => this.logger.warn(`Failed to clear phantom examPassedAt: ${err.message}`));
+      enrolment.examPassedAt = null;
+    }
+
     // ── STAGE 3: ATTENDANCE ──────────────────────────────────────────────────
     const stage3Unlocked = !isSequential || stage2Met;
     const stage3Overridden = overriddenStages.has(LearnerStage.STAGE_3_ATTENDANCE);
@@ -431,7 +462,7 @@ export class StageGateService {
       attendanceCompliance.status === 'COMPLIANT' ||
       attendanceCompliance.status === 'NOT_APPLICABLE';
 
-    const stage3Met = stage3Overridden || attendanceSatisfied;
+    const stage3Met = stage3Overridden || (stage3Unlocked && attendanceSatisfied);
 
     const stage3CompletedAt = stage3Met
       ? enrolment.attendanceSatisfiedAt || new Date()
@@ -444,6 +475,17 @@ export class StageGateService {
           data: { attendanceSatisfiedAt: stage3CompletedAt },
         })
         .catch((err) => this.logger.warn(`Failed to update attendanceSatisfiedAt: ${err.message}`));
+    }
+
+    // Auto-heal: If attendance is not met but has satisfied timestamp, clear phantom timestamp
+    if (!stage3Met && !stage3Overridden && enrolment.attendanceSatisfiedAt && this.prisma.enrolment?.update) {
+      await this.prisma.enrolment
+        .update({
+          where: { id: enrolment.id },
+          data: { attendanceSatisfiedAt: null },
+        })
+        .catch((err) => this.logger.warn(`Failed to clear phantom attendanceSatisfiedAt: ${err.message}`));
+      enrolment.attendanceSatisfiedAt = null;
     }
 
     // ── STAGE 4: 1-ON-1 COACHING ─────────────────────────────────────────────
@@ -492,8 +534,7 @@ export class StageGateService {
     const stage4Met =
       stage4Overridden ||
       isCorporateTrack ||
-      !isCoachingRequired ||
-      (stage4Unlocked && coachingGenuinelyCompleted);
+      (stage4Unlocked && (!isCoachingRequired || coachingGenuinelyCompleted));
     const stage4CompletedAt = coachingGenuinelyCompleted
       ? enrolment.oneOnOneCompletedAt || completedOneOnOne?.endTime || new Date()
       : null;
@@ -529,8 +570,7 @@ export class StageGateService {
     const stage5Met =
       stage5Overridden ||
       isCorporateTrack ||
-      !isMissionRequired ||
-      (stage5Unlocked && missionGenuinelyApproved);
+      (stage5Unlocked && (!isMissionRequired || missionGenuinelyApproved));
     const stage5CompletedAt = missionGenuinelyApproved
       ? enrolment.missionStatementApprovedAt || approvedMission?.reviewedAt || new Date()
       : null;
@@ -634,7 +674,7 @@ export class StageGateService {
       [LearnerStage.STAGE_4_ONE_ON_ONE]: {
         stage: LearnerStage.STAGE_4_ONE_ON_ONE,
         isUnlocked: stage4Unlocked,
-        isCompleted: isCoachingRequired ? coachingGenuinelyCompleted : stage4Met,
+        isCompleted: stage4Met,
         isOverridden: stage4Overridden,
         completedAt: stage4CompletedAt,
         details: {
@@ -671,7 +711,7 @@ export class StageGateService {
       [LearnerStage.STAGE_5_MISSION_STATEMENT]: {
         stage: LearnerStage.STAGE_5_MISSION_STATEMENT,
         isUnlocked: stage5Unlocked,
-        isCompleted: isMissionRequired ? missionGenuinelyApproved : stage5Met,
+        isCompleted: stage5Met,
         isOverridden: stage5Overridden,
         completedAt: stage5CompletedAt,
         details: {
@@ -704,6 +744,17 @@ export class StageGateService {
       currentStage = LearnerStage.STAGE_5_MISSION_STATEMENT;
     } else {
       currentStage = LearnerStage.STAGE_5_MISSION_STATEMENT;
+    }
+
+    // Sync currentStage to DB if changed
+    if (enrolment.currentStage !== currentStage && this.prisma.enrolment?.update) {
+      await this.prisma.enrolment
+        .update({
+          where: { id: enrolment.id },
+          data: { currentStage },
+        })
+        .catch((err) => this.logger.warn(`Failed to sync currentStage: ${err.message}`));
+      enrolment.currentStage = currentStage;
     }
 
     const allStagesCompleted =

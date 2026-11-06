@@ -55,8 +55,9 @@ export function getAppUrls(): AppUrls {
   }
 
   const adminUrl = (
-    process.env.ADMIN_URL ||
     process.env.NEXT_PUBLIC_ADMIN_URL ||
+    process.env.NEXT_PUBLIC_ADMIN_URl ||
+    process.env.ADMIN_URL ||
     defaultAdmin
   ).replace(/\/+$/, '');
 
@@ -67,15 +68,16 @@ export function getAppUrls(): AppUrls {
   ).replace(/\/+$/, '');
 
   const marketingUrl = (
-    process.env.NEXT_PUBLIC_SITE_URL ||
     process.env.NEXT_PUBLIC_MARKETING_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.MARKETING_URL ||
     process.env.SITE_URL ||
     defaultMarketing
   ).replace(/\/+$/, '');
 
   const apiUrl = (
-    process.env.API_URL ||
     process.env.NEXT_PUBLIC_API_URL ||
+    process.env.API_URL ||
     defaultApi
   ).replace(/\/+$/, '');
 

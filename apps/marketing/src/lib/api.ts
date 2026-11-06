@@ -106,7 +106,7 @@ export function getApiBaseUrl(): string {
 }
 
 export function getAdminUrl(): string {
-  const envUrl = process.env.NEXT_PUBLIC_ADMIN_URL;
+  const envUrl = process.env.NEXT_PUBLIC_ADMIN_URL || process.env.NEXT_PUBLIC_ADMIN_URl;
   if (envUrl && typeof envUrl === "string" && envUrl.trim().length > 0) {
     const trimmed = envUrl.trim().replace(/\/+$/, "");
     if (typeof window !== "undefined" && window.location?.hostname) {
@@ -206,6 +206,25 @@ export function onThisHost(url: string) {
   return getApiBaseUrl();
 }
 
+export function getMarketingUrl(): string {
+  const envUrl = process.env.NEXT_PUBLIC_MARKETING_URL || process.env.NEXT_PUBLIC_SITE_URL;
+  if (envUrl && typeof envUrl === "string" && envUrl.trim().length > 0) {
+    const trimmed = envUrl.trim().replace(/\/+$/, "");
+    if (typeof window !== "undefined" && window.location?.hostname) {
+      if (matchesDomainFamily(trimmed, window.location.hostname)) {
+        return trimmed;
+      }
+    } else {
+      return trimmed;
+    }
+  }
+  if (typeof window !== "undefined" && window.location) {
+    return window.location.origin;
+  }
+  return "http://localhost:3000";
+}
+
+export const MARKETING_URL = getMarketingUrl();
 export const API_BASE_URL = getApiBaseUrl();
 export const ADMIN_URL = getAdminUrl();
 export const LMS_URL = getLmsUrl();
@@ -367,10 +386,10 @@ export async function verifyEmailUser(token: string) {
   return await res.json();
 }
 
-export async function requestPasswordResetUser(email: string) {
+export async function requestPasswordResetUser(email: string, origin?: string) {
   return authRequest(
     "/auth/password-reset/request",
-    { email: email.trim().toLowerCase() },
+    { email: email.trim().toLowerCase(), ...(origin ? { origin } : {}) },
     "Could not request password reset.",
   );
 }

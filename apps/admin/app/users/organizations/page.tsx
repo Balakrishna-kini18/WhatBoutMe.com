@@ -17,6 +17,133 @@ import {
 import { apiGet, apiPost, apiDelete } from "../../lib/api";
 import VolumePricingModal, { VolumePricingConfig } from "./components/VolumePricingModal";
 
+// --- Clean SVG Icon Helpers (Zero Emojis) ---
+function BuildingIcon({ size = 16, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <rect width="16" height="20" x="4" y="2" rx="2" ry="2" />
+      <path d="M9 22v-4h6v4" />
+      <path d="M8 6h.01" />
+      <path d="M16 6h.01" />
+      <path d="M8 10h.01" />
+      <path d="M16 10h.01" />
+      <path d="M8 14h.01" />
+      <path d="M16 14h.01" />
+    </svg>
+  );
+}
+
+function LayersIcon({ size = 16, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <polygon points="12 2 2 7 12 12 22 7 12 2" />
+      <polyline points="2 17 12 22 22 17" />
+      <polyline points="2 12 12 17 22 12" />
+    </svg>
+  );
+}
+
+function PercentIcon({ size = 16, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <line x1="19" y1="5" x2="5" y2="19" />
+      <circle cx="6.5" cy="6.5" r="2.5" />
+      <circle cx="17.5" cy="17.5" r="2.5" />
+    </svg>
+  );
+}
+
+function CalendarIcon({ size = 16, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <rect width="18" height="18" x="3" y="4" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  );
+}
+
+function SlidersIcon({ size = 14, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <line x1="4" y1="21" x2="4" y2="14" />
+      <line x1="4" y1="10" x2="4" y2="3" />
+      <line x1="12" y1="21" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12" y2="3" />
+      <line x1="20" y1="21" x2="20" y2="16" />
+      <line x1="20" y1="12" x2="20" y2="3" />
+      <line x1="1" y1="14" x2="7" y2="14" />
+      <line x1="9" y1="8" x2="15" y2="8" />
+      <line x1="17" y1="16" x2="23" y2="16" />
+    </svg>
+  );
+}
+
+function CreditCardIcon({ size = 12, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <rect width="20" height="14" x="2" y="5" rx="2" />
+      <line x1="2" x2="22" y1="10" y2="10" />
+    </svg>
+  );
+}
+
+function CopyIcon({ size = 12, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+    </svg>
+  );
+}
+
+function CheckIcon({ size = 14, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+function RefreshCwIcon({ size = 12, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
+      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+      <path d="M8 16H3v5" />
+    </svg>
+  );
+}
+
+function ChevronDownIcon({ size = 14, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
+function AlertTriangleIcon({ size = 16, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  );
+}
+
+function ClockIcon({ size = 12, style }: { size?: number; style?: React.CSSProperties }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  );
+}
+
 interface OrganizationItem {
   id: string;
   orgCode: string;
@@ -350,194 +477,98 @@ function OrganizationsContent() {
   return (
     <div className={styles.dashboard}>
       {/* Top Header */}
-      <header className={styles.header}>
+      <header
+        className={styles.header}
+        style={{
+          marginBottom: 0,
+          alignItems: "center",
+          display: "flex",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: "1rem",
+        }}
+      >
         <div className={styles.headerText}>
-          <h1 className={styles.title}>Users & Enrolments</h1>
-          <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: "0.88rem" }}>
-            Institutional B2B buyers, reseller academies, batch slot capacity pools & co-branded sponsorship.
-          </p>
+          <h1 className={styles.title} style={{ margin: 0 }}>
+            Organizations
+          </h1>
         </div>
         <div className={styles.headerActions} style={{ display: "flex", gap: "10px", alignItems: "center" }}>
           {isPlatformAdmin && (
             <button
               type="button"
+              className={styles.secondaryBtn}
               onClick={() => setIsPricingModalOpen(true)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-                background: "#fef3c7",
-                color: "#92400e",
-                border: "1px solid #fde68a",
-                padding: "8px 16px",
-                borderRadius: "8px",
-                fontWeight: 700,
-                fontSize: "0.85rem",
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-              }}
               title="Configure dynamic volume discount tiers and offers"
             >
-              <span>⚙️ Pricing &amp; Volume Offers</span>
+              <SlidersIcon size={14} />
+              <span>Pricing &amp; Volume Offers</span>
             </button>
           )}
           <button
             type="button"
             className={styles.primaryBtn}
             onClick={() => setIsCreateModalOpen(true)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-              background: "#c97a1e",
-              color: "#ffffff",
-              border: "none",
-              padding: "8px 16px",
-              borderRadius: "8px",
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
           >
             <span>+ Create Organization</span>
           </button>
         </div>
       </header>
 
-      {/* Segmented Switch: People vs Organizations */}
-      <div
-        style={{
-          display: "flex",
-          gap: "6px",
-          background: "#e2e8f0",
-          padding: "4px",
-          borderRadius: "10px",
-          width: "fit-content",
-          marginBottom: "1.25rem",
-        }}
-      >
-        <Link
-          href="/users"
-          style={{
-            padding: "6px 16px",
-            fontSize: "0.85rem",
-            fontWeight: 500,
-            borderRadius: "7px",
-            background: "transparent",
-            color: "#475569",
-            textDecoration: "none",
-            transition: "all 0.15s ease",
-          }}
-        >
-          People (Learners & Staff)
-        </Link>
-        <Link
-          href="/users/organizations"
-          style={{
-            padding: "6px 16px",
-            fontSize: "0.85rem",
-            fontWeight: 700,
-            borderRadius: "7px",
-            background: "#ffffff",
-            color: "#0f172a",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-            textDecoration: "none",
-          }}
-        >
-          Organizations & Resellers
-        </Link>
-      </div>
-
       {/* Top KPI Summary Cards */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-          gap: "1rem",
-          marginBottom: "1.5rem",
-        }}
-      >
-        <div
-          style={{
-            background: "#ffffff",
-            border: "1px solid #e2e8f0",
-            borderRadius: "12px",
-            padding: "1rem 1.25rem",
-            boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
-          }}
-        >
-          <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#64748b", textTransform: "uppercase" }}>
-            Total Organizations
+      <section className={styles.kpiGrid} aria-label="Key Performance Indicators" style={{ marginBottom: "1.25rem" }}>
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Total Organizations</span>
+            <div className={styles.kpiIconBox}>
+              <BuildingIcon size={16} />
+            </div>
           </div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#0f172a", marginTop: "4px" }}>
-            {totalCount}
-          </div>
-          <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "2px" }}>
-            Institutions & reseller partners
+          <div className={styles.kpiValueRow}>
+            <span className={styles.kpiValue}>{totalCount}</span>
           </div>
         </div>
 
-        <div
-          style={{
-            background: "#ffffff",
-            border: "1px solid #e2e8f0",
-            borderRadius: "12px",
-            padding: "1rem 1.25rem",
-            boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
-          }}
-        >
-          <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#64748b", textTransform: "uppercase" }}>
-            Licensed Batch Slots
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Licensed Batch Slots</span>
+            <div className={styles.kpiIconBox}>
+              <LayersIcon size={16} />
+            </div>
           </div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#c97a1e", marginTop: "4px" }}>
-            {totalSlotsLicensed}
-          </div>
-          <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "2px" }}>
-            Total pre-allocated student seats
+          <div className={styles.kpiValueRow}>
+            <span className={styles.kpiValue}>{totalSlotsLicensed}</span>
           </div>
         </div>
 
-        <div
-          style={{
-            background: "#ffffff",
-            border: "1px solid #e2e8f0",
-            borderRadius: "12px",
-            padding: "1rem 1.25rem",
-            boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
-          }}
-        >
-          <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#64748b", textTransform: "uppercase" }}>
-            Seat Utilization
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Seat Utilization</span>
+            <div className={styles.kpiIconBox}>
+              <PercentIcon size={16} />
+            </div>
           </div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#16a34a", marginTop: "4px" }}>
-            {totalSlotsLicensed > 0
-              ? `${Math.round((totalSlotsUtilized / totalSlotsLicensed) * 100)}%`
-              : "0%"}
-          </div>
-          <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "2px" }}>
-            {totalSlotsUtilized} of {totalSlotsLicensed} slots assigned
+          <div className={styles.kpiValueRow}>
+            <span className={styles.kpiValue}>
+              {totalSlotsLicensed > 0
+                ? `${Math.round((totalSlotsUtilized / totalSlotsLicensed) * 100)}%`
+                : "0%"}
+            </span>
           </div>
         </div>
 
-        <div
-          style={{
-            background: "#ffffff",
-            border: "1px solid #e2e8f0",
-            borderRadius: "12px",
-            padding: "1rem 1.25rem",
-            boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
-          }}
-        >
-          <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#64748b", textTransform: "uppercase" }}>
-            Active Cohort Batches
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiTopRow}>
+            <span className={styles.kpiLabel}>Active Cohort Batches</span>
+            <div className={styles.kpiIconBox}>
+              <CalendarIcon size={16} />
+            </div>
           </div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#0f172a", marginTop: "4px" }}>
-            {totalActiveBatches}
-          </div>
-          <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "2px" }}>
-            Batches with org reservations
+          <div className={styles.kpiValueRow}>
+            <span className={styles.kpiValue}>{totalActiveBatches}</span>
           </div>
         </div>
-      </div>
+      </section>
 
       {/* Filter and Search Bar */}
       <div

@@ -959,6 +959,7 @@ export class PaymentsService {
             programTitle: enrolment.program.title,
             amount: totalInvoiceAmount,
             currencySymbol,
+            currency: enrolment.program.currency || currency,
             invoiceNumber,
             dashboardUrl: `${lmsUrl}/dashboard`,
           },

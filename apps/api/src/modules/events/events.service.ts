@@ -1,3 +1,4 @@
+import { getAppUrls } from '../../common/config/app-urls.js';
 import Stripe from 'stripe';
 import {
   BadRequestException,
@@ -363,7 +364,7 @@ export class EventsService {
       if (isStripeActive) {
         try {
           const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-          const marketingUrl = process.env.MARKETING_SITE_URL || 'http://localhost:3001';
+          const { marketingUrl } = getAppUrls();
           const session = await stripe.checkout.sessions.create({
             mode: 'payment',
             customer_email: attendeeEmail,
@@ -971,6 +972,45 @@ export class EventsService {
       return registrations.map((r) => mapRegistration(r as any));
     }
 
+  /**
+   * Public Ticket Details Lookup for QR Code scanning at event doors.
+   */
+  async getTicketDetails(regId: string) {
+    const reg = await this.prisma.eventRegistration.findUnique({
+      where: { id: regId },
+      include: {
+        event: {
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            startDateTime: true,
+            endDateTime: true,
+            locationType: true,
+            venueName: true,
+            venueAddress: true,
+            meetingLink: true,
+            timezone: true,
+          },
+        },
+      },
+    });
+
+    if (!reg) {
+      throw new NotFoundException('Ticket or registration not found');
+    }
+
+    return {
+      id: reg.id,
+      attendeeName: reg.attendeeName,
+      status: reg.paymentStatus,
+      amount: reg.amount,
+      currency: reg.currency,
+      createdAt: reg.createdAt,
+      event: reg.event,
+    };
+  }
+
   private async sendEventConfirmationEmail(event: Event, reg: EventRegistration) {
     try {
       const isOnline = event.locationType === EventLocationType.ONLINE;
@@ -981,67 +1021,30 @@ export class EventsService {
         year: 'numeric',
         hour: 'numeric',
         minute: '2-digit',
-        timeZone: event.timezone || 'UTC',
+        timeZone: event.timezone || 'Asia/Dubai',
       });
 
-      const locationHtml = isOnline
-        ? `
-          <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0;">
-            <h3 style="color: #166534; margin: 0 0 8px; font-size: 16px;">🟢 Live Online Session Access</h3>
-            <p style="margin: 0 0 12px; color: #1e293b; font-size: 14px;">Your private access link to join the session:</p>
-            <a href="${event.meetingLink}" style="display: inline-block; background: #0f172a; color: #ffffff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: bold; font-size: 14px;">
-              Join Meeting &rarr;
-            </a>
-            <p style="margin: 10px 0 0; font-size: 12px; color: #64748b;">Link: <a href="${event.meetingLink}" style="color: #2563eb;">${event.meetingLink}</a></p>
-          </div>
-        `
-        : `
-          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 20px 0;">
-            <h3 style="color: #0f172a; margin: 0 0 8px; font-size: 16px;">📍 In-Person Venue Information</h3>
-            <p style="margin: 0 0 4px; font-weight: bold; color: #1e293b; font-size: 15px;">${event.venueName}</p>
-            <p style="margin: 0 0 16px; color: #475569; font-size: 14px;">${event.venueAddress}</p>
-            <div style="text-align: center; background: #ffffff; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 16px; margin-top: 12px;">
-              <p style="margin: 0 0 8px; font-weight: bold; color: #0f172a; font-size: 13px;">🎟️ Check-in QR Code</p>
-              <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`whatboutme://checkin/event/${event.id}/reg/${reg.id}`)}" alt="Check-in QR Code" width="160" height="160" style="display: block; margin: 0 auto; border-radius: 4px;" />
-              <p style="margin: 8px 0 0; font-size: 11px; color: #64748b;">Show this QR code at the door for express attendance check-in</p>
-            </div>
-          </div>
-        `;
+      const { marketingUrl } = getAppUrls();
+      const ticketWebUrl = `${marketingUrl}/events/ticket/${reg.id}`;
 
-      const html = `
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1e293b;">
-          <h2 style="color: #0f172a; margin-top: 0;">Registration Confirmed: ${event.title}</h2>
-          <p>Dear ${reg.attendeeName},</p>
-          <p>Thank you for registering! Your booking for <strong>${event.title}</strong> has been successfully confirmed.</p>
-          
-          <table style="width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px;">
-            <tr>
-              <td style="padding: 8px 0; color: #64748b;">Date & Time:</td>
-              <td style="padding: 8px 0; font-weight: bold;">${dateFormatted} (${event.timezone || 'UTC'})</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; color: #64748b;">Amount Paid:</td>
-              <td style="padding: 8px 0; font-weight: bold;">${Number(reg.amount) > 0 ? `${reg.currency} ${Number(reg.amount)}` : 'Free RSVP'}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; color: #64748b;">Booking Reference:</td>
-              <td style="padding: 8px 0; font-family: monospace;">${reg.id}</td>
-            </tr>
-          </table>
-
-          ${locationHtml}
-
-          <p style="color: #64748b; font-size: 13px; margin-top: 30px;">
-            If you have any questions, reply directly to this email or contact support at WhatBoutMe.com.
-          </p>
-        </div>
-      `;
-
-      await this.emailService.sendEmail({
+      await this.emailService.sendTemplateEmail({
         to: reg.attendeeEmail,
-        subject: `Confirmed: ${event.title}`,
-        html,
-        text: `Your registration for ${event.title} is confirmed. Date: ${dateFormatted}. Details: ${isOnline ? event.meetingLink : event.venueName}`,
+        subject: `Confirmed: ${event.title} — WhatBoutMe`,
+        template: 'EventTicketEmail',
+        props: {
+          attendeeName: reg.attendeeName,
+          eventTitle: event.title,
+          dateFormatted,
+          timezone: event.timezone || 'Asia/Dubai',
+          amount: reg.amount,
+          currency: reg.currency,
+          bookingReference: reg.id,
+          isOnline,
+          meetingLink: event.meetingLink || undefined,
+          venueName: event.venueName || undefined,
+          venueAddress: event.venueAddress || undefined,
+          checkinData: ticketWebUrl,
+        },
       });
 
       await this.prisma.eventRegistration.update({

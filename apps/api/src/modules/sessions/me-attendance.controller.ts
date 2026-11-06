@@ -49,9 +49,10 @@ export class MeAttendanceController {
 
     const batchIds = enrolments.map((e) => e.batchId).filter(Boolean) as string[];
 
-    // Find all sessions for their batches or dedicated to this user
+    // Find all active/conducted sessions for their batches or dedicated to this user (excluding cancelled)
     const sessions = await this.prisma.session.findMany({
       where: {
+        status: { not: 'CANCELLED' },
         OR: [
           ...(batchIds.length > 0 ? [{ batchId: { in: batchIds } }] : []),
           { userId },
@@ -120,12 +121,19 @@ export class MeAttendanceController {
       };
     });
 
-    const totalScheduled = sessions.length;
+    const now = new Date();
+    // Only conducted sessions count towards the historical attendance rate denominator
+    // (prevents future scheduled sessions from artificially dropping learner attendance on day 1)
+    const conductedSessions = sessions.filter(
+      (s) => s.status === 'COMPLETED' || s.endTime <= now,
+    );
+    const conductedCount = conductedSessions.length;
     const overallPercentage =
-      totalScheduled > 0 ? Math.round((attendedCount / totalScheduled) * 100) : 100;
+      conductedCount > 0 ? Math.round((attendedCount / conductedCount) * 100) : 100;
 
     return {
-      totalScheduledSessions: totalScheduled,
+      totalScheduledSessions: sessions.length,
+      conductedSessionsCount: conductedCount,
       totalAttendedSessions: attendedCount,
       overallAttendancePercentage: overallPercentage,
       history,

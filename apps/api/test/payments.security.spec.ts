@@ -280,4 +280,104 @@ describe('Payment Gateway P0/P1 Security Specification Suite', () => {
       ).rejects.toThrow(ServiceUnavailableException);
     });
   });
+
+  // =========================================================================
+  // 6. Lead Payment Link Security (Finding 7)
+  // =========================================================================
+  describe('Finding 7: Lead Payment Link Security (Pay-First Magic Link)', () => {
+    let leadsController: any;
+    let prismaMock: any;
+
+    beforeEach(async () => {
+      prismaMock = {
+        leadCheckoutLink: {
+          findUnique: vi.fn(),
+          create: vi.fn(),
+        },
+        lead: {
+          findUnique: vi.fn(),
+        },
+        program: {
+          findUnique: vi.fn(),
+        },
+        batch: {
+          findUnique: vi.fn(),
+        },
+        enrolment: {
+          findUnique: vi.fn(),
+        },
+      };
+
+      const { LeadsController } = await import('../src/modules/website/leads.controller.js');
+      leadsController = new LeadsController(
+        prismaMock,
+        {} as any,
+        {} as any,
+        {} as any,
+      );
+    });
+
+    it('returns sanitized display data and masked email with ZERO accessToken or session token', async () => {
+      const crypto = await import('crypto');
+      const rawToken = 'test_token_12345678901234567890123456789012';
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+      prismaMock.leadCheckoutLink.findUnique.mockResolvedValue({
+        id: 'link-1',
+        tokenHash,
+        leadId: 'lead-1',
+        userId: 'user-1',
+        enrolmentId: 'enrol-1',
+        programId: 'prog-1',
+        batchId: 'batch-1',
+        expiresAt: new Date(Date.now() + 3600 * 1000),
+        usedAt: null,
+        revokedAt: null,
+      });
+
+      prismaMock.lead.findUnique.mockResolvedValue({
+        id: 'lead-1',
+        name: 'Jane Doe',
+        email: 'janedoe@example.com',
+      });
+
+      prismaMock.program.findUnique.mockResolvedValue({
+        id: 'prog-1',
+        title: 'Lead Course',
+        price: 900,
+        currency: 'USD',
+      });
+
+      prismaMock.batch.findUnique.mockResolvedValue({
+        id: 'batch-1',
+        name: 'Cohort Alpha',
+      });
+
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        id: 'enrol-1',
+        status: 'PENDING_PAYMENT',
+      });
+
+      const result = await leadsController.getCheckoutTokenDetails(rawToken);
+
+      expect(result.valid).toBe(true);
+      expect(result.candidateName).toBe('Jane Doe');
+      expect(result.maskedEmail).toBe('j***e@example.com');
+      expect(result.accessToken).toBeUndefined();
+      expect((result as any).user).toBeUndefined();
+      expect(result.pricing.amount).toBe(900);
+    });
+
+    it('rejects already used lead checkout link with BadRequestException', async () => {
+      prismaMock.leadCheckoutLink.findUnique.mockResolvedValue({
+        id: 'link-1',
+        usedAt: new Date(),
+        expiresAt: new Date(Date.now() + 3600 * 1000),
+      });
+
+      await expect(
+        leadsController.getCheckoutTokenDetails('some_token_hash'),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
 });

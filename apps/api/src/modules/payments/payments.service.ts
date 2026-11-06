@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import { getAppUrls } from '../../common/config/app-urls.js';
 import {
   Injectable,
@@ -357,7 +358,7 @@ export class PaymentsService {
     // ─────────────────────────────────────────────────────────────────────────
     // TIER 1: MULTIPLE PAYMENT AVOIDANCE FOR SAME COURSE
     // ─────────────────────────────────────────────────────────────────────────
-    const targetUserId = user?.sub || user?.id;
+    let targetUserId = user?.sub || user?.id;
     if (dto.targetType === 'ENROLMENT' && targetUserId) {
       const progId = (pricing as any).programId;
       if (progId) {
@@ -415,8 +416,22 @@ export class PaymentsService {
     // ─────────────────────────────────────────────────────────────────────────
     // TIER 2: IN-FLIGHT SESSION DE-DUPLICATION (EXPIRE STALE OPEN SESSIONS)
     // ─────────────────────────────────────────────────────────────────────────
-    const targetEnrolmentId: string | undefined =
+    let targetEnrolmentId: string | undefined =
       (pricing as any).enrolmentId || (isValidUuid(dto.enrolmentId) ? dto.enrolmentId : undefined);
+
+    let isLeadLinkAuthorized = false;
+    if (dto.leadToken) {
+      const tokenHash = crypto.createHash('sha256').update(dto.leadToken.trim()).digest('hex');
+      const leadLink = await this.prisma.leadCheckoutLink.findUnique({
+        where: { tokenHash },
+      });
+      if (!leadLink || leadLink.usedAt || leadLink.revokedAt || leadLink.expiresAt < new Date()) {
+        throw new BadRequestException('This lead checkout link is invalid or has expired.');
+      }
+      targetEnrolmentId = leadLink.enrolmentId;
+      targetUserId = leadLink.userId;
+      isLeadLinkAuthorized = true;
+    }
 
     // Ownership Authorization Check: Prevent User A from initiating payment on User B's enrolment
     if (dto.targetType === 'ENROLMENT' && targetEnrolmentId && isValidUuid(targetEnrolmentId)) {
@@ -426,7 +441,7 @@ export class PaymentsService {
       });
       if (targetEnrol && targetEnrol.userId) {
         const isStaff = user?.role === Role.ADMIN || user?.role === Role.SUPER_ADMIN;
-        if (targetUserId && targetEnrol.userId !== targetUserId && !isStaff) {
+        if (!isLeadLinkAuthorized && targetUserId && targetEnrol.userId !== targetUserId && !isStaff) {
           this.logger.warn(
             `[Unauthorized Checkout Blocked] User ${targetUserId} attempted to initiate checkout for enrollment ${targetEnrolmentId} owned by ${targetEnrol.userId}`
           );
@@ -1045,6 +1060,14 @@ export class PaymentsService {
             },
           },
         });
+      }
+
+      // 6. Mark LeadCheckoutLink as used if this enrolment was converted from a lead
+      if (typeof (tx as any).leadCheckoutLink?.updateMany === 'function') {
+        await (tx as any).leadCheckoutLink.updateMany({
+          where: { enrolmentId: enrolment.id, usedAt: null },
+          data: { usedAt: new Date() },
+        }).catch(() => {});
       }
 
       return { updatedEnrolment, payment, invoice };

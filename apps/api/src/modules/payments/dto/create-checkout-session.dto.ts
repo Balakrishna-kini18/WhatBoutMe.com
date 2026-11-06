@@ -49,4 +49,8 @@ export class CreateCheckoutSessionDto {
   @IsString()
   @IsOptional()
   attendeePhone?: string;
+
+  @IsString()
+  @IsOptional()
+  leadToken?: string;
 }

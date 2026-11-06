@@ -6,6 +6,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 import { Logger } from 'nestjs-pino';
 import { RedisService } from './common/redis/redis.service.js';
+import { assertPaymentConfig } from './common/config/payment.config.js';
 
 export interface WorkerProbeResult {
   statusCode: number;
@@ -97,10 +98,7 @@ export async function evaluateWorkerProbe(
 }
 
 async function bootstrap() {
-  if (process.env.NODE_ENV === 'production' && process.env.PAYMENT_MODE === 'mock') {
-    console.error('FATAL ERROR: Worker refuses to start with PAYMENT_MODE=mock in production');
-    process.exit(1);
-  }
+  assertPaymentConfig();
 
   // Create a headless application context (no Express HTTP server)
   const app = await NestFactory.createApplicationContext(AppModule, { bufferLogs: true });

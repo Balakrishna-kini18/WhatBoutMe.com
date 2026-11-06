@@ -11,24 +11,10 @@ import { RedisIoAdapter } from './common/adapters/redis-io.adapter.js';
 import { SentryGlobalFilter } from '@sentry/nestjs/setup';
 import { Logger } from 'nestjs-pino';
 import { isAllowedCorsOrigin } from './common/config/cors.config.js';
+import { assertPaymentConfig } from './common/config/payment.config.js';
 
 async function bootstrap() {
-    if (process.env.NODE_ENV === 'production') {
-      if (process.env.PAYMENT_MODE === 'mock') {
-        console.error('FATAL ERROR: API refuses to start with PAYMENT_MODE=mock in production');
-        process.exit(1);
-      }
-      if (
-        !process.env.JWT_SECRET ||
-        process.env.JWT_SECRET === 'fallback-secret' ||
-        process.env.JWT_SECRET.length < 32
-      ) {
-        console.error(
-          'FATAL SECURITY ERROR: JWT_SECRET must be configured with a cryptographically strong secret (minimum 32 characters) in production.',
-        );
-        process.exit(1);
-      }
-    }
+    assertPaymentConfig();
 
     const app = await NestFactory.create(AppModule, { rawBody: true, bufferLogs: true });
     app.useLogger(app.get(Logger));

@@ -300,6 +300,20 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
   const handleAssignSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!selectedSeatForAssign) return;
+
+    // Client-side duplicate check:
+    const emailTrimmed = assignForm.email.trim().toLowerCase();
+    const duplicateLearner = learners.find(
+      (l) => l.student?.email && l.student.email.trim().toLowerCase() === emailTrimmed
+    );
+    if (duplicateLearner) {
+      toast.error(
+        `Student with email "${assignForm.email.trim()}" is already assigned to Slot ${duplicateLearner.slotLabel || duplicateLearner.slotNumber || ""} in this batch. A student cannot be enrolled twice in the same batch.`,
+        "Duplicate Student Email"
+      );
+      return;
+    }
+
     try {
       setIsSubmittingAssign(true);
       const res = await apiPost(`/admin/organizations/${orgId}/seats/${selectedSeatForAssign.seatId}/assign`, {
@@ -321,6 +335,88 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
       toast.error(err.message || "Failed to assign student to slot", "Error");
     } finally {
       setIsSubmittingAssign(false);
+    }
+  };
+
+  // Edit / Reassign Slot Modal
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [selectedSeatForEdit, setSelectedSeatForEdit] = useState<any>(null);
+  const [editForm, setEditForm] = useState({
+    email: "",
+    fullName: "",
+    phone: "",
+    department: "",
+    externalOrderRef: "",
+    orgInternalNotes: "",
+  });
+  const [editResult, setEditResult] = useState<any>(null);
+  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
+
+  const handleOpenEditModal = (learner: any) => {
+    setSelectedSeatForEdit(learner);
+    setEditResult(null);
+    setEditForm({
+      email: learner.student?.email || learner.inviteEmail || "",
+      fullName: learner.student?.name || learner.inviteFullName || "",
+      phone: learner.student?.phone || "",
+      department: learner.department || "",
+      externalOrderRef: learner.externalOrderRef || "",
+      orgInternalNotes: "",
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const handleEditSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!selectedSeatForEdit) return;
+
+    const emailTrimmed = editForm.email.trim().toLowerCase();
+    const currentEmail = (selectedSeatForEdit.student?.email || selectedSeatForEdit.inviteEmail || "").trim().toLowerCase();
+
+    // Client-side duplicate check if email changed
+    if (emailTrimmed !== currentEmail) {
+      const duplicateLearner = learners.find(
+        (l) =>
+          l.seatId !== selectedSeatForEdit.seatId &&
+          l.student?.email &&
+          l.student.email.trim().toLowerCase() === emailTrimmed
+      );
+      if (duplicateLearner) {
+        toast.error(
+          `Student with email "${editForm.email.trim()}" is already assigned to Slot ${duplicateLearner.slotLabel || duplicateLearner.slotNumber || ""} in this batch. A student cannot be enrolled twice in the same batch.`,
+          "Duplicate Student Email"
+        );
+        return;
+      }
+    }
+
+    try {
+      setIsSubmittingEdit(true);
+      const res = await apiPatch<any>(
+        `/admin/organizations/${orgId}/seats/${selectedSeatForEdit.seatId}/reassign`,
+        {
+          email: editForm.email.trim(),
+          fullName: editForm.fullName.trim() || undefined,
+          phone: editForm.phone.trim() || undefined,
+          department: editForm.department.trim() || undefined,
+          externalOrderRef: editForm.externalOrderRef.trim() || undefined,
+          orgInternalNotes: editForm.orgInternalNotes.trim() || undefined,
+        }
+      );
+
+      setEditResult(res);
+      toast.success(
+        res.reassigned
+          ? `Slot successfully reassigned to ${editForm.email}. Welcome / setup email dispatched!`
+          : `Student details updated successfully.`,
+        "Slot Updated"
+      );
+      fetchOrganizationDetails();
+      fetchLearners();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update or reassign slot", "Error");
+    } finally {
+      setIsSubmittingEdit(false);
     }
   };
 
@@ -1611,7 +1707,7 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                           {/* Actions */}
                           <td style={{ padding: "12px 14px", textAlign: "right" }}>
                             <div style={{ display: "inline-flex", gap: "6px", alignItems: "center" }}>
-                              {isAvailable && (
+                              {isAvailable ? (
                                 <button
                                   type="button"
                                   onClick={() => handleOpenAssignModal(learner)}
@@ -1628,6 +1724,25 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                                   }}
                                 >
                                   Assign Student
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditModal(learner)}
+                                  style={{
+                                    padding: "4px 9px",
+                                    fontSize: "0.74rem",
+                                    fontWeight: 600,
+                                    borderRadius: "4px",
+                                    border: "1px solid #cbd5e1",
+                                    background: "#ffffff",
+                                    color: "#0f172a",
+                                    cursor: "pointer",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                  title="Edit student details or reassign this slot"
+                                >
+                                  Edit
                                 </button>
                               )}
 
@@ -2752,6 +2867,267 @@ function OrganizationWorkspaceContent({ orgId }: { orgId: string }) {
                 }}
               >
                 {isSubmittingAssign ? "Assigning..." : "Assign Student to Slot"}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* Modal: Edit Student / Reassign Slot */}
+      <Modal
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          if (isSubmittingEdit) return;
+          setIsEditModalOpen(false);
+          setEditResult(null);
+        }}
+        title={`Edit Student / Reassign Slot: ${selectedSeatForEdit?.slotLabel || "Slot"}`}
+      >
+        {editResult ? (
+          <div style={{ textAlign: "center", padding: "12px 0" }}>
+            <div style={{ fontSize: "2.8rem", marginBottom: "8px" }}>
+              {editResult.reassigned ? "🎉" : "✅"}
+            </div>
+            <h3 style={{ fontSize: "1.15rem", fontWeight: 700, color: "#0f172a", marginBottom: "6px" }}>
+              {editResult.reassigned ? "Slot Successfully Reassigned!" : "Student Details Updated!"}
+            </h3>
+            <p style={{ fontSize: "0.88rem", color: "#64748b", marginBottom: "1.2rem", lineHeight: 1.5 }}>
+              {editResult.reassigned
+                ? editResult.isNewUser
+                  ? `An account setup email with LMS activation link has been dispatched to ${editResult.user?.email || editForm.email}.`
+                  : `Slot transferred to ${editResult.user?.email || editForm.email}. An enrollment notification has been dispatched.`
+                : `Student details for ${editForm.email} were updated in the academic registry.`}
+            </p>
+
+            {/* Direct Setup Link Card for new users */}
+            {editResult.setupUrl && (
+              <div
+                style={{
+                  background: "#f8fafc",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "10px",
+                  padding: "16px",
+                  margin: "1rem 0",
+                  textAlign: "left",
+                }}
+              >
+                <div style={{ fontSize: "0.75rem", color: "#64748b", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>
+                  Direct Student Setup &amp; Activation Link
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.82rem",
+                    color: "#0f172a",
+                    background: "#ffffff",
+                    padding: "10px 12px",
+                    borderRadius: "6px",
+                    border: "1px solid #e2e8f0",
+                    wordBreak: "break-all",
+                    fontFamily: "monospace",
+                    lineHeight: 1.4,
+                  }}
+                >
+                  {editResult.setupUrl}
+                </div>
+                <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(editResult.setupUrl);
+                      toast.success("Account setup link copied to clipboard!", "Link Copied");
+                    }}
+                    style={{
+                      padding: "7px 16px",
+                      background: "#c97a1e",
+                      color: "#ffffff",
+                      borderRadius: "6px",
+                      border: "none",
+                      fontWeight: 600,
+                      fontSize: "0.82rem",
+                      cursor: "pointer",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}
+                  >
+                    📋 Copy Setup Link
+                  </button>
+                  <a
+                    href={editResult.setupUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      padding: "7px 14px",
+                      background: "#ffffff",
+                      color: "#475569",
+                      borderRadius: "6px",
+                      border: "1px solid #cbd5e1",
+                      fontWeight: 600,
+                      fontSize: "0.82rem",
+                      textDecoration: "none",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                    }}
+                  >
+                    Open in LMS &rarr;
+                  </a>
+                </div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                setIsEditModalOpen(false);
+                setEditResult(null);
+              }}
+              style={{
+                marginTop: "12px",
+                padding: "9px 28px",
+                background: "#0f172a",
+                color: "#ffffff",
+                borderRadius: "8px",
+                border: "none",
+                fontWeight: 600,
+                fontSize: "0.88rem",
+                cursor: "pointer",
+              }}
+            >
+              Done
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleEditSubmit} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            <div
+              style={{
+                padding: "10px 12px",
+                background: "#f0f9ff",
+                border: "1px solid #bae6fd",
+                borderRadius: "8px",
+                fontSize: "0.8rem",
+                color: "#0369a1",
+                lineHeight: 1.45,
+              }}
+            >
+              💡 <strong>Slot Correction &amp; Reassignment:</strong> If the student email had a typo or the student needs to be replaced, entering a new email will safely reassign the slot and send an account setup invitation directly to their Gmail.
+            </div>
+
+            <div style={{ fontSize: "0.82rem", color: "#64748b" }}>
+              Batch Cohort: <strong>{selectedSeatForEdit?.batchName || "Active Cohort"}</strong> &bull; Pool: <strong>{selectedSeatForEdit?.poolCode}</strong>
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, marginBottom: "4px" }}>
+                Student Email Address *
+              </label>
+              <input
+                type="email"
+                required
+                placeholder="student@example.com"
+                value={editForm.email}
+                onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+              />
+              <span style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                Changing this email will reassign the slot and dispatch a password setup email to the new address.
+              </span>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, marginBottom: "4px" }}>
+                  Student Full Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. John Doe"
+                  value={editForm.fullName}
+                  onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })}
+                  style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, marginBottom: "4px" }}>
+                  Phone Number
+                </label>
+                <input
+                  type="text"
+                  placeholder="+971 50 123 4567"
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                  style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, marginBottom: "4px" }}>
+                  Department / Division
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Computer Science 2026"
+                  value={editForm.department}
+                  onChange={(e) => setEditForm({ ...editForm, department: e.target.value })}
+                  style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, marginBottom: "4px" }}>
+                  Org Order Ref / Invoice #
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. PO-8823"
+                  value={editForm.externalOrderRef}
+                  onChange={(e) => setEditForm({ ...editForm, externalOrderRef: e.target.value })}
+                  style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, marginBottom: "4px" }}>
+                Reason for Change / Internal Notes (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Corrected typo in student email; replaced student per department request"
+                value={editForm.orgInternalNotes}
+                onChange={(e) => setEditForm({ ...editForm, orgInternalNotes: e.target.value })}
+                style={{ width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
+              />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "12px" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditModalOpen(false);
+                  setEditResult(null);
+                }}
+                style={{ padding: "8px 16px", borderRadius: "6px", border: "1px solid #cbd5e1", background: "#f8fafc" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmittingEdit || !editForm.email.trim()}
+                style={{
+                  padding: "8px 20px",
+                  borderRadius: "6px",
+                  border: "none",
+                  background: "#c97a1e",
+                  color: "#ffffff",
+                  fontWeight: 600,
+                  cursor: isSubmittingEdit ? "not-allowed" : "pointer",
+                }}
+              >
+                {isSubmittingEdit ? "Saving..." : "Save Changes / Reassign"}
               </button>
             </div>
           </form>

@@ -30,6 +30,7 @@ import {
   AssignSeatDto,
   CreateOrganizationDto,
   CreateSeatPoolDto,
+  ReassignSeatDto,
   UpdateOneOnOneDto,
   UpdateOrganizationDto,
 } from './dto/index.js';
@@ -198,6 +199,17 @@ export class AdminOrganizationsController {
     @Request() req: any,
   ) {
     return this.seatsService.assignSeat(orgId, { ...dto, seatId }, req.user);
+  }
+
+  @Patch(':id/seats/:seatId/reassign')
+  @UseGuards(OrgScopeGuard)
+  async reassignSeat(
+    @Param('id') orgId: string,
+    @Param('seatId') seatId: string,
+    @Body() dto: ReassignSeatDto,
+    @Request() req: any,
+  ) {
+    return this.seatsService.reassignSeat(orgId, seatId, dto, req.user);
   }
 
   @Patch('enrolments/:enrolmentId/one-on-one')

@@ -21,7 +21,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { EmailService } from '../email/email.service.js';
 import { renderEmailTemplate } from '../email/template-renderer.js';
 import { getAppUrls } from '../../common/config/app-urls.js';
-import { AssignSeatDto, BulkInviteDto } from './dto/index.js';
+import { AssignSeatDto, BulkInviteDto, ReassignSeatDto } from './dto/index.js';
 
 @Injectable()
 export class SeatsService {
@@ -91,27 +91,48 @@ export class SeatsService {
     const tokenHash = this.hashSecret(rawToken);
     const voucher = isVoucher ? this.generateVoucherCode() : null;
 
-    // Check if user already exists
-    let existingUser = await this.prisma.user.findUnique({
-      where: { email },
+    // Duplicate check 1: Has this email already been assigned to another slot in this batch/seat pool?
+    const duplicateSeat = await this.prisma.seat.findFirst({
+      where: {
+        id: { not: seat.id },
+        status: { in: [SeatStatus.ASSIGNED, SeatStatus.INVITED, SeatStatus.CONSUMED] },
+        seatPool: {
+          batchId: seat.seatPool.batchId,
+        },
+        OR: [
+          { user: { email: { equals: email, mode: 'insensitive' } } },
+          { invite: { email: { equals: email, mode: 'insensitive' } } },
+        ],
+      },
+      include: { seatPool: { include: { batch: true } } },
     });
 
-    if (existingUser) {
-      // Check if learner is already actively enrolled in this batch
-      const existingEnrolment = await this.prisma.enrolment.findFirst({
-        where: {
-          batchId: seat.seatPool.batchId,
-          userId: existingUser.id,
-          status: { notIn: [EnrolmentStatus.REVOKED] },
-        },
-      });
-
-      if (existingEnrolment) {
-        throw new ConflictException(
-          `Learner with email ${email} already has an active enrolment in batch "${seat.seatPool.batch.name}"`,
-        );
-      }
+    if (duplicateSeat) {
+      throw new ConflictException(
+        `Student with email "${email}" is already assigned to Slot #${duplicateSeat.slotNumber} (${duplicateSeat.slotLabel}) in batch "${duplicateSeat.seatPool.batch.name}". A student cannot be enrolled twice in the same batch.`,
+      );
     }
+
+    // Duplicate check 2: Check if learner already has an active enrolment in this batch
+    const existingEnrolment = await this.prisma.enrolment.findFirst({
+      where: {
+        batchId: seat.seatPool.batchId,
+        user: { email: { equals: email, mode: 'insensitive' } },
+        status: { notIn: [EnrolmentStatus.REVOKED] },
+      },
+      include: { batch: true },
+    });
+
+    if (existingEnrolment) {
+      throw new ConflictException(
+        `Student with email "${email}" already has an active enrolment in batch "${existingEnrolment.batch.name}". A student cannot be enrolled twice in the same batch.`,
+      );
+    }
+
+    // Check if user already exists
+    let existingUser = await this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+    });
 
     let passwordSetupToken: string | null = null;
     let precomputedPasswordHash: string | null = null;
@@ -326,6 +347,357 @@ export class SeatsService {
       setupUrl,
       inviteUrl: isVoucher ? null : inviteUrl,
       voucherCode: result.voucherCode,
+    };
+  }
+
+  /**
+   * Edits or reassigns an already allocated/assigned student slot.
+   * If email is unchanged: updates name, phone, department, and order reference.
+   * If email is changed (e.g. correcting typo or replacing student):
+   *  - enforces duplicate email prevention in the same batch
+   *  - revokes previous unstarted enrolment
+   *  - provisions or resolves new user & enrolment
+   *  - dispatches account setup/invitation email to new Gmail
+   *  - creates immutable AuditLog record
+   */
+  async reassignSeat(orgId: string, seatId: string, dto: ReassignSeatDto, actor?: any) {
+    const seat = await this.prisma.seat.findFirst({
+      where: { id: seatId, organizationId: orgId },
+      include: {
+        seatPool: {
+          include: {
+            batch: true,
+            program: true,
+            organization: true,
+          },
+        },
+        user: true,
+        invite: true,
+        enrolment: {
+          include: {
+            userLessonProgress: true,
+            quizAttempts: true,
+            examAttempts: true,
+            certificate: true,
+          },
+        },
+      },
+    });
+
+    if (!seat) {
+      throw new NotFoundException(`Slot with ID ${seatId} was not found in this organization.`);
+    }
+
+    if (seat.status === SeatStatus.AVAILABLE) {
+      throw new BadRequestException(`Cannot edit or reassign an unallocated slot. Please use Assign Student instead.`);
+    }
+
+    const newEmail = dto.email.trim().toLowerCase();
+    const currentEmail = (seat.user?.email || seat.invite?.email || '').trim().toLowerCase();
+    const emailChanged = Boolean(currentEmail && newEmail !== currentEmail);
+
+    // If email changed, enforce duplicate checks in this batch
+    if (emailChanged) {
+      const duplicateSeat = await this.prisma.seat.findFirst({
+        where: {
+          id: { not: seat.id },
+          status: { in: [SeatStatus.ASSIGNED, SeatStatus.INVITED, SeatStatus.CONSUMED] },
+          seatPool: {
+            batchId: seat.seatPool.batchId,
+          },
+          OR: [
+            { user: { email: { equals: newEmail, mode: 'insensitive' } } },
+            { invite: { email: { equals: newEmail, mode: 'insensitive' } } },
+          ],
+        },
+        include: { seatPool: { include: { batch: true } } },
+      });
+
+      if (duplicateSeat) {
+        throw new ConflictException(
+          `Student with email "${newEmail}" is already assigned to Slot #${duplicateSeat.slotNumber} (${duplicateSeat.slotLabel}) in batch "${duplicateSeat.seatPool.batch.name}". A student cannot be enrolled twice in the same batch.`,
+        );
+      }
+
+      const existingEnrolment = await this.prisma.enrolment.findFirst({
+        where: {
+          batchId: seat.seatPool.batchId,
+          user: { email: { equals: newEmail, mode: 'insensitive' } },
+          status: { notIn: [EnrolmentStatus.REVOKED] },
+        },
+        include: { batch: true },
+      });
+
+      if (existingEnrolment && existingEnrolment.id !== seat.enrolmentId) {
+        throw new ConflictException(
+          `Student with email "${newEmail}" already has an active enrolment in batch "${existingEnrolment.batch.name}". A student cannot be enrolled twice in the same batch.`,
+        );
+      }
+    }
+
+    // SCENARIO 1: Same email, updating metadata (name, phone, department, order ref)
+    if (!emailChanged) {
+      const updatedUser = seat.userId
+        ? await this.prisma.user.update({
+            where: { id: seat.userId },
+            data: {
+              name: dto.fullName?.trim() || seat.user?.name,
+              phone: dto.phone?.trim() ?? seat.user?.phone,
+            },
+          })
+        : seat.user;
+
+      const updatedSeat = await this.prisma.seat.update({
+        where: { id: seat.id },
+        data: {
+          department: dto.department?.trim() ?? seat.department,
+          externalOrderRef: dto.externalOrderRef?.trim() ?? seat.externalOrderRef,
+          orgInternalNotes: dto.orgInternalNotes?.trim() ?? seat.orgInternalNotes,
+        },
+        include: {
+          user: true,
+          seatPool: { include: { batch: true, program: true } },
+        },
+      });
+
+      if (seat.inviteId) {
+        await this.prisma.organizationInvite.update({
+          where: { id: seat.inviteId },
+          data: {
+            fullName: dto.fullName?.trim() || seat.invite?.fullName,
+            phone: dto.phone?.trim() ?? seat.invite?.phone,
+            department: dto.department?.trim() ?? seat.invite?.department,
+            externalOrderRef: dto.externalOrderRef?.trim() ?? seat.invite?.externalOrderRef,
+          },
+        }).catch(() => {});
+      }
+
+      await this.prisma.auditLog.create({
+        data: {
+          actorId: actor?.id || null,
+          action: 'SEAT_UPDATED',
+          entity: 'Seat',
+          entityId: seat.id,
+          meta: {
+            organizationId: orgId,
+            seatPoolId: seat.seatPoolId,
+            slotNumber: seat.slotNumber,
+            email: currentEmail,
+            department: dto.department,
+            externalOrderRef: dto.externalOrderRef,
+          },
+        },
+      });
+
+      return {
+        success: true,
+        reassigned: false,
+        seat: updatedSeat,
+        user: updatedUser,
+        message: 'Student details updated successfully.',
+      };
+    }
+
+    // SCENARIO 2: Email changed (reassigning slot to new student or correcting typo email)
+    const oldUserId = seat.userId;
+    const oldEnrolmentId = seat.enrolmentId;
+
+    let existingTargetUser = await this.prisma.user.findFirst({
+      where: { email: { equals: newEmail, mode: 'insensitive' } },
+    });
+
+    let passwordSetupToken: string | null = null;
+    let precomputedPasswordHash: string | null = null;
+    let setupTokenHash: string | null = null;
+    let setupExpiresAt: Date | null = null;
+
+    if (!existingTargetUser) {
+      const tempPassword = crypto.randomBytes(16).toString('hex');
+      precomputedPasswordHash = await bcrypt.hash(tempPassword, 10);
+      passwordSetupToken = crypto.randomBytes(32).toString('hex');
+      setupTokenHash = crypto.createHash('sha256').update(passwordSetupToken).digest('hex');
+      setupExpiresAt = new Date(Date.now() + 14 * 86400 * 1000);
+    }
+
+    const rawToken = crypto.randomBytes(24).toString('hex');
+    const tokenHash = this.hashSecret(rawToken);
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      // 1. Resolve or provision the new user
+      let targetUser = existingTargetUser;
+      if (!targetUser) {
+        targetUser = await tx.user.create({
+          data: {
+            email: newEmail,
+            name: dto.fullName?.trim() || newEmail.split('@')[0],
+            phone: dto.phone?.trim() || null,
+            passwordHash: precomputedPasswordHash!,
+            role: Role.USER,
+          },
+        });
+
+        await tx.passwordResetToken.create({
+          data: {
+            userId: targetUser.id,
+            token: setupTokenHash!,
+            expiresAt: setupExpiresAt!,
+          },
+        });
+      } else if (dto.fullName && (!targetUser.name || targetUser.name === newEmail.split('@')[0])) {
+        targetUser = await tx.user.update({
+          where: { id: targetUser.id },
+          data: { name: dto.fullName.trim() },
+        });
+      }
+
+      // 2. Revoke previous enrolment if exists
+      if (oldEnrolmentId) {
+        await tx.enrolment.update({
+          where: { id: oldEnrolmentId },
+          data: { status: EnrolmentStatus.REVOKED },
+        }).catch(() => {});
+      }
+
+      // 3. Provision new sponsored enrolment for the target user in this batch
+      let newEnrolment = await tx.enrolment.findFirst({
+        where: {
+          userId: targetUser.id,
+          batchId: seat.seatPool.batchId,
+          status: { notIn: [EnrolmentStatus.REVOKED] },
+        },
+      });
+
+      if (!newEnrolment) {
+        newEnrolment = await tx.enrolment.create({
+          data: {
+            userId: targetUser.id,
+            batchId: seat.seatPool.batchId,
+            programId: seat.seatPool.programId,
+            status: EnrolmentStatus.PENDING_AGREEMENT,
+            fundingSource: FundingSource.ORG_SPONSORED,
+            organizationId: orgId,
+            oneOnOneStatus: OneOnOneSessionStatus.NOT_BOOKED,
+          },
+        });
+      }
+
+      // 4. Create new organization invite record for the new student
+      const newInvite = await tx.organizationInvite.create({
+        data: {
+          organizationId: orgId,
+          seatPoolId: seat.seatPoolId,
+          email: newEmail,
+          fullName: dto.fullName || targetUser.name,
+          phone: dto.phone || targetUser.phone,
+          department: dto.department ?? seat.department,
+          externalOrderRef: dto.externalOrderRef ?? seat.externalOrderRef,
+          tokenHash,
+          expiresAt: new Date(Date.now() + 14 * 86400 * 1000),
+          acceptedAt: new Date(),
+        },
+      });
+
+      // 5. Update Seat with new student and enrolment
+      const updatedSeat = await tx.seat.update({
+        where: { id: seat.id },
+        data: {
+          userId: targetUser.id,
+          enrolmentId: newEnrolment.id,
+          status: SeatStatus.ASSIGNED,
+          assignedAt: new Date(),
+          department: dto.department ?? seat.department,
+          externalOrderRef: dto.externalOrderRef ?? seat.externalOrderRef,
+          orgInternalNotes: dto.orgInternalNotes ?? seat.orgInternalNotes,
+          inviteId: newInvite.id,
+        },
+        include: {
+          user: true,
+          seatPool: { include: { batch: true, program: true } },
+        },
+      });
+
+      // 6. Audit Log
+      await tx.auditLog.create({
+        data: {
+          actorId: actor?.id || null,
+          action: 'SEAT_REASSIGNED',
+          entity: 'Seat',
+          entityId: seat.id,
+          meta: {
+            organizationId: orgId,
+            seatPoolId: seat.seatPoolId,
+            slotNumber: seat.slotNumber,
+            previousEmail: currentEmail,
+            newEmail,
+            previousUserId: oldUserId,
+            newUserId: targetUser.id,
+            newEnrolmentId: newEnrolment.id,
+            department: dto.department,
+            externalOrderRef: dto.externalOrderRef,
+          },
+        },
+      });
+
+      return {
+        seat: updatedSeat,
+        user: {
+          id: targetUser.id,
+          name: targetUser.name,
+          email: targetUser.email,
+        },
+        enrolmentId: newEnrolment.id,
+        isNewUser: !existingTargetUser,
+        passwordSetupToken,
+      };
+    }, { maxWait: 15000, timeout: 30000 });
+
+    // 7. Dispatch Welcome / Account Setup Email to new student
+    const { lmsUrl } = getAppUrls();
+    const orgName = seat.seatPool.organization.name;
+    const programTitle = seat.seatPool.program.title;
+    const batchName = seat.seatPool.batch.name;
+    const studentName = result.user.name || 'Learner';
+
+    let setupUrl: string;
+    if (result.isNewUser && result.passwordSetupToken) {
+      setupUrl = `${lmsUrl}/setup-account?token=${result.passwordSetupToken}&email=${encodeURIComponent(result.user.email)}`;
+    } else {
+      setupUrl = `${lmsUrl}/login?email=${encodeURIComponent(result.user.email)}`;
+    }
+
+    if (this.emailService) {
+      try {
+        await this.emailService.sendTemplateEmail({
+          to: result.user.email,
+          subject: result.isNewUser
+            ? `Set up your WhatBoutMe account — Sponsored by ${orgName}`
+            : `You have been enrolled in ${programTitle} — Sponsored by ${orgName}`,
+          template: 'CorporateSeatInviteEmail',
+          props: {
+            learnerName: studentName,
+            orgName,
+            courseTitle: programTitle,
+            programTitle,
+            batchName,
+            isNewUser: result.isNewUser,
+            setupUrl,
+            dashboardUrl: `${lmsUrl}/dashboard`,
+          },
+        });
+      } catch (e: any) {
+        console.warn('[SeatsService] Email dispatch failed on reassign:', e?.message);
+      }
+    }
+
+    return {
+      success: true,
+      reassigned: true,
+      seat: result.seat,
+      user: result.user,
+      enrolmentId: result.enrolmentId,
+      isNewUser: result.isNewUser,
+      setupUrl,
+      message: `Slot #${seat.slotNumber} (${seat.slotLabel}) successfully reassigned to ${result.user.email}.`,
     };
   }
 

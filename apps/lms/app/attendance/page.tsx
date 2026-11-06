@@ -509,7 +509,7 @@ export default function AttendancePage() {
                     className={styles.toggleBtn}
                   >
                     {Icons.calendarSmall}
-                    <span>Calendar</span>
+                    <span>Calendar View</span>
                   </button>
                   <button
                     type="button"
@@ -517,74 +517,79 @@ export default function AttendancePage() {
                     className={`${styles.toggleBtn} ${styles.toggleBtnActive}`}
                   >
                     {Icons.userGroup}
-                    <span>Batches</span>
+                    <span>Batch Attendance</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setViewMode("list")}
                     className={styles.toggleBtn}
                   >
-                    <span>List</span>
+                    <span>List History</span>
                   </button>
                 </div>
               </div>
 
-              {/* Multi-batch filter bar when enrolled in multiple batches */}
+              {/* Multi-batch filter dropdown when enrolled in multiple batches */}
               {batches.length > 1 && (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                    gap: "8px",
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setSelectedBatchId("ALL")}
-                    style={{
-                      padding: "7px 14px",
-                      borderRadius: "999px",
-                      fontSize: "0.82rem",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      border:
-                        selectedBatchId === "ALL"
-                          ? "1px solid #ea580c"
-                          : "1px solid #e7ddd1",
-                      background: selectedBatchId === "ALL" ? "#ea580c" : "#ffffff",
-                      color: selectedBatchId === "ALL" ? "#ffffff" : "#4a443d",
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    All Enrolled Batches ({batches.length})
-                  </button>
-                  {batches.map((b) => {
-                    const key = b.batchId || b.enrolmentId;
-                    const isActive = selectedBatchId === key;
-                    return (
-                      <button
-                        key={b.enrolmentId}
-                        type="button"
-                        onClick={() => setSelectedBatchId(key)}
-                        style={{
-                          padding: "7px 14px",
-                          borderRadius: "999px",
-                          fontSize: "0.82rem",
-                          fontWeight: 700,
-                          cursor: "pointer",
-                          border: isActive
-                            ? "1px solid #ea580c"
-                            : "1px solid #e7ddd1",
-                          background: isActive ? "#ea580c" : "#ffffff",
-                          color: isActive ? "#ffffff" : "#4a443d",
-                          transition: "all 0.15s ease",
-                        }}
+                <div className={styles.batchFilterRow}>
+                  <label htmlFor="batchFilterSelect" className={styles.batchFilterLabel}>
+                    <svg
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                    </svg>
+                    <span>Filter Batch:</span>
+                  </label>
+                  <div className={styles.batchSelectWrapper}>
+                    <select
+                      id="batchFilterSelect"
+                      value={selectedBatchId}
+                      onChange={(e) => setSelectedBatchId(e.target.value)}
+                      className={styles.batchSelect}
+                      aria-label="Filter attendance by enrolled batch"
+                    >
+                      <option value="ALL">All Enrolled Batches ({batches.length})</option>
+                      {batches.map((b) => {
+                        const key = b.batchId || b.enrolmentId;
+                        return (
+                          <option key={b.enrolmentId} value={key}>
+                            {b.batchName} · {b.programTitle} ({Math.round(b.attendancePercentage)}%)
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <span className={styles.batchSelectChevron} aria-hidden="true">
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
                       >
-                        {b.batchName} · {b.programTitle} ({Math.round(b.attendancePercentage)}%)
-                      </button>
-                    );
-                  })}
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </span>
+                  </div>
+                  {selectedBatchId !== "ALL" && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBatchId("ALL")}
+                      className={styles.resetFilterBtn}
+                    >
+                      Show All Batches
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -763,23 +768,23 @@ export default function AttendancePage() {
                   <button
                     type="button"
                     onClick={() => setViewMode("calendar")}
-                    className={`${styles.toggleBtn} ${viewMode === "calendar" ? styles.toggleBtnActive : ""}`}
+                    className={`${styles.toggleBtn} ${styles.toggleBtnActive}`}
                   >
                     {Icons.calendarSmall}
-                    <span>Calendar</span>
+                    <span>Calendar View</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setViewMode("batches")}
-                    className={`${styles.toggleBtn} ${viewMode === "batches" ? styles.toggleBtnActive : ""}`}
+                    className={styles.toggleBtn}
                   >
                     {Icons.userGroup}
-                    <span>Batches</span>
+                    <span>Batch Attendance</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setViewMode("list")}
-                    className={`${styles.toggleBtn} ${viewMode === "list" ? styles.toggleBtnActive : ""}`}
+                    className={styles.toggleBtn}
                   >
                     <span>List History</span>
                   </button>
@@ -892,23 +897,23 @@ export default function AttendancePage() {
                   <button
                     type="button"
                     onClick={() => setViewMode("calendar")}
-                    className={`${styles.toggleBtn} ${viewMode === "calendar" ? styles.toggleBtnActive : ""}`}
+                    className={styles.toggleBtn}
                   >
                     {Icons.calendarSmall}
-                    <span>Calendar</span>
+                    <span>Calendar View</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setViewMode("batches")}
-                    className={`${styles.toggleBtn} ${viewMode === "batches" ? styles.toggleBtnActive : ""}`}
+                    className={styles.toggleBtn}
                   >
                     {Icons.userGroup}
-                    <span>Batches</span>
+                    <span>Batch Attendance</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setViewMode("list")}
-                    className={`${styles.toggleBtn} ${viewMode === "list" ? styles.toggleBtnActive : ""}`}
+                    className={`${styles.toggleBtn} ${styles.toggleBtnActive}`}
                   >
                     <span>List History</span>
                   </button>

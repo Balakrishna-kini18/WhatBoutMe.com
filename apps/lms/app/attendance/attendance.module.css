@@ -177,6 +177,87 @@
   line-height: 1.45;
 }
 
+/* Batch Dropdown Filter */
+.batchFilterRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.35rem 0 0.5rem;
+}
+
+.batchFilterLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #4a443d;
+}
+
+.batchSelectWrapper {
+  position: relative;
+  min-width: 290px;
+  max-width: 100%;
+}
+
+.batchSelect {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  background: #ffffff;
+  border: 1.5px solid #fed7aa;
+  border-radius: 10px;
+  padding: 0.55rem 2.25rem 0.55rem 0.85rem;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #1c1917;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  outline: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.batchSelect:hover {
+  border-color: #ea580c;
+  background: #fffaf5;
+}
+
+.batchSelect:focus {
+  border-color: #ea580c;
+  box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.15);
+}
+
+.batchSelectChevron {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: #ea580c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.resetFilterBtn {
+  background: transparent;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #c2410c;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.resetFilterBtn:hover {
+  background: #fff7ed;
+  border-color: #ea580c;
+  color: #ea580c;
+}
+
 .title {
   font-size: 1.6rem;
   font-weight: 800;

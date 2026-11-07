@@ -39,7 +39,11 @@ export function computeMilestoneProgression(params: {
 
   const curriculumCompleted = totalSteps > 0 && completedSteps >= totalSteps;
   const examPassed = Boolean(params.examAttempt?.passed);
-  const attendanceSatisfied = params.attendanceCompliance?.status === "COMPLIANT";
+  const attendanceSatisfied =
+    params.attendanceCompliance === undefined || params.attendanceCompliance === null
+      ? true
+      : params.attendanceCompliance?.status === "COMPLIANT" ||
+        params.attendanceCompliance?.status === "NOT_APPLICABLE";
   const coachingCompleted =
     Boolean(params.coachingSession?.attended) ||
     params.coachingSession?.status === "COMPLETED";
@@ -76,7 +80,7 @@ export function isStageUnlocked(
     case 3:
       return state.examPassed; // Attendance requirement
     case 4:
-      return state.examPassed; // 1-on-1 Coaching unlocks after passing exam
+      return state.examPassed && state.attendanceSatisfied; // 1-on-1 Coaching unlocks after passing exam AND satisfying batch live attendance
     case 5:
       return state.coachingCompleted; // Mission statement unlocks after coaching
     case 6:
@@ -325,6 +329,7 @@ export function computeUnifiedJourneyProgress(params: {
   examPassed: boolean;
   examScore?: number | null;
   attendanceRequired?: boolean;
+  attendanceSatisfied?: boolean;
   attendanceMetForExam?: boolean;
   attendancePercentage?: number;
   attendanceThreshold?: number;
@@ -342,8 +347,10 @@ export function computeUnifiedJourneyProgress(params: {
 
   const examPassed = Boolean(params.examPassed);
   const attendanceRequired = params.attendanceRequired !== false;
-  const attendanceMetForExam =
-    !attendanceRequired || params.attendanceMetForExam !== false || examPassed;
+  const attendanceSatisfied =
+    params.attendanceSatisfied !== undefined
+      ? params.attendanceSatisfied
+      : !attendanceRequired || params.attendanceMetForExam !== false;
   const attendancePct =
     typeof params.attendancePercentage === "number"
       ? Math.round(params.attendancePercentage)
@@ -393,29 +400,27 @@ export function computeUnifiedJourneyProgress(params: {
       id: "exam",
       title: "Final Examination",
       isCompleted: examPassed,
-      isUnlocked: allStepsDone && attendanceMetForExam,
+      isUnlocked: allStepsDone,
       statusLabel: examPassed
         ? `Passed${typeof params.examScore === "number" ? ` (${params.examScore}%)` : ""}`
-        : allStepsDone && !attendanceMetForExam
-        ? `Attendance ${attendancePct}% / ${attendanceThreshold}%`
         : allStepsDone
         ? "Ready for Exam"
         : "Locked",
       detail: examPassed
         ? "Passed with certificate qualification"
-        : allStepsDone && !attendanceMetForExam
-        ? `Requires ${attendanceThreshold}% batch live session attendance (Current: ${attendancePct}%)`
         : "Comprehensive final examination",
     },
     {
       id: "coaching",
       title: "1-on-1 Coaching Session",
       isCompleted: coachingCompleted,
-      isUnlocked: examPassed,
+      isUnlocked: examPassed && attendanceSatisfied,
       statusLabel: coachingCompleted
         ? "Completed"
         : !examPassed
         ? "Locked"
+        : !attendanceSatisfied
+        ? `Low Attendance (${attendancePct}% / ${attendanceThreshold}%)`
         : params.coachingStatus === "APPROVED"
         ? "Scheduled"
         : params.coachingStatus === "PENDING_APPROVAL"
@@ -427,6 +432,8 @@ export function computeUnifiedJourneyProgress(params: {
         : "Ready to Book",
       detail: coachingCompleted
         ? "1-on-1 session conducted with trainer"
+        : !attendanceSatisfied
+        ? `Requires ${attendanceThreshold}% batch live session attendance (Current: ${attendancePct}%)`
         : !coachingRequired
         ? "Optional coaching session (not required for certificate)"
         : "Dedicated session with Roweena / trainer",

@@ -19,6 +19,7 @@ describe('OneOnOneService - Stage 4 Request & Approval Flow', () => {
   let stageGateServiceMock: any;
   let emailServiceMock: any;
   let meetingProviderMock: any;
+  let complianceServiceMock: any;
 
   beforeEach(() => {
     prismaMock = {
@@ -64,16 +65,32 @@ describe('OneOnOneService - Stage 4 Request & Approval Flow', () => {
       }),
     };
 
+    complianceServiceMock = {
+      calculateCompliance: vi.fn().mockResolvedValue({
+        status: 'COMPLIANT',
+        thresholdUsed: 80,
+        requiredSessionCount: 4,
+        attendedSessionCount: 4,
+        attendancePercentage: 100,
+      }),
+    };
+
     service = new OneOnOneService(
       prismaMock,
       stageGateServiceMock,
       emailServiceMock,
       meetingProviderMock,
+      complianceServiceMock as any,
     );
   });
 
   describe('createRequest', () => {
     it('throws if Stage 4 is locked in stageGateService', async () => {
+      prismaMock.enrolment.findUnique.mockResolvedValue({
+        id: 'enrol-1',
+        userId: 'user-1',
+        program: { id: 'prog-1', title: 'Program' },
+      });
       stageGateServiceMock.assertStageUnlocked.mockRejectedValue(
         new ForbiddenException('Stage 4 is locked'),
       );
@@ -227,58 +244,131 @@ describe('OneOnOneService - Stage 4 Request & Approval Flow', () => {
       });
     });
 
-    it('unblocks 1-on-1 coaching request immediately after passing Final Exam (Post-Exam Milestone) even when Stage 3 cohort attendance is still pending', async () => {
-      // Simulate StageGateService throwing "Stage Locked: Stage 3 (Attendance) must be completed before 1-on-1 coaching call"
-      stageGateServiceMock.assertStageUnlocked.mockRejectedValueOnce(
-        new ForbiddenException(
-          'Stage Locked: Stage 3 (Attendance) must be completed before 1-on-1 coaching call',
-        ),
-      );
-      stageGateServiceMock.evaluateStages.mockResolvedValueOnce({
-        stages: {
-          [LearnerStage.STAGE_2_EXAM]: {
-            isUnlocked: true,
-            isCompleted: true,
-            isOverridden: false,
-            details: { examPassed: true, examScore: 98 },
-          },
-          [LearnerStage.STAGE_3_ATTENDANCE]: {
-            isUnlocked: true,
-            isCompleted: false,
-            isOverridden: false,
-          },
-          [LearnerStage.STAGE_4_ONE_ON_ONE]: {
-            isUnlocked: false,
-            isCompleted: false,
-            isOverridden: false,
-          },
-        },
+    it('blocks 1-on-1 coaching request when learner has less attendance in their batch (<80%) even if they passed the final exam', async () => {
+      complianceServiceMock.calculateCompliance.mockResolvedValueOnce({
+        status: 'NOT_COMPLIANT',
+        thresholdUsed: 80,
+        requiredSessionCount: 4,
+        attendedSessionCount: 2,
+        attendancePercentage: 50,
       });
 
-      prismaMock.enrolment.findUnique.mockResolvedValue({
+      prismaMock.enrolment.findUnique.mockResolvedValueOnce({
         id: 'enrol-1',
         userId: 'user-1',
-        program: { id: 'prog-1', title: '11 Steps Masterclass' },
+        examPassedAt: new Date(),
+        program: { id: 'prog-1', title: '11 Steps Masterclass', attendanceRequired: true },
+        batch: { id: 'batch-1', name: 'Sigma Batch' },
       });
-      prismaMock.oneOnOneRequest.findFirst.mockResolvedValue(null);
-      prismaMock.oneOnOneRequest.create.mockImplementation(async ({ data }: any) => ({
-        id: 'req-post-exam-1',
+      prismaMock.oneOnOneRequest.findFirst.mockResolvedValueOnce(null);
+
+      await expect(
+        service.createRequest('user-1', {
+          enrolmentId: 'enrol-1',
+          requestedStart: new Date(Date.now() + 86400000).toISOString(),
+          requestedEnd: new Date(Date.now() + 86400000 + 1800000).toISOString(),
+        }),
+      ).rejects.toThrow(/live session attendance in Sigma Batch is required/);
+    });
+
+    it('allows 1-on-1 coaching request when learner has passed final exam AND met the batch attendance requirement (>= 80%)', async () => {
+      complianceServiceMock.calculateCompliance.mockResolvedValueOnce({
+        status: 'COMPLIANT',
+        thresholdUsed: 80,
+        requiredSessionCount: 4,
+        attendedSessionCount: 4,
+        attendancePercentage: 100,
+      });
+
+      prismaMock.enrolment.findUnique.mockResolvedValueOnce({
+        id: 'enrol-1',
+        userId: 'user-1',
+        examPassedAt: new Date(),
+        program: { id: 'prog-1', title: '11 Steps Masterclass', attendanceRequired: true },
+        batch: { id: 'batch-1', name: 'Sigma Batch' },
+      });
+      prismaMock.oneOnOneRequest.findFirst.mockResolvedValueOnce(null);
+      prismaMock.oneOnOneRequest.create.mockImplementationOnce(async ({ data }: any) => ({
+        id: 'req-compliant-1',
         ...data,
       }));
 
-      // Also omit requestedEnd to verify duration-free booking defaults cleanly to +45m
       const res = await service.createRequest('user-1', {
         enrolmentId: 'enrol-1',
         requestedStart: new Date(Date.now() + 86400000).toISOString(),
         learnerTimezone: 'Asia/Calcutta',
-        notes: 'Passed exam with 98%, ready for 1-on-1 coaching!',
+        notes: 'Passed exam with 98% and attended 100% live sessions!',
       });
 
-      expect(res.id).toBe('req-post-exam-1');
+      expect(res.id).toBe('req-compliant-1');
       expect(res.status).toBe(OneOnOneRequestStatus.PENDING_APPROVAL);
       expect(
         (res.requestedEnd.getTime() - res.requestedStart.getTime()) / 60000,
       ).toBe(45);
+    });
+
+    it('allows 1-on-1 coaching request when 0 live sessions were held in the batch (exempt)', async () => {
+      complianceServiceMock.calculateCompliance.mockResolvedValueOnce({
+        status: 'NOT_APPLICABLE',
+        thresholdUsed: 80,
+        requiredSessionCount: 0,
+        attendedSessionCount: 0,
+        attendancePercentage: 100,
+      });
+
+      prismaMock.enrolment.findUnique.mockResolvedValueOnce({
+        id: 'enrol-1',
+        userId: 'user-1',
+        examPassedAt: new Date(),
+        program: { id: 'prog-1', title: '11 Steps Masterclass', attendanceRequired: true },
+        batch: { id: 'batch-1', name: 'Sigma Batch' },
+      });
+      prismaMock.oneOnOneRequest.findFirst.mockResolvedValueOnce(null);
+      prismaMock.oneOnOneRequest.create.mockImplementationOnce(async ({ data }: any) => ({
+        id: 'req-zero-sessions-1',
+        ...data,
+      }));
+
+      const res = await service.createRequest('user-1', {
+        enrolmentId: 'enrol-1',
+        requestedStart: new Date(Date.now() + 86400000).toISOString(),
+      });
+
+      expect(res.id).toBe('req-zero-sessions-1');
+    });
+
+    it('allows 1-on-1 coaching request when Admin grants STAGE_UNLOCK_OVERRIDE even if attendance is below threshold', async () => {
+      complianceServiceMock.calculateCompliance.mockResolvedValueOnce({
+        status: 'NOT_COMPLIANT',
+        thresholdUsed: 80,
+        requiredSessionCount: 4,
+        attendedSessionCount: 1,
+        attendancePercentage: 25,
+      });
+
+      prismaMock.enrolment.findUnique.mockResolvedValueOnce({
+        id: 'enrol-1',
+        userId: 'user-1',
+        examPassedAt: new Date(),
+        program: { id: 'prog-1', title: '11 Steps Masterclass', attendanceRequired: true },
+        batch: { id: 'batch-1', name: 'Sigma Batch' },
+      });
+      prismaMock.oneOnOneRequest.findFirst.mockResolvedValueOnce(null);
+      prismaMock.auditLog.findMany = vi.fn().mockResolvedValueOnce([
+        { meta: { stage: 'STAGE_4_ONE_ON_ONE' } },
+      ]);
+      prismaMock.oneOnOneRequest.create.mockImplementationOnce(async ({ data }: any) => ({
+        id: 'req-overridden-1',
+        ...data,
+      }));
+
+      const res = await service.createRequest('user-1', {
+        enrolmentId: 'enrol-1',
+        requestedStart: new Date(Date.now() + 86400000).toISOString(),
+        requestedEnd: new Date(Date.now() + 86400000 + 1800000).toISOString(),
+      });
+
+      expect(res.id).toBe('req-overridden-1');
     });
   });
 

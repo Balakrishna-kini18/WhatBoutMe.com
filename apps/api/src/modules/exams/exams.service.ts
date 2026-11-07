@@ -61,68 +61,17 @@ export class ExamsService {
             ? program.minAttendancePercentage
             : 80;
 
-    if (!this.attendanceComplianceService || !isAttendanceRequired) {
-      return {
-        isAttendanceRequired,
-        isOverridden: false,
-        isEligible: true,
-        attendancePercentage: 100,
-        requiredThreshold: configuredThreshold,
-        attendedSessions: 0,
-        totalSessions: 0,
-        batchId: enrolment?.batchId || null,
-        batchName: enrolment?.batch?.name || null,
-      };
-    }
-
-    // Check if an administrator unlocked Stage 2 (Exam) or Stage 3 (Attendance) for this enrolment
-    let isOverridden = false;
-    if (this.prisma.auditLog?.findMany) {
-      const stageOverrides = await this.prisma.auditLog
-        .findMany({
-          where: {
-            entity: 'Enrolment',
-            entityId: enrolment.id,
-            action: 'STAGE_UNLOCK_OVERRIDE',
-          },
-          select: { meta: true },
-        })
-        .catch(() => []);
-
-      for (const log of stageOverrides) {
-        const stage = (log?.meta as any)?.stage;
-        if (
-          stage === LearnerStage.STAGE_2_EXAM ||
-          stage === LearnerStage.STAGE_3_ATTENDANCE
-        ) {
-          isOverridden = true;
-          break;
-        }
-      }
-    }
-
-    const compliance = await this.attendanceComplianceService.calculateCompliance(
-      enrolment.id,
-    );
-    const effectivePercentage =
-      compliance.requiredSessionCount === 0
-        ? 0
-        : Math.round(compliance.attendancePercentage * 100) / 100;
-
-    const isEligible =
-      isOverridden ||
-      (compliance.requiredSessionCount > 0 &&
-        (compliance.status === 'COMPLIANT' ||
-          effectivePercentage >= compliance.thresholdUsed));
-
+    // Note: Live attendance criteria is enforced at Stage 4 (1-on-1 Coaching), not at the Final Exam.
+    // Learners who complete the foundational curriculum are free to sit the 50-mark final exam.
     return {
-      isAttendanceRequired: true,
-      isOverridden,
-      isEligible,
-      attendancePercentage: effectivePercentage,
-      requiredThreshold: compliance.thresholdUsed,
-      attendedSessions: compliance.attendedSessionCount,
-      totalSessions: compliance.requiredSessionCount,
+      isAttendanceRequired: false,
+      isOverridden: true,
+      isEligible: true,
+      attendancePercentage: 100,
+      requiredThreshold: configuredThreshold,
+      attendedSessions: 0,
+      totalSessions: 0,
+      isZeroSessions: true,
       batchId: enrolment?.batchId || null,
       batchName: enrolment?.batch?.name || null,
     };
@@ -282,7 +231,18 @@ export class ExamsService {
       }
     }
 
-    return baseResult;
+    return {
+      ...baseResult,
+      attendanceGate: {
+        isAttendanceRequired: false,
+        isOverridden: true,
+        isEligible: true,
+        attendancePercentage: 100,
+        requiredThreshold: 80,
+        attendedSessions: 0,
+        totalSessions: 0,
+      },
+    };
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -363,33 +323,6 @@ export class ExamsService {
       throw new BadRequestException(
         'Prerequisite incomplete: You must complete all program steps and step quizzes before taking the final exam',
       );
-    }
-
-    // ── Live-Session Batch Attendance Gate ────────────────────────────────────
-    if (this.attendanceComplianceService) {
-      const attendanceGate = await this.evaluateExamAttendanceGate(
-        enrolment,
-        exam.program,
-      );
-      if (!attendanceGate.isEligible) {
-        const batchLabel = attendanceGate.batchName || 'your enrolled batch';
-        const message =
-          attendanceGate.totalSessions === 0
-            ? `Minimum ${attendanceGate.requiredThreshold}% live session attendance in ${batchLabel} is required to take the Final Examination. No live sessions have been conducted for your batch yet (Current: 0% / Required: ${attendanceGate.requiredThreshold}%).`
-            : `Minimum ${attendanceGate.requiredThreshold}% live session attendance in ${batchLabel} is required to take the Final Examination. Your current batch attendance is ${Math.round(attendanceGate.attendancePercentage)}% (${attendanceGate.attendedSessions} of ${attendanceGate.totalSessions} live sessions attended).`;
-
-        throw new ForbiddenException({
-          statusCode: 403,
-          error: 'ATTENDANCE_THRESHOLD_NOT_MET',
-          message,
-          attendancePercentage: Math.round(attendanceGate.attendancePercentage),
-          requiredThreshold: attendanceGate.requiredThreshold,
-          attendedSessions: attendanceGate.attendedSessions,
-          totalSessions: attendanceGate.totalSessions,
-          batchId: attendanceGate.batchId,
-          batchName: attendanceGate.batchName,
-        });
-      }
     }
 
     // ── Check Attempts & Cooldown Throttling ──────────────────────────────────

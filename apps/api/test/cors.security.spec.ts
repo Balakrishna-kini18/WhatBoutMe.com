@@ -18,9 +18,11 @@ describe('Dynamic CORS Validator Security Spec', () => {
   });
 
   it('dynamically permits any Vercel deployment without hardcoding (including lms-whatboutme.vercel.app)', () => {
-    // The exact origin from the user's screenshot
+    // The exact 3 domains queried by the user:
     expect(isAllowedCorsOrigin('https://lms-whatboutme.vercel.app')).toBe(true);
-    expect(isAllowedCorsOrigin('https://admin-whataboutme.vercel.app')).toBe(true);
+    expect(isAllowedCorsOrigin('https://what-bout-me-com-admin.vercel.app')).toBe(true);
+    expect(isAllowedCorsOrigin('https://what-bout-me-com-atyb.vercel.app')).toBe(true);
+    // Any preview/backend deployment:
     expect(isAllowedCorsOrigin('https://what-bout-me-com-backend.vercel.app')).toBe(true);
     expect(isAllowedCorsOrigin('https://preview-feat-branch-123.vercel.app')).toBe(true);
   });

@@ -269,6 +269,7 @@ describe('Senior Dev Integration: Complete 5-Stage Certification Lifecycle & Sec
       stageGateService,
       emailServiceMock,
       null,
+      complianceServiceMock,
     );
     eligibilityService = new CertificateEligibilityService(
       prismaMock,
